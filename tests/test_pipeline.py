@@ -4,7 +4,6 @@ from fastapi.testclient import TestClient
 
 from mon.api import app, correlator, detector, graph, store
 
-
 client = TestClient(app)
 
 
