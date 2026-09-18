@@ -25,5 +25,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  site-ingress:
+    profiles: ["mtls"]
+    build: .
+    command: ["python", "-m", "mon.mtls_ingress"]
+    ports:
+      - "8443:8443"
+    environment:
+      MON_INTERNAL_CONTROL_PLANE_URL: http://control-plane:8080
+      MON_MTLS_SERVER_CERT_FILE: /run/mon/tls/server.pem
+      MON_MTLS_SERVER_KEY_FILE: /run/mon/tls/server-key.pem
+      MON_SITE_CA_CERT_FILE: /run/mon/tls/site-ca.pem
+      MON_MTLS_PORT: "8443"
+    volumes:
+      - ${MON_MTLS_CERT_DIR:-./.mon-certs}:/run/mon/tls:ro
+    depends_on:
+      control-plane:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   mon-postgres:

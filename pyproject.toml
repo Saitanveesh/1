@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "MON Security Fabric control-plane foundation"
 requires-python = ">=3.12"
 dependencies = [
+  "aiohttp>=3.12,<4",
   "alembic>=1.16,<2",
   "cryptography>=45,<51",
   "fastapi>=0.116,<1",
