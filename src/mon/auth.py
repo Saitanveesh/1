@@ -26,6 +26,7 @@ class Permission(StrEnum):
     INGEST = "ingest"
     CONFIGURE = "configure"
     RESPOND = "respond"
+    APPROVE_RESPONSE = "approve_response"
 
 
 _ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
@@ -34,11 +35,13 @@ _ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.INGEST,
         Permission.CONFIGURE,
         Permission.RESPOND,
+        Permission.APPROVE_RESPONSE,
     },
     Role.TENANT_ADMIN: {
         Permission.VIEW,
         Permission.CONFIGURE,
         Permission.RESPOND,
+        Permission.APPROVE_RESPONSE,
     },
     Role.SOC_ANALYST: {Permission.VIEW, Permission.RESPOND},
     Role.VIEWER: {Permission.VIEW},
