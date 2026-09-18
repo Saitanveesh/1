@@ -20,7 +20,7 @@ from mon.domain import (
 from mon.enforcement import EnforcementRegistry
 from mon.recovery import RecoveryEngine
 from mon.response import ResponseOrchestrator
-from mon.site_controller import SQLiteEventSpool, SiteController
+from mon.site_controller import SiteController, SQLiteEventSpool
 from mon.store import InMemoryStore
 
 
