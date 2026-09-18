@@ -1,0 +1,78 @@
+export type Severity = "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export interface EvidenceRef {
+  evidence_id: string;
+  evidence_class: string;
+  source: string;
+  summary: string;
+  confidence: number;
+  observed_at: string;
+}
+
+export interface Incident {
+  incident_id: string;
+  tenant_id: string;
+  site_id: string;
+  title: string;
+  severity: Severity;
+  status: string;
+  confidence: number;
+  affected_asset_ids: string[];
+  detector_ids: string[];
+  entities: string[];
+  last_seen: string;
+}
+
+export interface Finding {
+  finding_id: string;
+  detector_id: string;
+  title: string;
+  severity: Severity;
+  confidence: number;
+  src_ip?: string;
+  dst_ip?: string;
+  asset_id?: string;
+  last_seen: string;
+}
+
+export interface GraphNode {
+  node_id: string;
+  kind: string;
+  label: string;
+}
+
+export interface GraphEdge {
+  edge_id: string;
+  src_node_id: string;
+  dst_node_id: string;
+  relation: string;
+  protocol?: string;
+  dst_port?: number;
+  event_count: number;
+  detector_ids: string[];
+}
+
+export interface GraphSnapshot {
+  tenant_id: string;
+  site_id: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface LiveSnapshot {
+  tenant_id: string;
+  site_id: string;
+  sequence: number;
+  findings: Finding[];
+  incidents: Incident[];
+  graph: GraphSnapshot;
+}
+
+export interface LiveEnvelope {
+  kind: string;
+  tenant_id: string;
+  site_id: string;
+  sequence: number;
+  emitted_at: string;
+  payload: Record<string, unknown>;
+}

@@ -69,3 +69,22 @@ jobs:
         run: alembic upgrade head
       - name: PostgreSQL integration tests
         run: pytest -q tests/test_postgres_integration.py
+
+  console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: console/package.json
+      - name: Install console dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test console
+        run: npm test
+      - name: Build console
+        run: npm run build
