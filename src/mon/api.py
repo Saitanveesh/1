@@ -3,9 +3,12 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query
 
 from mon import __version__
+from mon.attack_graph import AttackGraphEngine
+from mon.correlation import CorrelationEngine
 from mon.detection import DetectionEngine
 from mon.domain import (
     Asset,
+    AttackGraphSnapshot,
     EnforcementBinding,
     EnforcementPoint,
     Finding,
@@ -25,6 +28,8 @@ app = FastAPI(
 )
 store = InMemoryStore()
 detector = DetectionEngine()
+graph = AttackGraphEngine()
+correlator = CorrelationEngine()
 
 
 @app.get("/health")
@@ -35,10 +40,14 @@ def health() -> dict[str, str]:
 @app.post("/api/v1/events", status_code=201)
 def ingest_event(event: SecurityEvent) -> dict[str, object]:
     stored = store.add_event(event)
+    graph.observe_event(event)
     findings = detector.process(event)
+    incidents = []
     for finding in findings:
         store.add_finding(finding)
-    return {"event": stored, "findings": findings}
+        graph.attach_finding(finding)
+        incidents.append(correlator.process(finding, store))
+    return {"event": stored, "findings": findings, "incidents": incidents}
 
 
 @app.get("/api/v1/findings", response_model=list[Finding])
@@ -47,6 +56,26 @@ def list_findings(
     site_id: str = Query(min_length=1),
 ) -> list[Finding]:
     return store.list_findings(tenant_id, site_id)
+
+
+@app.get("/api/v1/graph", response_model=AttackGraphSnapshot)
+def get_attack_graph(
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> AttackGraphSnapshot:
+    return graph.snapshot(tenant_id, site_id)
+
+
+@app.get("/api/v1/incidents/{incident_id}/graph", response_model=AttackGraphSnapshot)
+def get_incident_graph(
+    incident_id: str,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> AttackGraphSnapshot:
+    incident = store.get_incident(tenant_id, site_id, incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found in tenant/site scope")
+    return graph.trace_incident(incident)
 
 
 @app.post("/api/v1/assets", response_model=Asset, status_code=201)
