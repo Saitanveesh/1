@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query
 
 from mon import __version__
+from mon.detection import DetectionEngine
 from mon.domain import (
     Asset,
     EnforcementBinding,
@@ -13,7 +14,6 @@ from mon.domain import (
     ResponseRequest,
     SecurityEvent,
 )
-from mon.detection import DetectionEngine
 from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
 from mon.policy import evaluate_response
 from mon.store import InMemoryStore
