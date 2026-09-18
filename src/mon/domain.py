@@ -162,7 +162,7 @@ class Finding(BaseModel):
 class EnforcementPoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    enforcement_point_id: str | None = Field(default=None, min_length=1, max_length=256)
+    enforcement_point_id: str = Field(min_length=1, max_length=256)
     tenant_id: str = Field(min_length=1, max_length=128)
     site_id: str = Field(min_length=1, max_length=128)
     kind: EnforcementKind
@@ -208,7 +208,7 @@ class ResponseRequest(BaseModel):
     incident_id: str = Field(min_length=1, max_length=256)
     target: ResponseTarget
     action: ActionType
-    enforcement_point_id: str = Field(min_length=1, max_length=256)
+    enforcement_point_id: str | None = Field(default=None, min_length=1, max_length=256)
     actor_type: ActorType = ActorType.AUTOMATION
     actor_id: str = Field(default="mon-automation", min_length=1, max_length=256)
     ttl_seconds: int | None = Field(default=None, ge=30, le=604800)
