@@ -18,6 +18,7 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
+from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.store import InMemoryStore, Store
 
@@ -133,6 +134,23 @@ class AuditRecordRow(Base):
 
     __table_args__ = (
         Index("ix_audit_records_scope", "tenant_id", "site_id", "occurred_at"),
+    )
+
+
+class SiteCommandRow(Base):
+    __tablename__ = "site_commands"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    command_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    not_after: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_site_commands_scope", "tenant_id", "site_id"),
+        Index("ix_site_commands_pending", "tenant_id", "site_id", "status", "not_after"),
     )
 
 
@@ -408,6 +426,38 @@ class DatabaseStore:
         with self._session_factory() as session:
             rows = session.scalars(statement).all()
         return [AuditRecord.model_validate(row.payload) for row in rows]
+
+    def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord:
+        command = record.command
+        self._merge(
+            SiteCommandRow(
+                pk=_key(command.tenant_id, command.site_id, command.command_id),
+                tenant_id=command.tenant_id,
+                site_id=command.site_id,
+                command_id=command.command_id,
+                status=record.status.value,
+                not_after=command.not_after,
+                payload=record.model_dump(mode="json"),
+            )
+        )
+        return record
+
+    def get_site_command(
+        self,
+        tenant_id: str,
+        site_id: str,
+        command_id: str,
+    ) -> SiteCommandRecord | None:
+        row = self._get(SiteCommandRow, tenant_id, site_id, command_id)
+        return SiteCommandRecord.model_validate(row.payload) if row else None
+
+    def list_site_commands(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SiteCommandRecord]:
+        rows = self._list_scope(SiteCommandRow, tenant_id, site_id)
+        return [SiteCommandRecord.model_validate(row.payload) for row in rows]
 
     def add_enrollment_token(
         self,

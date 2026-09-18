@@ -15,6 +15,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID
 from pydantic import ValidationError
 
 from mon.domain import EventBatch
+from mon.site_command_models import SiteCommandResult
 
 
 class SiteCertificateError(ValueError):
@@ -107,6 +108,16 @@ def require_batch_matches_site_identity(
             raise SiteCertificateScopeError(
                 "event tenant/site does not match the verified client certificate"
             )
+
+
+def require_command_result_matches_site_identity(
+    result: SiteCommandResult,
+    identity: VerifiedSiteIdentity,
+) -> None:
+    if result.tenant_id != identity.tenant_id or result.site_id != identity.site_id:
+        raise SiteCertificateScopeError(
+            "site command result tenant/site does not match verified client certificate"
+        )
 
 
 def create_mtls_server_ssl_context(
@@ -211,6 +222,99 @@ class MtlsSiteIngress:
         )
 
 
+    @staticmethod
+    def _authorization(request: web.Request) -> str:
+        authorization = request.headers.get("Authorization")
+        if not authorization:
+            raise web.HTTPUnauthorized(
+                text="site service authorization token is required"
+            )
+        return authorization
+
+    async def pull_commands(self, request: web.Request) -> web.Response:
+        try:
+            identity = self._verified_identity(request)
+        except SiteCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+
+        authorization = self._authorization(request)
+        raw_limit = request.query.get("limit", "20")
+        try:
+            limit = int(raw_limit)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text="limit must be an integer") from exc
+        if limit < 1 or limit > 100:
+            raise web.HTTPBadRequest(text="limit must be between 1 and 100")
+
+        async with httpx.AsyncClient(
+            base_url=self.internal_control_plane_url,
+            timeout=self.timeout_seconds,
+        ) as client:
+            try:
+                response = await client.get(
+                    "/api/v1/site-commands/pending",
+                    params={
+                        "tenant_id": identity.tenant_id,
+                        "site_id": identity.site_id,
+                        "limit": limit,
+                    },
+                    headers={"Authorization": authorization},
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPBadGateway(text="control plane is unavailable") from exc
+
+        return web.Response(
+            status=response.status_code,
+            body=response.content,
+            headers={"Content-Type": response.headers.get(
+                "content-type",
+                "application/json",
+            )},
+        )
+
+    async def submit_command_result(self, request: web.Request) -> web.Response:
+        try:
+            identity = self._verified_identity(request)
+        except SiteCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+
+        try:
+            raw_body = await request.read()
+            result = SiteCommandResult.model_validate_json(raw_body)
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(text="invalid site command result") from exc
+
+        try:
+            require_command_result_matches_site_identity(result, identity)
+        except SiteCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        authorization = self._authorization(request)
+        async with httpx.AsyncClient(
+            base_url=self.internal_control_plane_url,
+            timeout=self.timeout_seconds,
+        ) as client:
+            try:
+                response = await client.post(
+                    "/api/v1/site-commands/results",
+                    content=raw_body,
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPBadGateway(text="control plane is unavailable") from exc
+
+        return web.Response(
+            status=response.status_code,
+            body=response.content,
+            headers={"Content-Type": response.headers.get(
+                "content-type",
+                "application/json",
+            )},
+        )
+
 def create_app(
     internal_control_plane_url: str,
     *,
@@ -223,6 +327,11 @@ def create_app(
     app = web.Application(client_max_size=8 * 1024 * 1024)
     app.router.add_get("/health", ingress.health)
     app.router.add_post("/api/v1/events/batch", ingress.ingest_batch)
+    app.router.add_get("/api/v1/site/commands", ingress.pull_commands)
+    app.router.add_post(
+        "/api/v1/site/commands/results",
+        ingress.submit_command_result,
+    )
     return app
 
 

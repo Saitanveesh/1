@@ -99,6 +99,7 @@ def test_database_store_persists_and_scopes_objects(tmp_path) -> None:
 def test_schema_metadata_contains_authoritative_tables() -> None:
     assert {
         "security_events",
+        "site_commands",
         "findings",
         "incidents",
         "assets",

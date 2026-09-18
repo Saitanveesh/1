@@ -15,6 +15,7 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
+from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 
 
@@ -95,6 +96,16 @@ class Store(Protocol):
         self, tenant_id: str, site_id: str
     ) -> list[AuditRecord]: ...
 
+    def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord: ...
+
+    def get_site_command(
+        self, tenant_id: str, site_id: str, command_id: str
+    ) -> SiteCommandRecord | None: ...
+
+    def list_site_commands(
+        self, tenant_id: str, site_id: str
+    ) -> list[SiteCommandRecord]: ...
+
 
 class InMemoryStore:
     """Development store with strict tenant/site scoping."""
@@ -111,6 +122,7 @@ class InMemoryStore:
         self.site_identities: dict[str, SiteIdentityRecord] = {}
         self.response_executions: dict[tuple[str, str, str], ResponseExecution] = {}
         self.audit_records: dict[tuple[str, str, str], AuditRecord] = {}
+        self.site_commands: dict[tuple[str, str, str], SiteCommandRecord] = {}
         self._identity_lock = threading.RLock()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
@@ -296,3 +308,29 @@ class InMemoryStore:
             ],
             key=lambda item: (item.occurred_at, item.audit_id),
         )
+
+
+    def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord:
+        command = record.command
+        key = (command.tenant_id, command.site_id, command.command_id)
+        self.site_commands[key] = record
+        return record
+
+    def get_site_command(
+        self,
+        tenant_id: str,
+        site_id: str,
+        command_id: str,
+    ) -> SiteCommandRecord | None:
+        return self.site_commands.get((tenant_id, site_id, command_id))
+
+    def list_site_commands(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SiteCommandRecord]:
+        return [
+            record
+            for (scope_tenant, scope_site, _), record in self.site_commands.items()
+            if scope_tenant == tenant_id and scope_site == site_id
+        ]

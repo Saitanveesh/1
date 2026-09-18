@@ -11,8 +11,10 @@ from mon.site_controller import SiteController
 class SiteRuntimeStatus:
     last_flush_at: dt.datetime | None
     last_recovery_at: dt.datetime | None
+    last_command_poll_at: dt.datetime | None
     last_flush_error: str | None
     last_recovery_error: str | None
+    last_command_error: str | None
 
 
 class SiteControllerRuntime:
@@ -24,16 +26,24 @@ class SiteControllerRuntime:
         *,
         flush_interval_seconds: float = 5.0,
         recovery_interval_seconds: float = 5.0,
+        command_interval_seconds: float = 2.0,
     ) -> None:
-        if flush_interval_seconds <= 0 or recovery_interval_seconds <= 0:
+        if (
+            flush_interval_seconds <= 0
+            or recovery_interval_seconds <= 0
+            or command_interval_seconds <= 0
+        ):
             raise ValueError("runtime intervals must be positive")
         self.controller = controller
         self.flush_interval_seconds = flush_interval_seconds
         self.recovery_interval_seconds = recovery_interval_seconds
+        self.command_interval_seconds = command_interval_seconds
         self._last_flush_at: dt.datetime | None = None
         self._last_recovery_at: dt.datetime | None = None
+        self._last_command_poll_at: dt.datetime | None = None
         self._last_flush_error: str | None = None
         self._last_recovery_error: str | None = None
+        self._last_command_error: str | None = None
 
     @staticmethod
     async def _wait_or_stop(stop_event: asyncio.Event, seconds: float) -> bool:
@@ -65,15 +75,29 @@ class SiteControllerRuntime:
             if await self._wait_or_stop(stop_event, self.recovery_interval_seconds):
                 return
 
+    async def _command_loop(self, stop_event: asyncio.Event) -> None:
+        while not stop_event.is_set():
+            try:
+                await self.controller.poll_commands()
+                self._last_command_error = None
+            except Exception as exc:
+                self._last_command_error = str(exc)[:1000]
+            self._last_command_poll_at = dt.datetime.now(dt.UTC)
+            if await self._wait_or_stop(stop_event, self.command_interval_seconds):
+                return
+
     async def run(self, stop_event: asyncio.Event) -> None:
         async with asyncio.TaskGroup() as group:
             group.create_task(self._flush_loop(stop_event))
             group.create_task(self._recovery_loop(stop_event))
+            group.create_task(self._command_loop(stop_event))
 
     def status(self) -> SiteRuntimeStatus:
         return SiteRuntimeStatus(
             last_flush_at=self._last_flush_at,
             last_recovery_at=self._last_recovery_at,
+            last_command_poll_at=self._last_command_poll_at,
             last_flush_error=self._last_flush_error,
             last_recovery_error=self._last_recovery_error,
+            last_command_error=self._last_command_error,
         )
