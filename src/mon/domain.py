@@ -140,6 +140,25 @@ class Incident(BaseModel):
     updated_at: dt.datetime = Field(default_factory=utcnow)
 
 
+class Finding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    detector_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=300)
+    severity: Severity
+    confidence: float = Field(ge=0.0, le=1.0)
+    src_ip: str | None = Field(default=None, max_length=64)
+    dst_ip: str | None = Field(default=None, max_length=64)
+    asset_id: str | None = Field(default=None, max_length=256)
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+    first_seen: dt.datetime = Field(default_factory=utcnow)
+    last_seen: dt.datetime = Field(default_factory=utcnow)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
 class EnforcementPoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -151,6 +170,19 @@ class EnforcementPoint(BaseModel):
     capabilities: set[ActionType]
     health: EnforcementHealth = EnforcementHealth.HEALTHY
     priority: int = Field(default=100, ge=0, le=1000)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class EnforcementBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    binding_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    asset_id: str = Field(min_length=1, max_length=256)
+    enforcement_point_id: str = Field(min_length=1, max_length=256)
+    distance: int = Field(default=0, ge=0, le=100)
+    priority_bias: int = Field(default=0, ge=-500, le=500)
     attributes: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -176,7 +208,7 @@ class ResponseRequest(BaseModel):
     incident_id: str = Field(min_length=1, max_length=256)
     target: ResponseTarget
     action: ActionType
-    enforcement_point_id: str = Field(min_length=1, max_length=256)
+    enforcement_point_id: str | None = Field(default=None, min_length=1, max_length=256)
     actor_type: ActorType = ActorType.AUTOMATION
     actor_id: str = Field(default="mon-automation", min_length=1, max_length=256)
     ttl_seconds: int | None = Field(default=None, ge=30, le=604800)
@@ -220,3 +252,4 @@ class ResponsePlan(BaseModel):
     decision: PolicyDecision
     enforcement_point: EnforcementPoint
     rollback_action: ActionType = ActionType.RESTORE
+    selection_reasons: list[str] = Field(default_factory=list)
