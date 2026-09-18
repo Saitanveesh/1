@@ -9,7 +9,12 @@ from mon.site_controller import SiteController
 class ProductionSiteController(SiteController):
     """Site controller with durable, replay-safe command-result delivery."""
 
-    def __init__(self, *args: object, result_outbox: SQLiteCommandResultOutbox, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *args: object,
+        result_outbox: SQLiteCommandResultOutbox,
+        **kwargs: object,
+    ) -> None:
         super().__init__(*args, **kwargs)
         if result_outbox.tenant_id != self.tenant_id or result_outbox.site_id != self.site_id:
             raise ValueError("command result outbox scope does not match site controller")
