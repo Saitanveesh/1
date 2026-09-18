@@ -5,7 +5,6 @@ import datetime as dt
 from mon.domain import (
     AuditRecord,
     EnforcementBinding,
-    EnforcementResult,
     PolicyOutcome,
     ResponseApproval,
     ResponseExecution,
@@ -14,7 +13,7 @@ from mon.domain import (
     ResponseRequest,
     utcnow,
 )
-from mon.enforcement import EnforcementError, EnforcementRegistry
+from mon.enforcement import EnforcementRegistry
 from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
 from mon.policy import evaluate_response
 from mon.store import Store
@@ -206,7 +205,7 @@ class ResponseOrchestrator:
                 plan.enforcement_point.vendor,
             )
             result = await adapter.execute(plan, execution.execution_id)
-        except (EnforcementError, Exception) as exc:
+        except Exception as exc:
             failed = execution.model_copy(
                 update={
                     "status": ResponseExecutionStatus.FAILED,
@@ -308,7 +307,7 @@ class ResponseOrchestrator:
                 pending.plan.enforcement_point.vendor,
             )
             result = await adapter.rollback(pending.plan, pending.execution_id)
-        except (EnforcementError, Exception) as exc:
+        except Exception as exc:
             failed = pending.model_copy(
                 update={
                     "status": ResponseExecutionStatus.ROLLBACK_FAILED,
