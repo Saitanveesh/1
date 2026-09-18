@@ -1,0 +1,22 @@
+import { describe, expect, it } from "vitest";
+import type { LiveSnapshot } from "./types";
+
+describe("live snapshot contract", () => {
+  it("keeps tenant/site scope explicit", () => {
+    const snapshot: LiveSnapshot = {
+      tenant_id: "tenant-a",
+      site_id: "site-1",
+      sequence: 42,
+      findings: [],
+      incidents: [],
+      graph: {
+        tenant_id: "tenant-a",
+        site_id: "site-1",
+        nodes: [],
+        edges: []
+      }
+    };
+    expect(snapshot.sequence).toBe(42);
+    expect(snapshot.graph.site_id).toBe("site-1");
+  });
+});
