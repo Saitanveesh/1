@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import datetime as dt
 import os
 from typing import Any
 
-from sqlalchemy import JSON, Index, String, create_engine, select
+from sqlalchemy import JSON, DateTime, Index, String, create_engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -15,6 +16,7 @@ from mon.domain import (
     Incident,
     SecurityEvent,
 )
+from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.store import InMemoryStore, Store
 
 
@@ -98,6 +100,42 @@ class EnforcementBindingRow(Base):
     __table_args__ = (
         Index("ix_enforcement_bindings_scope", "tenant_id", "site_id"),
         Index("ix_enforcement_bindings_asset", "tenant_id", "site_id", "asset_id"),
+    )
+
+
+class EnrollmentTokenRow(Base):
+    __tablename__ = "site_enrollment_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_site_enrollment_tokens_scope", "tenant_id", "site_id"),
+        Index("ix_site_enrollment_tokens_expiry", "expires_at"),
+    )
+
+
+class SiteIdentityRow(Base):
+    __tablename__ = "site_identities"
+
+    identity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    fingerprint_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_site_identities_scope", "tenant_id", "site_id"),
+        Index(
+            "ix_site_identities_fingerprint",
+            "fingerprint_sha256",
+            unique=True,
+        ),
     )
 
 
@@ -261,6 +299,75 @@ class DatabaseStore:
         with self._session_factory() as session:
             rows = session.scalars(statement).all()
         return [EnforcementBinding.model_validate(row.payload) for row in rows]
+
+    def add_enrollment_token(
+        self,
+        record: EnrollmentTokenRecord,
+    ) -> EnrollmentTokenRecord:
+        self._merge(
+            EnrollmentTokenRow(
+                token_hash=record.token_hash,
+                tenant_id=record.tenant_id,
+                site_id=record.site_id,
+                expires_at=record.expires_at,
+                used_at=record.used_at,
+                payload=record.model_dump(mode="json"),
+            )
+        )
+        return record
+
+    def get_enrollment_token(self, token_hash: str) -> EnrollmentTokenRecord | None:
+        with self._session_factory() as session:
+            row = session.get(EnrollmentTokenRow, token_hash)
+        return EnrollmentTokenRecord.model_validate(row.payload) if row else None
+
+    def consume_enrollment_token(
+        self,
+        token_hash: str,
+        now: dt.datetime,
+    ) -> EnrollmentTokenRecord | None:
+        statement = (
+            select(EnrollmentTokenRow)
+            .where(EnrollmentTokenRow.token_hash == token_hash)
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            row = session.scalar(statement)
+            if row is None:
+                return None
+            record = EnrollmentTokenRecord.model_validate(row.payload)
+            if record.used_at is not None or record.expires_at <= now:
+                return None
+            consumed = record.model_copy(update={"used_at": now})
+            row.used_at = now
+            row.payload = consumed.model_dump(mode="json")
+            return consumed
+
+    def add_site_identity(self, record: SiteIdentityRecord) -> SiteIdentityRecord:
+        self._merge(
+            SiteIdentityRow(
+                identity_id=record.identity_id,
+                tenant_id=record.tenant_id,
+                site_id=record.site_id,
+                fingerprint_sha256=record.fingerprint_sha256,
+                status=record.status.value,
+                payload=record.model_dump(mode="json"),
+            )
+        )
+        return record
+
+    def list_site_identities(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SiteIdentityRecord]:
+        statement = select(SiteIdentityRow).where(
+            SiteIdentityRow.tenant_id == tenant_id,
+            SiteIdentityRow.site_id == site_id,
+        )
+        with self._session_factory() as session:
+            rows = session.scalars(statement).all()
+        return [SiteIdentityRecord.model_validate(row.payload) for row in rows]
 
     def _merge(self, row: Any) -> None:
         with self._session_factory.begin() as session:

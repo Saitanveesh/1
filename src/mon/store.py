@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime as dt
+import threading
 from collections import defaultdict
 from typing import Protocol
 
@@ -11,6 +13,7 @@ from mon.domain import (
     Incident,
     SecurityEvent,
 )
+from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 
 
 class Store(Protocol):
@@ -53,6 +56,24 @@ class Store(Protocol):
         asset_id: str | None = None,
     ) -> list[EnforcementBinding]: ...
 
+    def add_enrollment_token(
+        self, record: EnrollmentTokenRecord
+    ) -> EnrollmentTokenRecord: ...
+
+    def get_enrollment_token(self, token_hash: str) -> EnrollmentTokenRecord | None: ...
+
+    def consume_enrollment_token(
+        self,
+        token_hash: str,
+        now: dt.datetime,
+    ) -> EnrollmentTokenRecord | None: ...
+
+    def add_site_identity(self, record: SiteIdentityRecord) -> SiteIdentityRecord: ...
+
+    def list_site_identities(
+        self, tenant_id: str, site_id: str
+    ) -> list[SiteIdentityRecord]: ...
+
 
 class InMemoryStore:
     """Development store with strict tenant/site scoping."""
@@ -65,6 +86,9 @@ class InMemoryStore:
         self.assets: dict[str, Asset] = {}
         self.enforcement_points: dict[str, EnforcementPoint] = {}
         self.enforcement_bindings: dict[str, EnforcementBinding] = {}
+        self.enrollment_tokens: dict[str, EnrollmentTokenRecord] = {}
+        self.site_identities: dict[str, SiteIdentityRecord] = {}
+        self._identity_lock = threading.RLock()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
         return (tenant_id, site_id, event_id) in self.event_ids
@@ -155,3 +179,46 @@ class InMemoryStore:
         if asset_id is not None:
             values = [value for value in values if value.asset_id == asset_id]
         return values
+
+
+    def add_enrollment_token(
+        self,
+        record: EnrollmentTokenRecord,
+    ) -> EnrollmentTokenRecord:
+        with self._identity_lock:
+            self.enrollment_tokens[record.token_hash] = record
+        return record
+
+    def get_enrollment_token(self, token_hash: str) -> EnrollmentTokenRecord | None:
+        with self._identity_lock:
+            return self.enrollment_tokens.get(token_hash)
+
+    def consume_enrollment_token(
+        self,
+        token_hash: str,
+        now: dt.datetime,
+    ) -> EnrollmentTokenRecord | None:
+        with self._identity_lock:
+            record = self.enrollment_tokens.get(token_hash)
+            if record is None or record.used_at is not None or record.expires_at <= now:
+                return None
+            consumed = record.model_copy(update={"used_at": now})
+            self.enrollment_tokens[token_hash] = consumed
+            return consumed
+
+    def add_site_identity(self, record: SiteIdentityRecord) -> SiteIdentityRecord:
+        with self._identity_lock:
+            self.site_identities[record.identity_id] = record
+        return record
+
+    def list_site_identities(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SiteIdentityRecord]:
+        with self._identity_lock:
+            return [
+                value
+                for value in self.site_identities.values()
+                if value.tenant_id == tenant_id and value.site_id == site_id
+            ]
