@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Protocol
 
 from mon.domain import (
     Asset,
@@ -12,12 +13,49 @@ from mon.domain import (
 )
 
 
-class InMemoryStore:
-    """Development store with strict tenant/site scoping.
+class Store(Protocol):
+    def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
 
-    Production persistence will implement the same repository boundary using durable
-    storage. The explicit scope arguments prevent accidental global reads.
-    """
+    def add_event(self, event: SecurityEvent) -> SecurityEvent: ...
+
+    def add_finding(self, finding: Finding) -> Finding: ...
+
+    def list_findings(self, tenant_id: str, site_id: str) -> list[Finding]: ...
+
+    def add_incident(self, incident: Incident) -> Incident: ...
+
+    def list_incidents(self, tenant_id: str, site_id: str) -> list[Incident]: ...
+
+    def get_incident(
+        self, tenant_id: str, site_id: str, incident_id: str
+    ) -> Incident | None: ...
+
+    def add_asset(self, asset: Asset) -> Asset: ...
+
+    def get_asset(self, tenant_id: str, site_id: str, asset_id: str) -> Asset | None: ...
+
+    def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint: ...
+
+    def get_enforcement_point(
+        self, tenant_id: str, site_id: str, enforcement_point_id: str
+    ) -> EnforcementPoint | None: ...
+
+    def list_enforcement_points(
+        self, tenant_id: str, site_id: str
+    ) -> list[EnforcementPoint]: ...
+
+    def add_enforcement_binding(self, binding: EnforcementBinding) -> EnforcementBinding: ...
+
+    def list_enforcement_bindings(
+        self,
+        tenant_id: str,
+        site_id: str,
+        asset_id: str | None = None,
+    ) -> list[EnforcementBinding]: ...
+
+
+class InMemoryStore:
+    """Development store with strict tenant/site scoping."""
 
     def __init__(self) -> None:
         self.events: dict[tuple[str, str], list[SecurityEvent]] = defaultdict(list)
