@@ -138,9 +138,8 @@ def test_live_websocket_uses_authenticated_scope(real_auth) -> None:
     ) as websocket:
         assert websocket.receive_json()["kind"] == "stream.ready"
 
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(
-            "/ws/v1/live?tenant_id=tenant-a&site_id=site-2",
-            headers=headers,
-        ) as websocket:
-            websocket.receive_json()
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect(
+        "/ws/v1/live?tenant_id=tenant-a&site_id=site-2",
+        headers=headers,
+    ) as websocket:
+        websocket.receive_json()

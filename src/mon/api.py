@@ -3,15 +3,15 @@ from __future__ import annotations
 import asyncio
 import time
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
 
 from mon import __version__
 from mon.attack_graph import AttackGraphEngine
 from mon.auth import (
+    CurrentPrincipal,
     Permission,
     Principal,
-    get_principal,
     is_scope_authorized,
     require_scope,
 )
@@ -66,7 +66,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/v1/me", response_model=Principal)
-def who_am_i(principal: Principal = Depends(get_principal)) -> Principal:
+def who_am_i(principal: CurrentPrincipal) -> Principal:
     return principal
 
 
@@ -77,7 +77,7 @@ def who_am_i(principal: Principal = Depends(get_principal)) -> Principal:
 )
 async def ingest_event(
     event: SecurityEvent,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> EventProcessingResult:
     require_scope(
         principal,
@@ -99,7 +99,7 @@ async def ingest_event(
 )
 async def ingest_event_batch(
     batch: EventBatch,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> EventBatchResult:
     first = batch.events[0]
     require_scope(
@@ -126,7 +126,7 @@ async def ingest_event_batch(
 @app.websocket("/ws/v1/live")
 async def live_stream(
     websocket: WebSocket,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> None:
     tenant_id = (websocket.query_params.get("tenant_id") or "").strip()
     site_id = (websocket.query_params.get("site_id") or "").strip()
@@ -161,9 +161,9 @@ async def live_stream(
 
 @app.get("/api/v1/live/snapshot")
 async def live_snapshot(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
-    principal: Principal = Depends(get_principal),
 ) -> dict[str, object]:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     findings = await run_in_threadpool(store.list_findings, tenant_id, site_id)
@@ -183,9 +183,9 @@ async def live_snapshot(
 
 @app.get("/api/v1/findings", response_model=list[Finding])
 def list_findings(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
-    principal: Principal = Depends(get_principal),
 ) -> list[Finding]:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return store.list_findings(tenant_id, site_id)
@@ -193,9 +193,9 @@ def list_findings(
 
 @app.get("/api/v1/graph", response_model=AttackGraphSnapshot)
 def get_attack_graph(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
-    principal: Principal = Depends(get_principal),
 ) -> AttackGraphSnapshot:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return graph.snapshot(tenant_id, site_id)
@@ -204,9 +204,9 @@ def get_attack_graph(
 @app.get("/api/v1/incidents/{incident_id}/graph", response_model=AttackGraphSnapshot)
 def get_incident_graph(
     incident_id: str,
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
-    principal: Principal = Depends(get_principal),
 ) -> AttackGraphSnapshot:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     incident = store.get_incident(tenant_id, site_id, incident_id)
@@ -218,7 +218,7 @@ def get_incident_graph(
 @app.post("/api/v1/assets", response_model=Asset, status_code=201)
 async def upsert_asset(
     asset: Asset,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> Asset:
     require_scope(principal, asset.tenant_id, asset.site_id, Permission.CONFIGURE)
     stored = await run_in_threadpool(store.add_asset, asset)
@@ -234,7 +234,7 @@ async def upsert_asset(
 @app.post("/api/v1/incidents", response_model=Incident, status_code=201)
 async def create_incident(
     incident: Incident,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> Incident:
     require_scope(principal, incident.tenant_id, incident.site_id, Permission.RESPOND)
     stored = await run_in_threadpool(store.add_incident, incident)
@@ -249,9 +249,9 @@ async def create_incident(
 
 @app.get("/api/v1/incidents", response_model=list[Incident])
 def list_incidents(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
-    principal: Principal = Depends(get_principal),
 ) -> list[Incident]:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return store.list_incidents(tenant_id, site_id)
@@ -260,7 +260,7 @@ def list_incidents(
 @app.post("/api/v1/enforcement-points", response_model=EnforcementPoint, status_code=201)
 async def upsert_enforcement_point(
     point: EnforcementPoint,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> EnforcementPoint:
     require_scope(principal, point.tenant_id, point.site_id, Permission.CONFIGURE)
     stored = await run_in_threadpool(store.add_enforcement_point, point)
@@ -276,7 +276,7 @@ async def upsert_enforcement_point(
 @app.post("/api/v1/enforcement-bindings", response_model=EnforcementBinding, status_code=201)
 async def upsert_enforcement_binding(
     binding: EnforcementBinding,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> EnforcementBinding:
     require_scope(
         principal,
@@ -297,7 +297,7 @@ async def upsert_enforcement_binding(
 @app.post("/api/v1/responses/plan", response_model=ResponsePlan)
 async def plan_response(
     request: ResponseRequest,
-    principal: Principal = Depends(get_principal),
+    principal: CurrentPrincipal,
 ) -> ResponsePlan:
     require_scope(
         principal,

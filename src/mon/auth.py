@@ -4,9 +4,10 @@ import os
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 import jwt
-from fastapi import HTTPException, WebSocketException, status
+from fastapi import Depends, HTTPException, WebSocketException, status
 from jwt import PyJWTError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.requests import HTTPConnection
@@ -203,6 +204,9 @@ async def get_principal(connection: HTTPConnection) -> Principal:
     raise RuntimeError("unreachable authentication state")
 
 
+CurrentPrincipal = Annotated[Principal, Depends(get_principal)]
+
+
 def is_scope_authorized(
     principal: Principal,
     tenant_id: str,
@@ -218,10 +222,11 @@ def is_scope_authorized(
     if principal.tenant_id != tenant_id:
         return False
 
-    if site_id is not None and principal.site_ids and site_id not in principal.site_ids:
-        return False
-
-    return True
+    return not (
+        site_id is not None
+        and principal.site_ids
+        and site_id not in principal.site_ids
+    )
 
 
 def require_scope(
