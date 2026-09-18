@@ -59,6 +59,7 @@ ACTION_KIND_PREFERENCE: dict[ActionType, tuple[EnforcementKind, ...]] = {
 class EnforcementSelection:
     point: EnforcementPoint
     reasons: list[str]
+    binding: EnforcementBinding | None = None
 
 
 def select_enforcement_point(
@@ -134,4 +135,4 @@ def select_enforcement_point(
     else:
         reasons.append("selected automatically from the enforcement graph")
 
-    return EnforcementSelection(point=chosen, reasons=reasons)
+    return EnforcementSelection(point=chosen, reasons=reasons, binding=binding)

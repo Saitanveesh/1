@@ -7,10 +7,12 @@ from typing import Protocol
 
 from mon.domain import (
     Asset,
+    AuditRecord,
     EnforcementBinding,
     EnforcementPoint,
     Finding,
     Incident,
+    ResponseExecution,
     SecurityEvent,
 )
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
@@ -75,6 +77,24 @@ class Store(Protocol):
         self, tenant_id: str, site_id: str
     ) -> list[SiteIdentityRecord]: ...
 
+    def add_response_execution(
+        self, execution: ResponseExecution
+    ) -> ResponseExecution: ...
+
+    def get_response_execution(
+        self, tenant_id: str, site_id: str, execution_id: str
+    ) -> ResponseExecution | None: ...
+
+    def list_response_executions(
+        self, tenant_id: str, site_id: str
+    ) -> list[ResponseExecution]: ...
+
+    def add_audit_record(self, record: AuditRecord) -> AuditRecord: ...
+
+    def list_audit_records(
+        self, tenant_id: str, site_id: str
+    ) -> list[AuditRecord]: ...
+
 
 class InMemoryStore:
     """Development store with strict tenant/site scoping."""
@@ -89,6 +109,8 @@ class InMemoryStore:
         self.enforcement_bindings: dict[str, EnforcementBinding] = {}
         self.enrollment_tokens: dict[str, EnrollmentTokenRecord] = {}
         self.site_identities: dict[str, SiteIdentityRecord] = {}
+        self.response_executions: dict[tuple[str, str, str], ResponseExecution] = {}
+        self.audit_records: dict[tuple[str, str, str], AuditRecord] = {}
         self._identity_lock = threading.RLock()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
@@ -227,3 +249,50 @@ class InMemoryStore:
                 for value in self.site_identities.values()
                 if value.tenant_id == tenant_id and value.site_id == site_id
             ]
+
+
+    def add_response_execution(
+        self,
+        execution: ResponseExecution,
+    ) -> ResponseExecution:
+        key = (execution.tenant_id, execution.site_id, execution.execution_id)
+        self.response_executions[key] = execution
+        return execution
+
+    def get_response_execution(
+        self,
+        tenant_id: str,
+        site_id: str,
+        execution_id: str,
+    ) -> ResponseExecution | None:
+        return self.response_executions.get((tenant_id, site_id, execution_id))
+
+    def list_response_executions(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[ResponseExecution]:
+        return [
+            execution
+            for (scope_tenant, scope_site, _), execution in self.response_executions.items()
+            if scope_tenant == tenant_id and scope_site == site_id
+        ]
+
+    def add_audit_record(self, record: AuditRecord) -> AuditRecord:
+        key = (record.tenant_id, record.site_id, record.audit_id)
+        self.audit_records[key] = record
+        return record
+
+    def list_audit_records(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[AuditRecord]:
+        return sorted(
+            [
+                record
+                for (scope_tenant, scope_site, _), record in self.audit_records.items()
+                if scope_tenant == tenant_id and scope_site == site_id
+            ],
+            key=lambda item: (item.occurred_at, item.audit_id),
+        )

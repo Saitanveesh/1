@@ -10,10 +10,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 
 from mon.domain import (
     Asset,
+    AuditRecord,
     EnforcementBinding,
     EnforcementPoint,
     Finding,
     Incident,
+    ResponseExecution,
     SecurityEvent,
 )
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
@@ -100,6 +102,37 @@ class EnforcementBindingRow(Base):
     __table_args__ = (
         Index("ix_enforcement_bindings_scope", "tenant_id", "site_id"),
         Index("ix_enforcement_bindings_asset", "tenant_id", "site_id", "asset_id"),
+    )
+
+
+class ResponseExecutionRow(Base):
+    __tablename__ = "response_executions"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    execution_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_response_executions_scope", "tenant_id", "site_id"),
+        Index("ix_response_executions_status", "tenant_id", "site_id", "status"),
+    )
+
+
+class AuditRecordRow(Base):
+    __tablename__ = "audit_records"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    audit_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    occurred_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_audit_records_scope", "tenant_id", "site_id", "occurred_at"),
     )
 
 
@@ -303,6 +336,78 @@ class DatabaseStore:
         with self._session_factory() as session:
             rows = session.scalars(statement).all()
         return [EnforcementBinding.model_validate(row.payload) for row in rows]
+
+    def add_response_execution(
+        self,
+        execution: ResponseExecution,
+    ) -> ResponseExecution:
+        self._merge(
+            ResponseExecutionRow(
+                pk=_key(
+                    execution.tenant_id,
+                    execution.site_id,
+                    execution.execution_id,
+                ),
+                tenant_id=execution.tenant_id,
+                site_id=execution.site_id,
+                execution_id=execution.execution_id,
+                status=execution.status.value,
+                payload=execution.model_dump(mode="json"),
+            )
+        )
+        return execution
+
+    def get_response_execution(
+        self,
+        tenant_id: str,
+        site_id: str,
+        execution_id: str,
+    ) -> ResponseExecution | None:
+        row = self._get(
+            ResponseExecutionRow,
+            tenant_id,
+            site_id,
+            execution_id,
+        )
+        return ResponseExecution.model_validate(row.payload) if row else None
+
+    def list_response_executions(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[ResponseExecution]:
+        rows = self._list_scope(ResponseExecutionRow, tenant_id, site_id)
+        return [ResponseExecution.model_validate(row.payload) for row in rows]
+
+    def add_audit_record(self, record: AuditRecord) -> AuditRecord:
+        self._merge(
+            AuditRecordRow(
+                pk=_key(record.tenant_id, record.site_id, record.audit_id),
+                tenant_id=record.tenant_id,
+                site_id=record.site_id,
+                audit_id=record.audit_id,
+                occurred_at=record.occurred_at,
+                payload=record.model_dump(mode="json"),
+            )
+        )
+        return record
+
+    def list_audit_records(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[AuditRecord]:
+        statement = (
+            select(AuditRecordRow)
+            .where(
+                AuditRecordRow.tenant_id == tenant_id,
+                AuditRecordRow.site_id == site_id,
+            )
+            .order_by(AuditRecordRow.occurred_at, AuditRecordRow.audit_id)
+        )
+        with self._session_factory() as session:
+            rows = session.scalars(statement).all()
+        return [AuditRecord.model_validate(row.payload) for row in rows]
 
     def add_enrollment_token(
         self,

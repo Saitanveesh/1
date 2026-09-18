@@ -29,6 +29,8 @@ def evaluate_response(
     incident: Incident,
     enforcement_point: EnforcementPoint,
     asset: Asset | None = None,
+    *,
+    blast_radius_known: bool = True,
 ) -> PolicyDecision:
     reasons: list[str] = []
 
@@ -71,6 +73,9 @@ def evaluate_response(
             )
         if asset.criticality is AssetCriticality.CRITICAL:
             reasons.append("critical asset containment requires operator approval")
+
+    if not blast_radius_known:
+        reasons.append("blast-radius estimate is unavailable")
 
     independent_classes = {item.evidence_class for item in incident.evidence}
     if incident.confidence < 0.90:

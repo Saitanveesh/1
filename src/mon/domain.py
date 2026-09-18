@@ -364,6 +364,17 @@ class PolicyOutcome(StrEnum):
     DENY = "DENY"
 
 
+class ResponseExecutionStatus(StrEnum):
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    EXECUTING = "EXECUTING"
+    APPLIED = "APPLIED"
+    FAILED = "FAILED"
+    DENIED = "DENIED"
+    ROLLBACK_PENDING = "ROLLBACK_PENDING"
+    ROLLED_BACK = "ROLLED_BACK"
+    ROLLBACK_FAILED = "ROLLBACK_FAILED"
+
+
 class PolicyDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -380,6 +391,59 @@ class ResponsePlan(BaseModel):
     enforcement_point: EnforcementPoint
     rollback_action: ActionType = ActionType.RESTORE
     selection_reasons: list[str] = Field(default_factory=list)
+    blast_radius_estimate: str | None = Field(default=None, max_length=500)
+
+
+class EnforcementResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: bool
+    message: str = Field(min_length=1, max_length=1000)
+    external_reference: str | None = Field(default=None, max_length=500)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResponseApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approval_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    actor_id: str = Field(min_length=1, max_length=256)
+    reason: str = Field(min_length=1, max_length=1000)
+    approved_at: dt.datetime = Field(default_factory=utcnow)
+
+
+class ResponseExecution(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_id: str = Field(min_length=1, max_length=256)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    plan: ResponsePlan
+    status: ResponseExecutionStatus
+    requested_at: dt.datetime = Field(default_factory=utcnow)
+    approval: ResponseApproval | None = None
+    applied_at: dt.datetime | None = None
+    expires_at: dt.datetime | None = None
+    rollback_at: dt.datetime | None = None
+    result: EnforcementResult | None = None
+    rollback_result: EnforcementResult | None = None
+    error: str | None = Field(default=None, max_length=2000)
+
+
+class AuditRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    audit_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    actor_id: str = Field(min_length=1, max_length=256)
+    category: str = Field(min_length=1, max_length=128)
+    object_type: str = Field(min_length=1, max_length=128)
+    object_id: str = Field(min_length=1, max_length=256)
+    action: str = Field(min_length=1, max_length=128)
+    outcome: str = Field(min_length=1, max_length=128)
+    occurred_at: dt.datetime = Field(default_factory=utcnow)
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class EventProcessingResult(BaseModel):
