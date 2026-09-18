@@ -36,16 +36,9 @@ class SQLiteCommandResultOutbox:
                 )
                 """
             )
-            columns = {
-                row["name"]
-                for row in self._connection.execute(
-                    "PRAGMA table_info(command_result_outbox)"
-                ).fetchall()
-            }
+            columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(command_result_outbox)").fetchall()}
             if "reported_at" not in columns:
-                self._connection.execute(
-                    "ALTER TABLE command_result_outbox ADD COLUMN reported_at TEXT"
-                )
+                self._connection.execute("ALTER TABLE command_result_outbox ADD COLUMN reported_at TEXT")
             self._connection.commit()
 
     def close(self) -> None:
@@ -60,18 +53,10 @@ class SQLiteCommandResultOutbox:
         self._check_scope(result)
         with self._lock:
             cursor = self._connection.execute(
-                """
-                INSERT OR IGNORE INTO command_result_outbox
-                    (command_id, tenant_id, site_id, payload, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    result.command_id,
-                    result.tenant_id,
-                    result.site_id,
-                    result.model_dump_json(),
-                    dt.datetime.now(dt.UTC).isoformat(),
-                ),
+                """INSERT OR IGNORE INTO command_result_outbox
+                   (command_id, tenant_id, site_id, payload, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (result.command_id, result.tenant_id, result.site_id, result.model_dump_json(), dt.datetime.now(dt.UTC).isoformat()),
             )
             self._connection.commit()
             return cursor.rowcount == 1
@@ -79,27 +64,19 @@ class SQLiteCommandResultOutbox:
     def get(self, command_id: str) -> SiteCommandResult | None:
         with self._lock:
             row = self._connection.execute(
-                """
-                SELECT payload FROM command_result_outbox
-                WHERE command_id = ? AND tenant_id = ? AND site_id = ?
-                """,
+                "SELECT payload FROM command_result_outbox WHERE command_id = ? AND tenant_id = ? AND site_id = ?",
                 (command_id, self.tenant_id, self.site_id),
             ).fetchone()
-        if row is None:
-            return None
-        return SiteCommandResult.model_validate_json(row["payload"])
+        return None if row is None else SiteCommandResult.model_validate_json(row["payload"])
 
     def pending(self, limit: int = 100) -> list[SiteCommandResult]:
         if limit < 1 or limit > 1000:
             raise ValueError("limit must be between 1 and 1000")
         with self._lock:
             rows = self._connection.execute(
-                """
-                SELECT payload FROM command_result_outbox
-                WHERE tenant_id = ? AND site_id = ? AND reported_at IS NULL
-                ORDER BY created_at ASC
-                LIMIT ?
-                """,
+                """SELECT payload FROM command_result_outbox
+                   WHERE tenant_id = ? AND site_id = ? AND reported_at IS NULL
+                   ORDER BY created_at ASC LIMIT ?""",
                 (self.tenant_id, self.site_id, limit),
             ).fetchall()
         return [SiteCommandResult.model_validate_json(row["payload"]) for row in rows]
@@ -107,18 +84,9 @@ class SQLiteCommandResultOutbox:
     def mark_reported(self, command_id: str) -> bool:
         with self._lock:
             cursor = self._connection.execute(
-                """
-                UPDATE command_result_outbox
-                SET reported_at = ?, last_error = NULL
-                WHERE command_id = ? AND tenant_id = ? AND site_id = ?
-                  AND reported_at IS NULL
-                """,
-                (
-                    dt.datetime.now(dt.UTC).isoformat(),
-                    command_id,
-                    self.tenant_id,
-                    self.site_id,
-                ),
+                """UPDATE command_result_outbox SET reported_at = ?, last_error = NULL
+                   WHERE command_id = ? AND tenant_id = ? AND site_id = ? AND reported_at IS NULL""",
+                (dt.datetime.now(dt.UTC).isoformat(), command_id, self.tenant_id, self.site_id),
             )
             self._connection.commit()
             return cursor.rowcount == 1
@@ -126,29 +94,42 @@ class SQLiteCommandResultOutbox:
     def mark_failed(self, command_id: str, error: str) -> bool:
         with self._lock:
             cursor = self._connection.execute(
-                """
-                UPDATE command_result_outbox
-                SET attempts = attempts + 1, last_error = ?
-                WHERE command_id = ? AND tenant_id = ? AND site_id = ?
-                  AND reported_at IS NULL
-                """,
+                """UPDATE command_result_outbox SET attempts = attempts + 1, last_error = ?
+                   WHERE command_id = ? AND tenant_id = ? AND site_id = ? AND reported_at IS NULL""",
                 (error[:1000], command_id, self.tenant_id, self.site_id),
             )
             self._connection.commit()
             return cursor.rowcount == 1
 
+    def compact_reported(self, *, retain_for: dt.timedelta, now: dt.datetime | None = None) -> int:
+        """Delete only acknowledged receipts older than the configured retention window.
+
+        Pending results are never compacted. A positive retention period is mandatory so
+        replay protection cannot accidentally be disabled by a zero/negative setting.
+        """
+        if retain_for <= dt.timedelta(0):
+            raise ValueError("retain_for must be positive")
+        current = now or dt.datetime.now(dt.UTC)
+        if current.tzinfo is None or current.utcoffset() is None:
+            raise ValueError("now must be timezone-aware")
+        cutoff = (current.astimezone(dt.UTC) - retain_for).isoformat()
+        with self._lock:
+            cursor = self._connection.execute(
+                """DELETE FROM command_result_outbox
+                   WHERE tenant_id = ? AND site_id = ?
+                     AND reported_at IS NOT NULL AND reported_at < ?""",
+                (self.tenant_id, self.site_id, cutoff),
+            )
+            self._connection.commit()
+            return cursor.rowcount
+
     def diagnostics(self) -> dict[str, object]:
         with self._lock:
             row = self._connection.execute(
-                """
-                SELECT
-                    SUM(CASE WHEN reported_at IS NULL THEN 1 ELSE 0 END) AS queued,
-                    COUNT(*) AS receipts,
-                    COALESCE(MAX(attempts), 0) AS max_attempts,
-                    MAX(last_error) AS last_error
-                FROM command_result_outbox
-                WHERE tenant_id = ? AND site_id = ?
-                """,
+                """SELECT SUM(CASE WHEN reported_at IS NULL THEN 1 ELSE 0 END) AS queued,
+                          COUNT(*) AS receipts, COALESCE(MAX(attempts), 0) AS max_attempts,
+                          MAX(last_error) AS last_error
+                   FROM command_result_outbox WHERE tenant_id = ? AND site_id = ?""",
                 (self.tenant_id, self.site_id),
             ).fetchone()
         return {
