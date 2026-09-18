@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Query
+import asyncio
+import time
+
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
 from mon import __version__
 from mon.attack_graph import AttackGraphEngine
@@ -22,6 +26,7 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
+from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
 from mon.policy import evaluate_response
 
@@ -40,11 +45,17 @@ pipeline = SecurityPipeline(
     graph=graph,
     correlator=correlator,
 )
+live_hub = LiveEventHub()
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"state": "READY", "service": "mon-control-plane", "version": __version__}
+    return {
+        "state": "READY",
+        "service": "mon-control-plane",
+        "version": __version__,
+        "live_transport": "WEBSOCKET_PUSH",
+    }
 
 
 @app.post(
@@ -52,8 +63,12 @@ def health() -> dict[str, str]:
     response_model=EventProcessingResult,
     status_code=201,
 )
-def ingest_event(event: SecurityEvent) -> EventProcessingResult:
-    return pipeline.process_event(event)
+async def ingest_event(event: SecurityEvent) -> EventProcessingResult:
+    started = time.perf_counter()
+    result = await run_in_threadpool(pipeline.process_event, event)
+    processing_ms = (time.perf_counter() - started) * 1000
+    await live_hub.publish_processing_result(result, processing_ms=processing_ms)
+    return result
 
 
 @app.post(
@@ -61,12 +76,69 @@ def ingest_event(event: SecurityEvent) -> EventProcessingResult:
     response_model=EventBatchResult,
     status_code=201,
 )
-def ingest_event_batch(batch: EventBatch) -> EventBatchResult:
-    results = [pipeline.process_event(event) for event in batch.events]
+async def ingest_event_batch(batch: EventBatch) -> EventBatchResult:
+    results: list[EventProcessingResult] = []
+    for event in batch.events:
+        started = time.perf_counter()
+        result = await run_in_threadpool(pipeline.process_event, event)
+        processing_ms = (time.perf_counter() - started) * 1000
+        results.append(result)
+        await live_hub.publish_processing_result(result, processing_ms=processing_ms)
+
     return EventBatchResult(
         results=results,
         accepted_event_ids=[result.event.event_id for result in results],
     )
+
+
+@app.websocket("/ws/v1/live")
+async def live_stream(websocket: WebSocket) -> None:
+    tenant_id = (websocket.query_params.get("tenant_id") or "").strip()
+    site_id = (websocket.query_params.get("site_id") or "").strip()
+    if not tenant_id or not site_id:
+        await websocket.close(code=1008, reason="tenant_id and site_id are required")
+        return
+
+    await websocket.accept()
+    subscription = await live_hub.subscribe(tenant_id, site_id)
+    try:
+        ready = await live_hub.ready_envelope(tenant_id, site_id)
+        await websocket.send_json(ready.model_dump(mode="json"))
+
+        while True:
+            try:
+                envelope = await asyncio.wait_for(
+                    subscription.queue.get(),
+                    timeout=15.0,
+                )
+            except TimeoutError:
+                envelope = await live_hub.heartbeat_envelope(subscription)
+
+            await websocket.send_json(envelope.model_dump(mode="json"))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await live_hub.unsubscribe(subscription)
+
+
+@app.get("/api/v1/live/snapshot")
+async def live_snapshot(
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> dict[str, object]:
+    findings = await run_in_threadpool(store.list_findings, tenant_id, site_id)
+    incidents = await run_in_threadpool(store.list_incidents, tenant_id, site_id)
+    snapshot = await run_in_threadpool(graph.snapshot, tenant_id, site_id)
+    sequence = await live_hub.current_sequence(tenant_id, site_id)
+
+    return {
+        "tenant_id": tenant_id,
+        "site_id": site_id,
+        "sequence": sequence,
+        "findings": [item.model_dump(mode="json") for item in findings],
+        "incidents": [item.model_dump(mode="json") for item in incidents],
+        "graph": snapshot.model_dump(mode="json"),
+    }
 
 
 @app.get("/api/v1/findings", response_model=list[Finding])
@@ -98,13 +170,27 @@ def get_incident_graph(
 
 
 @app.post("/api/v1/assets", response_model=Asset, status_code=201)
-def upsert_asset(asset: Asset) -> Asset:
-    return store.add_asset(asset)
+async def upsert_asset(asset: Asset) -> Asset:
+    stored = await run_in_threadpool(store.add_asset, asset)
+    await live_hub.publish(
+        LiveMessageKind.ASSET_UPDATED,
+        asset.tenant_id,
+        asset.site_id,
+        {"asset": stored.model_dump(mode="json")},
+    )
+    return stored
 
 
 @app.post("/api/v1/incidents", response_model=Incident, status_code=201)
-def create_incident(incident: Incident) -> Incident:
-    return store.add_incident(incident)
+async def create_incident(incident: Incident) -> Incident:
+    stored = await run_in_threadpool(store.add_incident, incident)
+    await live_hub.publish(
+        LiveMessageKind.INCIDENT_UPDATED,
+        incident.tenant_id,
+        incident.site_id,
+        {"incident": stored.model_dump(mode="json")},
+    )
+    return stored
 
 
 @app.get("/api/v1/incidents", response_model=list[Incident])
@@ -116,24 +202,44 @@ def list_incidents(
 
 
 @app.post("/api/v1/enforcement-points", response_model=EnforcementPoint, status_code=201)
-def upsert_enforcement_point(point: EnforcementPoint) -> EnforcementPoint:
-    return store.add_enforcement_point(point)
+async def upsert_enforcement_point(point: EnforcementPoint) -> EnforcementPoint:
+    stored = await run_in_threadpool(store.add_enforcement_point, point)
+    await live_hub.publish(
+        LiveMessageKind.ENFORCEMENT_UPDATED,
+        point.tenant_id,
+        point.site_id,
+        {"enforcement_point": stored.model_dump(mode="json")},
+    )
+    return stored
 
 
 @app.post("/api/v1/enforcement-bindings", response_model=EnforcementBinding, status_code=201)
-def upsert_enforcement_binding(binding: EnforcementBinding) -> EnforcementBinding:
-    return store.add_enforcement_binding(binding)
+async def upsert_enforcement_binding(binding: EnforcementBinding) -> EnforcementBinding:
+    stored = await run_in_threadpool(store.add_enforcement_binding, binding)
+    await live_hub.publish(
+        LiveMessageKind.ENFORCEMENT_UPDATED,
+        binding.tenant_id,
+        binding.site_id,
+        {"enforcement_binding": stored.model_dump(mode="json")},
+    )
+    return stored
 
 
 @app.post("/api/v1/responses/plan", response_model=ResponsePlan)
-def plan_response(request: ResponseRequest) -> ResponsePlan:
-    incident = store.get_incident(request.tenant_id, request.site_id, request.incident_id)
+async def plan_response(request: ResponseRequest) -> ResponsePlan:
+    incident = await run_in_threadpool(
+        store.get_incident,
+        request.tenant_id,
+        request.site_id,
+        request.incident_id,
+    )
     if incident is None:
         raise HTTPException(status_code=404, detail="incident not found in tenant/site scope")
 
     asset = None
     if request.target.asset_id:
-        asset = store.get_asset(
+        asset = await run_in_threadpool(
+            store.get_asset,
             request.tenant_id,
             request.site_id,
             request.target.asset_id,
@@ -141,8 +247,13 @@ def plan_response(request: ResponseRequest) -> ResponsePlan:
         if asset is None:
             raise HTTPException(status_code=404, detail="asset not found in tenant/site scope")
 
-    points = store.list_enforcement_points(request.tenant_id, request.site_id)
-    bindings = store.list_enforcement_bindings(
+    points = await run_in_threadpool(
+        store.list_enforcement_points,
+        request.tenant_id,
+        request.site_id,
+    )
+    bindings = await run_in_threadpool(
+        store.list_enforcement_bindings,
         request.tenant_id,
         request.site_id,
         asset.asset_id if asset else None,
@@ -153,9 +264,16 @@ def plan_response(request: ResponseRequest) -> ResponsePlan:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     decision = evaluate_response(request, incident, selection.point, asset)
-    return ResponsePlan(
+    plan = ResponsePlan(
         request=request,
         decision=decision,
         enforcement_point=selection.point,
         selection_reasons=selection.reasons,
     )
+    await live_hub.publish(
+        LiveMessageKind.RESPONSE_PLANNED,
+        request.tenant_id,
+        request.site_id,
+        {"response_plan": plan.model_dump(mode="json")},
+    )
+    return plan
