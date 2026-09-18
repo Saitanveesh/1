@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { LiveClient, type LiveState } from "./live";
-import type { Asset, Finding, Incident, Severity } from "./types";
+import type {
+  Asset,
+  EnforcementBinding,
+  EnforcementPoint,
+  Finding,
+  Incident,
+  Severity
+} from "./types";
 import "./styles.css";
 
 type View =
@@ -168,6 +175,49 @@ function TelemetryPanel({ state }: { state: LiveState }) {
   );
 }
 
+function EnforcementTable({
+  points,
+  bindings
+}: {
+  points: EnforcementPoint[];
+  bindings: EnforcementBinding[];
+}) {
+  const bindingCounts = new Map<string, number>();
+  for (const binding of bindings) {
+    bindingCounts.set(
+      binding.enforcement_point_id,
+      (bindingCounts.get(binding.enforcement_point_id) ?? 0) + 1
+    );
+  }
+  const sorted = [...points].sort((a, b) =>
+    a.enforcement_point_id.localeCompare(b.enforcement_point_id)
+  );
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>POINT</th><th>KIND</th><th>VENDOR</th><th>HEALTH</th><th>CAPABILITIES</th><th>BOUND ASSETS</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((point) => (
+            <tr key={point.enforcement_point_id}>
+              <td><strong>{point.enforcement_point_id}</strong></td>
+              <td>{point.kind}</td>
+              <td>{point.vendor}</td>
+              <td>{point.health}</td>
+              <td>{point.capabilities.join(", ") || "—"}</td>
+              <td>{bindingCounts.get(point.enforcement_point_id) ?? 0}</td>
+            </tr>
+          ))}
+          {!points.length && <tr><td colSpan={6} className="empty">No enforcement points registered for this site.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function AttackGraph({ state }: { state: LiveState }) {
   const nodes = state.graph.nodes.slice(0, 18);
   const edges = state.graph.edges.slice(0, 30);
@@ -204,6 +254,8 @@ export default function App() {
     findings: [],
     incidents: [],
     assets: [],
+    enforcement_points: [],
+    enforcement_bindings: [],
     telemetry: {
       tenant_id: tenantId,
       site_id: siteId,
@@ -301,7 +353,8 @@ export default function App() {
         {view === "Attack Graph" && <AttackGraph state={state} />}
         {view === "Telemetry" && <TelemetryPanel state={state} />}
         {view === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
-        {["Enforcement","Sites","System"].includes(view) && (
+        {view === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
+        {["Sites","System"].includes(view) && (
           <section className="panel full placeholder">
             <span className="eyebrow">MODULE FOUNDATION</span>
             <h2>{view}</h2>

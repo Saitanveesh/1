@@ -47,6 +47,29 @@ export interface TelemetrySnapshot {
   source_counts: Record<string, number>;
 }
 
+export interface EnforcementPoint {
+  enforcement_point_id: string;
+  tenant_id: string;
+  site_id: string;
+  kind: string;
+  vendor: string;
+  capabilities: string[];
+  health: string;
+  priority: number;
+  attributes: Record<string, unknown>;
+}
+
+export interface EnforcementBinding {
+  binding_id: string;
+  tenant_id: string;
+  site_id: string;
+  asset_id: string;
+  enforcement_point_id: string;
+  distance: number;
+  priority_bias: number;
+  attributes: Record<string, unknown>;
+}
+
 export interface Incident {
   incident_id: string;
   tenant_id: string;
@@ -105,6 +128,8 @@ export interface LiveSnapshot {
   incidents: Incident[];
   assets: Asset[];
   telemetry: TelemetrySnapshot;
+  enforcement_points: EnforcementPoint[];
+  enforcement_bindings: EnforcementBinding[];
   graph: GraphSnapshot;
 }
 
