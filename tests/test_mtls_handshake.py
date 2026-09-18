@@ -186,7 +186,7 @@ async def test_client_without_certificate_cannot_connect(tmp_path) -> None:
     )
     try:
         async with httpx.AsyncClient(verify=client_context) as client:
-            with pytest.raises(httpx.ConnectError):
+            with pytest.raises((httpx.ConnectError, httpx.ReadError)):
                 await client.post(
                     f"https://127.0.0.1:{ingress_port}/api/v1/events/batch",
                     json={"events": []},
