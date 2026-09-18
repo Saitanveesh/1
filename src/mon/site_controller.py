@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -206,7 +205,7 @@ class SiteController:
         event_ids = {event.event_id for event in events}
         try:
             accepted = await self.sender.send_batch(events)
-        except (httpx.HTTPError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
             self.spool.mark_failed(event_ids, str(exc))
             return {
                 "state": "DEGRADED",
