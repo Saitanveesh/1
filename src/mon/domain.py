@@ -81,6 +81,18 @@ class ActorType(StrEnum):
     OPERATOR = "OPERATOR"
 
 
+class GraphNodeKind(StrEnum):
+    ASSET = "ASSET"
+    INTERNAL_IP = "INTERNAL_IP"
+    EXTERNAL_IP = "EXTERNAL_IP"
+
+
+class GraphRelation(StrEnum):
+    NETWORK_COMMUNICATION = "NETWORK_COMMUNICATION"
+    ADMIN_SERVICE = "ADMIN_SERVICE"
+    DNS_QUERY = "DNS_QUERY"
+
+
 class EvidenceRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -136,6 +148,11 @@ class Incident(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence: list[EvidenceRef] = Field(default_factory=list)
     affected_asset_ids: set[str] = Field(default_factory=set)
+    finding_ids: set[str] = Field(default_factory=set)
+    detector_ids: set[str] = Field(default_factory=set)
+    entities: set[str] = Field(default_factory=set)
+    first_seen: dt.datetime = Field(default_factory=utcnow)
+    last_seen: dt.datetime = Field(default_factory=utcnow)
     created_at: dt.datetime = Field(default_factory=utcnow)
     updated_at: dt.datetime = Field(default_factory=utcnow)
 
@@ -157,6 +174,47 @@ class Finding(BaseModel):
     first_seen: dt.datetime = Field(default_factory=utcnow)
     last_seen: dt.datetime = Field(default_factory=utcnow)
     attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttackGraphNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str = Field(min_length=1, max_length=512)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    kind: GraphNodeKind
+    label: str = Field(min_length=1, max_length=512)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttackGraphEdge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    edge_id: str = Field(min_length=1, max_length=1500)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    src_node_id: str = Field(min_length=1, max_length=512)
+    dst_node_id: str = Field(min_length=1, max_length=512)
+    relation: GraphRelation
+    protocol: str | None = Field(default=None, max_length=64)
+    dst_port: int | None = Field(default=None, ge=0, le=65535)
+    first_seen: dt.datetime
+    last_seen: dt.datetime
+    event_count: int = Field(default=1, ge=1)
+    event_ids: set[str] = Field(default_factory=set)
+    finding_ids: set[str] = Field(default_factory=set)
+    detector_ids: set[str] = Field(default_factory=set)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttackGraphSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str
+    site_id: str
+    nodes: list[AttackGraphNode] = Field(default_factory=list)
+    edges: list[AttackGraphEdge] = Field(default_factory=list)
+    generated_at: dt.datetime = Field(default_factory=utcnow)
 
 
 class EnforcementPoint(BaseModel):

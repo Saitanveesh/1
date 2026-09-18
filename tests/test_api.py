@@ -1,12 +1,15 @@
 from fastapi.testclient import TestClient
 
-from mon.api import app, store
+from mon.api import app, correlator, detector, graph, store
 
 client = TestClient(app)
 
 
 def setup_function() -> None:
     store.__init__()
+    detector.reset()
+    graph.reset()
+    correlator.reset()
 
 
 def test_health() -> None:
