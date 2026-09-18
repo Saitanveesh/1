@@ -1,6 +1,7 @@
 import { fetchSnapshot, liveWebSocketUrl } from "./api";
 import type {
   Asset,
+  AuditRecord,
   EnforcementBinding,
   EnforcementPoint,
   Finding,
