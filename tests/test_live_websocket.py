@@ -2,7 +2,6 @@ from fastapi.testclient import TestClient
 
 from mon.api import app, live_hub, pipeline
 
-
 client = TestClient(app)
 
 
