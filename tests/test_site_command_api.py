@@ -1,3 +1,5 @@
+import datetime as dt
+
 from fastapi.testclient import TestClient
 
 from mon.api import app, site_command_queue, store
@@ -13,7 +15,6 @@ from mon.domain import (
     ResponseTarget,
 )
 from mon.site_command_models import SiteCommand, SiteCommandKind
-
 
 client = TestClient(app)
 
@@ -39,7 +40,6 @@ def test_site_controller_can_pull_only_its_scoped_commands() -> None:
         vendor="test",
         capabilities={ActionType.BLOCK_IP},
     )
-    import datetime as dt
     now = dt.datetime.now(dt.UTC)
     site_command_queue.enqueue(
         SiteCommand(
