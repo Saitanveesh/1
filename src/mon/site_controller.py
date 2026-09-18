@@ -11,6 +11,7 @@ import httpx
 
 from mon.domain import EventBatch, EventProcessingResult, SecurityEvent
 from mon.pipeline import SecurityPipeline
+from mon.recovery import RecoveryEngine
 
 
 class SiteScopeViolation(ValueError):
@@ -191,12 +192,14 @@ class SiteController:
         spool: SQLiteEventSpool,
         sender: EventBatchSender | None = None,
         pipeline: SecurityPipeline | None = None,
+        recovery_engine: RecoveryEngine | None = None,
     ) -> None:
         self.tenant_id = tenant_id
         self.site_id = site_id
         self.spool = spool
         self.sender = sender
         self.pipeline = pipeline or SecurityPipeline()
+        self.recovery_engine = recovery_engine
 
     def ingest(self, event: SecurityEvent) -> EventProcessingResult:
         if event.tenant_id != self.tenant_id or event.site_id != self.site_id:
@@ -245,6 +248,34 @@ class SiteController:
             "unacknowledged": len(missing_ids),
         }
 
+    async def recover_expired_responses(
+        self,
+        *,
+        now: dt.datetime | None = None,
+    ) -> dict[str, object]:
+        if self.recovery_engine is None:
+            return {
+                "state": "DISABLED",
+                "attempted": 0,
+                "rolled_back": 0,
+                "failed": 0,
+            }
+
+        sweep = await self.recovery_engine.sweep_scope(
+            self.tenant_id,
+            self.site_id,
+            now=now,
+        )
+        return {
+            "state": "RECOVERED" if not sweep.failed else "DEGRADED",
+            "attempted": sweep.attempted,
+            "rolled_back": len(sweep.rolled_back),
+            "failed": len(sweep.failed),
+            "rolled_back_execution_ids": list(sweep.rolled_back),
+            "failed_execution_ids": list(sweep.failed),
+            "errors": sweep.errors,
+        }
+
     def status(self) -> dict[str, object]:
         diagnostics = self.spool.diagnostics()
         return {
@@ -252,6 +283,7 @@ class SiteController:
             "tenant_id": self.tenant_id,
             "site_id": self.site_id,
             "cloud_sender_configured": self.sender is not None,
+            "local_recovery_configured": self.recovery_engine is not None,
             "spool": diagnostics,
             "local_incidents": len(
                 self.pipeline.store.list_incidents(self.tenant_id, self.site_id)

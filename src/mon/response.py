@@ -301,7 +301,10 @@ class ResponseOrchestrator:
 
         if execution.status is ResponseExecutionStatus.ROLLED_BACK:
             return execution
-        if execution.status is not ResponseExecutionStatus.APPLIED:
+        if execution.status not in {
+            ResponseExecutionStatus.APPLIED,
+            ResponseExecutionStatus.ROLLBACK_FAILED,
+        }:
             raise ResponseStateError(
                 f"response execution cannot be rolled back from {execution.status.value}"
             )
