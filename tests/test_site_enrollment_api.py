@@ -10,7 +10,6 @@ import mon.api as api_module
 from mon.api import app, pipeline, store
 from mon.site_identity import CertificateAuthority, generate_site_key_and_csr
 
-
 client = TestClient(app)
 
 
