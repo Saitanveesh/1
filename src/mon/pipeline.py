@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from mon.asset_engine import AssetEngine
 from mon.attack_graph import AttackGraphEngine
 from mon.correlation import CorrelationEngine
 from mon.detection import DetectionEngine
 from mon.domain import EventProcessingResult, SecurityEvent
 from mon.store import InMemoryStore, Store
+from mon.telemetry import TelemetryEngine
 
 
 class SecurityPipeline:
@@ -16,11 +18,14 @@ class SecurityPipeline:
         detector: DetectionEngine | None = None,
         graph: AttackGraphEngine | None = None,
         correlator: CorrelationEngine | None = None,
+        telemetry: TelemetryEngine | None = None,
     ) -> None:
         self.store = store or InMemoryStore()
         self.detector = detector or DetectionEngine()
         self.graph = graph or AttackGraphEngine()
         self.correlator = correlator or CorrelationEngine()
+        self.asset_engine = AssetEngine(self.store)
+        self.telemetry = telemetry or TelemetryEngine()
 
     def reset(self) -> None:
         if isinstance(self.store, InMemoryStore):
@@ -28,12 +33,15 @@ class SecurityPipeline:
         self.detector.reset()
         self.graph.reset()
         self.correlator.reset()
+        self.telemetry.reset()
 
     def process_event(self, event: SecurityEvent) -> EventProcessingResult:
         if self.store.event_exists(event.tenant_id, event.site_id, event.event_id):
             return EventProcessingResult(event=event, duplicate=True)
 
         stored = self.store.add_event(event)
+        asset = self.asset_engine.observe(event)
+        telemetry = self.telemetry.observe(event)
         self.graph.observe_event(event)
         findings = self.detector.process(event)
         incidents = []
@@ -44,6 +52,8 @@ class SecurityPipeline:
 
         return EventProcessingResult(
             event=stored,
+            asset_updates=[asset] if asset is not None else [],
+            telemetry=telemetry,
             findings=findings,
             incidents=incidents,
             duplicate=False,

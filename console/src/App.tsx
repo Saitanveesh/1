@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { LiveClient, type LiveState } from "./live";
-import type { Finding, Incident, Severity } from "./types";
+import type { Asset, Finding, Incident, Severity } from "./types";
 import "./styles.css";
 
 type View =
   | "Overview"
   | "Incidents"
   | "Attack Graph"
+  | "Telemetry"
   | "Assets"
   | "Enforcement"
   | "Sites"
@@ -16,6 +17,7 @@ const views: View[] = [
   "Overview",
   "Incidents",
   "Attack Graph",
+  "Telemetry",
   "Assets",
   "Enforcement",
   "Sites",
@@ -112,6 +114,60 @@ function FindingTable({ findings }: { findings: Finding[] }) {
   );
 }
 
+function AssetTable({ assets }: { assets: Asset[] }) {
+  const sorted = [...assets].sort((a, b) => b.last_seen.localeCompare(a.last_seen));
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ASSET</th><th>IP</th><th>MAC</th><th>VENDOR</th><th>SERVICES</th><th>EVIDENCE</th><th>LAST</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((asset) => (
+            <tr key={asset.asset_id}>
+              <td><strong>{asset.display_name}</strong><br /><span className="subtle">{asset.asset_id}</span></td>
+              <td>{asset.ip_addresses.join(", ") || "—"}</td>
+              <td>{asset.mac_addresses.join(", ") || "—"}</td>
+              <td>{asset.vendor ?? "—"}</td>
+              <td>{asset.observed_tcp_services.join(", ") || "—"}</td>
+              <td>{asset.identity_evidence.slice(0, 3).join(", ") || "—"}</td>
+              <td>{new Date(asset.last_seen).toLocaleTimeString()}</td>
+            </tr>
+          ))}
+          {!assets.length && <tr><td colSpan={7} className="empty">No evidence-backed assets observed yet.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TelemetryPanel({ state }: { state: LiveState }) {
+  const telemetry = state.telemetry;
+  const protocols = Object.entries(telemetry.protocol_counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12);
+  return (
+    <section className="panel full">
+      <div className="panel-head">
+        <div><span className="eyebrow">60 SECOND WINDOW</span><h2>Observed telemetry</h2></div>
+        <span className="mono">MEASURED VALUES ONLY</span>
+      </div>
+      <div className="telemetry-grid">
+        <Metric label="OBSERVATIONS" value={String(telemetry.observation_count)} note="security events, not packet count" />
+        <Metric label="EVENT RATE" value={telemetry.events_per_second == null ? "—" : `${telemetry.events_per_second}/s`} note="shown after ≥1s measurement span" />
+        <Metric label="MEASURED PACKETS" value={telemetry.measured_packets == null ? "—" : String(telemetry.measured_packets)} note="null when sensor did not provide packet counts" />
+        <Metric label="MEASURED BYTES/S" value={telemetry.measured_bytes_per_second == null ? "—" : String(Math.round(telemetry.measured_bytes_per_second))} note="sum of supplied byte measurements / span" />
+      </div>
+      <div className="protocol-list">
+        {protocols.map(([protocol, count]) => <div key={protocol}><span>{protocol}</span><b>{count}</b></div>)}
+        {!protocols.length && <div className="empty">No protocol observations yet.</div>}
+      </div>
+    </section>
+  );
+}
+
 function AttackGraph({ state }: { state: LiveState }) {
   const nodes = state.graph.nodes.slice(0, 18);
   const edges = state.graph.edges.slice(0, 30);
@@ -147,6 +203,18 @@ export default function App() {
     sequence: 0,
     findings: [],
     incidents: [],
+    assets: [],
+    telemetry: {
+      tenant_id: tenantId,
+      site_id: siteId,
+      window_seconds: 60,
+      observed_at: new Date(0).toISOString(),
+      observation_count: 0,
+      unique_src_ips: 0,
+      unique_dst_ips: 0,
+      protocol_counts: {},
+      source_counts: {}
+    },
     graph: { tenant_id: tenantId, site_id: siteId, nodes: [], edges: [] },
     connection: "CONNECTING",
     droppedMessages: 0
@@ -209,11 +277,11 @@ export default function App() {
         {view === "Overview" && (
           <>
             <section className="metric-grid">
-              <Metric label="NETWORK HEALTH" value={state.connection === "LIVE" ? "ONLINE" : state.connection} note="control-plane live channel" progress={state.connection === "LIVE" ? 100 : 25} />
+              <Metric label="CONTROL PLANE LINK" value={state.connection === "LIVE" ? "ONLINE" : state.connection} note="authenticated WebSocket transport" progress={state.connection === "LIVE" ? 100 : 25} />
               <Metric label="ATTACK PRESSURE" value={String(Math.round(metrics.attackPressure))} note="derived from active incident severity × confidence" progress={metrics.attackPressure} />
               <Metric label="HIGHEST SEVERITY" value={metrics.highest} note={`${metrics.active.length} active incidents`} />
               <Metric label="CRITICAL INCIDENTS" value={String(metrics.critical)} note="requires operator attention" />
-              <Metric label="GRAPH COVERAGE" value={String(state.graph.nodes.length)} note={`${state.graph.edges.length} observed relationships`} />
+              <Metric label="ASSETS OBSERVED" value={String(state.assets.length)} note="evidence-backed identities in current site" />
               <Metric label="DROPPED LIVE MSG" value={String(state.droppedMessages)} note="slow-client backpressure counter" />
             </section>
             <section className="split">
@@ -231,7 +299,9 @@ export default function App() {
 
         {view === "Incidents" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CASE QUEUE</span><h2>Incident lifecycle</h2></div></div><IncidentTable incidents={state.incidents} /></section>}
         {view === "Attack Graph" && <AttackGraph state={state} />}
-        {["Assets","Enforcement","Sites","System"].includes(view) && (
+        {view === "Telemetry" && <TelemetryPanel state={state} />}
+        {view === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
+        {["Enforcement","Sites","System"].includes(view) && (
           <section className="panel full placeholder">
             <span className="eyebrow">MODULE FOUNDATION</span>
             <h2>{view}</h2>

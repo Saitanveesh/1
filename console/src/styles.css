@@ -87,3 +87,11 @@ tbody tr:hover td { background: #111; color: #fff; }
   .metric:nth-child(3) { border-right: 0; }
   .metric:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
 }
+
+.subtle { color: #666; font-size: 9px; font-family: ui-monospace, monospace; }
+.telemetry-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
+.telemetry-grid .metric { border-bottom: 0; }
+.protocol-list { display: grid; grid-template-columns: repeat(4, 1fr); padding: 14px; gap: 6px; }
+.protocol-list > div { border: 1px solid #222; min-height: 40px; padding: 10px; display: flex; justify-content: space-between; font-family: ui-monospace, monospace; font-size: 11px; }
+.protocol-list span { color: #aaa; }
+.protocol-list b { font-weight: 500; color: #fff; }

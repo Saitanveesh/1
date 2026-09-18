@@ -145,8 +145,38 @@ class Asset(BaseModel):
     criticality: AssetCriticality = AssetCriticality.NORMAL
     ip_addresses: set[str] = Field(default_factory=set)
     mac_addresses: set[str] = Field(default_factory=set)
+    hostnames: set[str] = Field(default_factory=set)
+    vendor: str | None = Field(default=None, max_length=256)
+    observed_tcp_services: set[int] = Field(default_factory=set)
+    peer_counts: dict[str, int] = Field(default_factory=dict)
+    protocol_counts: dict[str, int] = Field(default_factory=dict)
+    identity_evidence: set[str] = Field(default_factory=set)
+    measured_packets: int | None = Field(default=None, ge=0)
+    measured_bytes: int | None = Field(default=None, ge=0)
+    first_seen: dt.datetime = Field(default_factory=utcnow)
+    last_seen: dt.datetime = Field(default_factory=utcnow)
     tags: set[str] = Field(default_factory=set)
     attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class TelemetrySnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    window_seconds: int = Field(default=60, ge=1)
+    observed_at: dt.datetime = Field(default_factory=utcnow)
+    observation_count: int = Field(default=0, ge=0)
+    measurement_span_seconds: float | None = Field(default=None, ge=0)
+    events_per_second: float | None = Field(default=None, ge=0)
+    measured_packets: int | None = Field(default=None, ge=0)
+    measured_bytes: int | None = Field(default=None, ge=0)
+    measured_packets_per_second: float | None = Field(default=None, ge=0)
+    measured_bytes_per_second: float | None = Field(default=None, ge=0)
+    unique_src_ips: int = Field(default=0, ge=0)
+    unique_dst_ips: int = Field(default=0, ge=0)
+    protocol_counts: dict[str, int] = Field(default_factory=dict)
+    source_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class Incident(BaseModel):
@@ -330,6 +360,8 @@ class EventProcessingResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event: SecurityEvent
+    asset_updates: list[Asset] = Field(default_factory=list)
+    telemetry: TelemetrySnapshot | None = None
     findings: list[Finding] = Field(default_factory=list)
     incidents: list[Incident] = Field(default_factory=list)
     duplicate: bool = False

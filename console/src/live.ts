@@ -1,5 +1,12 @@
 import { fetchSnapshot, liveWebSocketUrl } from "./api";
-import type { Incident, Finding, LiveEnvelope, LiveSnapshot } from "./types";
+import type {
+  Asset,
+  Finding,
+  Incident,
+  LiveEnvelope,
+  LiveSnapshot,
+  TelemetrySnapshot
+} from "./types";
 
 export type ConnectionState = "CONNECTING" | "LIVE" | "RECOVERING" | "OFFLINE";
 
@@ -26,6 +33,18 @@ export class LiveClient {
       sequence: 0,
       findings: [],
       incidents: [],
+      assets: [],
+      telemetry: {
+        tenant_id: tenantId,
+        site_id: siteId,
+        window_seconds: 60,
+        observed_at: new Date(0).toISOString(),
+        observation_count: 0,
+        unique_src_ips: 0,
+        unique_dst_ips: 0,
+        protocol_counts: {},
+        source_counts: {}
+      },
       graph: { tenant_id: tenantId, site_id: siteId, nodes: [], edges: [] },
       connection: "CONNECTING",
       droppedMessages: 0
@@ -107,7 +126,12 @@ export class LiveClient {
 
     if (envelope.kind === "event.processed") {
       const result = envelope.payload.result as
-        | { findings?: Finding[]; incidents?: Incident[] }
+        | {
+            findings?: Finding[];
+            incidents?: Incident[];
+            asset_updates?: Asset[];
+            telemetry?: TelemetrySnapshot;
+          }
         | undefined;
       if (!result) {
         this.emit(common);
@@ -119,12 +143,30 @@ export class LiveClient {
         this.state.incidents.map((item) => [item.incident_id, item])
       );
       for (const item of result.incidents ?? []) incidentMap.set(item.incident_id, item);
+      const assetMap = new Map(
+        this.state.assets.map((item) => [item.asset_id, item])
+      );
+      for (const item of result.asset_updates ?? []) assetMap.set(item.asset_id, item);
       this.emit({
         ...common,
         findings: [...findingMap.values()],
-        incidents: [...incidentMap.values()]
+        incidents: [...incidentMap.values()],
+        assets: [...assetMap.values()],
+        telemetry: result.telemetry ?? this.state.telemetry
       });
       return;
+    }
+
+    if (envelope.kind === "asset.updated") {
+      const asset = envelope.payload.asset as Asset | undefined;
+      if (asset) {
+        const assetMap = new Map(
+          this.state.assets.map((item) => [item.asset_id, item])
+        );
+        assetMap.set(asset.asset_id, asset);
+        this.emit({ ...common, assets: [...assetMap.values()] });
+        return;
+      }
     }
 
     if (envelope.kind === "incident.updated") {
