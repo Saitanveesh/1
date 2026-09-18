@@ -287,6 +287,32 @@ class EnforcementBinding(BaseModel):
     attributes: dict[str, Any] = Field(default_factory=dict)
 
 
+class ContainmentCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: str = Field(min_length=1, max_length=256)
+    binding_id: str = Field(min_length=1, max_length=256)
+    enforcement_point_id: str = Field(min_length=1, max_length=256)
+    kind: EnforcementKind
+    vendor: str = Field(min_length=1, max_length=128)
+    health: EnforcementHealth
+    capabilities: set[ActionType]
+    distance: int = Field(ge=0, le=100)
+    blast_radius_estimate: str | None = Field(default=None, max_length=500)
+    notes: list[str] = Field(default_factory=list)
+
+
+class IncidentInvestigation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    incident: Incident
+    findings: list[Finding] = Field(default_factory=list)
+    affected_assets: list[Asset] = Field(default_factory=list)
+    graph: AttackGraphSnapshot
+    containment_capabilities: list[ContainmentCapability] = Field(default_factory=list)
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+
+
 class ResponseTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

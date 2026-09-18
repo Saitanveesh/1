@@ -1,6 +1,8 @@
 import { fetchSnapshot, liveWebSocketUrl } from "./api";
 import type {
   Asset,
+  EnforcementBinding,
+  EnforcementPoint,
   Finding,
   Incident,
   LiveEnvelope,
@@ -34,6 +36,8 @@ export class LiveClient {
       findings: [],
       incidents: [],
       assets: [],
+      enforcement_points: [],
+      enforcement_bindings: [],
       telemetry: {
         tenant_id: tenantId,
         site_id: siteId,
@@ -153,6 +157,35 @@ export class LiveClient {
         incidents: [...incidentMap.values()],
         assets: [...assetMap.values()],
         telemetry: result.telemetry ?? this.state.telemetry
+      });
+      return;
+    }
+
+    if (envelope.kind === "enforcement.updated") {
+      const point = envelope.payload.enforcement_point as
+        | EnforcementPoint
+        | undefined;
+      const binding = envelope.payload.enforcement_binding as
+        | EnforcementBinding
+        | undefined;
+
+      const pointMap = new Map(
+        this.state.enforcement_points.map((item) => [
+          item.enforcement_point_id,
+          item
+        ])
+      );
+      if (point) pointMap.set(point.enforcement_point_id, point);
+
+      const bindingMap = new Map(
+        this.state.enforcement_bindings.map((item) => [item.binding_id, item])
+      );
+      if (binding) bindingMap.set(binding.binding_id, binding);
+
+      this.emit({
+        ...common,
+        enforcement_points: [...pointMap.values()],
+        enforcement_bindings: [...bindingMap.values()]
       });
       return;
     }

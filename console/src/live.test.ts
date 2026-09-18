@@ -10,6 +10,8 @@ describe("live snapshot contract", () => {
       findings: [],
       incidents: [],
       assets: [],
+      enforcement_points: [],
+      enforcement_bindings: [],
       telemetry: {
         tenant_id: "tenant-a",
         site_id: "site-1",

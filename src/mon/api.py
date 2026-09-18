@@ -28,11 +28,13 @@ from mon.domain import (
     EventProcessingResult,
     Finding,
     Incident,
+    IncidentInvestigation,
     ResponsePlan,
     ResponseRequest,
     SecurityEvent,
 )
 from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
+from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
 from mon.policy import evaluate_response
@@ -185,6 +187,17 @@ async def live_snapshot(
     assets = await run_in_threadpool(store.list_assets, tenant_id, site_id)
     snapshot = await run_in_threadpool(graph.snapshot, tenant_id, site_id)
     telemetry = await run_in_threadpool(pipeline.telemetry.snapshot, tenant_id, site_id)
+    enforcement_points = await run_in_threadpool(
+        store.list_enforcement_points,
+        tenant_id,
+        site_id,
+    )
+    enforcement_bindings = await run_in_threadpool(
+        store.list_enforcement_bindings,
+        tenant_id,
+        site_id,
+        None,
+    )
     sequence = await live_hub.current_sequence(tenant_id, site_id)
 
     return {
@@ -195,6 +208,12 @@ async def live_snapshot(
         "incidents": [item.model_dump(mode="json") for item in incidents],
         "assets": [item.model_dump(mode="json") for item in assets],
         "telemetry": telemetry.model_dump(mode="json"),
+        "enforcement_points": [
+            item.model_dump(mode="json") for item in enforcement_points
+        ],
+        "enforcement_bindings": [
+            item.model_dump(mode="json") for item in enforcement_bindings
+        ],
         "graph": snapshot.model_dump(mode="json"),
     }
 
@@ -217,6 +236,23 @@ def get_attack_graph(
 ) -> AttackGraphSnapshot:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return graph.snapshot(tenant_id, site_id)
+
+
+@app.get(
+    "/api/v1/incidents/{incident_id}/investigation",
+    response_model=IncidentInvestigation,
+)
+def get_incident_investigation(
+    incident_id: str,
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> IncidentInvestigation:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    incident = store.get_incident(tenant_id, site_id, incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found in tenant/site scope")
+    return build_incident_investigation(store, graph, incident)
 
 
 @app.get("/api/v1/incidents/{incident_id}/graph", response_model=AttackGraphSnapshot)
@@ -283,6 +319,27 @@ def list_incidents(
 ) -> list[Incident]:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return store.list_incidents(tenant_id, site_id)
+
+
+@app.get("/api/v1/enforcement-points", response_model=list[EnforcementPoint])
+def list_enforcement_points(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> list[EnforcementPoint]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_enforcement_points(tenant_id, site_id)
+
+
+@app.get("/api/v1/enforcement-bindings", response_model=list[EnforcementBinding])
+def list_enforcement_bindings(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    asset_id: str | None = Query(default=None),
+) -> list[EnforcementBinding]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_enforcement_bindings(tenant_id, site_id, asset_id)
 
 
 @app.post("/api/v1/enforcement-points", response_model=EnforcementPoint, status_code=201)
