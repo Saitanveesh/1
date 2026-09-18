@@ -36,6 +36,10 @@ def test_postgres_store_survives_new_repository_instance() -> None:
 
 
 
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
 def test_postgres_enrollment_token_is_consumed_once() -> None:
     url = os.environ["MON_TEST_DATABASE_URL"]
     token_hash = uuid.uuid4().hex + uuid.uuid4().hex

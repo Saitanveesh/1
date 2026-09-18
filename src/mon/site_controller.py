@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import sqlite3
+import ssl
 import threading
 from pathlib import Path
 from typing import Protocol
@@ -143,15 +144,30 @@ class SQLiteEventSpool:
 
 
 class HttpControlPlaneSender:
-    def __init__(self, base_url: str, timeout_seconds: float = 10.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = 10.0,
+        *,
+        bearer_token: str | None = None,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.bearer_token = bearer_token
+        self.ssl_context = ssl_context
 
     async def send_batch(self, events: list[SecurityEvent]) -> set[str]:
         batch = EventBatch(events=events)
+        headers = {}
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+
         async with httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout_seconds,
+            headers=headers,
+            verify=self.ssl_context if self.ssl_context is not None else True,
         ) as client:
             response = await client.post(
                 "/api/v1/events/batch",

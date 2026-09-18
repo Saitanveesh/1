@@ -36,6 +36,20 @@ from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
 from mon.policy import evaluate_response
+from mon.site_identity import (
+    EnrollmentDenied,
+    IdentityConfigurationError,
+    enroll_site,
+    get_certificate_authority,
+    issue_enrollment_token,
+)
+from mon.site_identity_models import (
+    EnrollmentTokenIssue,
+    EnrollmentTokenRequest,
+    SiteEnrollmentRequest,
+    SiteEnrollmentResult,
+    SiteIdentityRecord,
+)
 
 app = FastAPI(
     title="MON Security Fabric Control Plane",
@@ -355,3 +369,62 @@ async def plan_response(
         {"response_plan": plan.model_dump(mode="json")},
     )
     return plan
+
+
+@app.post(
+    "/api/v1/enrollment-tokens",
+    response_model=EnrollmentTokenIssue,
+    status_code=201,
+)
+def create_enrollment_token(
+    request: EnrollmentTokenRequest,
+    principal: CurrentPrincipal,
+) -> EnrollmentTokenIssue:
+    require_scope(
+        principal,
+        request.tenant_id,
+        request.site_id,
+        Permission.CONFIGURE,
+    )
+    return issue_enrollment_token(
+        store,
+        request.tenant_id,
+        request.site_id,
+        request.ttl_seconds,
+        principal.subject,
+    )
+
+
+@app.post(
+    "/api/v1/site-enrollment",
+    response_model=SiteEnrollmentResult,
+    status_code=201,
+)
+def complete_site_enrollment(
+    request: SiteEnrollmentRequest,
+) -> SiteEnrollmentResult:
+    try:
+        certificate_authority = get_certificate_authority()
+    except IdentityConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="site certificate authority is unavailable",
+        ) from exc
+
+    try:
+        return enroll_site(store, certificate_authority, request)
+    except EnrollmentDenied as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.get(
+    "/api/v1/site-identities",
+    response_model=list[SiteIdentityRecord],
+)
+def list_site_identities(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> list[SiteIdentityRecord]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_site_identities(tenant_id, site_id)
