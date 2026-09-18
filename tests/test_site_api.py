@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from mon.site_api import create_site_app
-from mon.site_controller import SQLiteEventSpool, SiteController
+from mon.site_controller import SiteController, SQLiteEventSpool
 
 
 def test_site_health_exposes_offline_queue_state(tmp_path) -> None:

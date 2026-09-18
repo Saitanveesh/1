@@ -3,7 +3,7 @@ import datetime as dt
 import pytest
 
 from mon.domain import SecurityEvent
-from mon.site_controller import SQLiteEventSpool, SiteController, SiteScopeViolation
+from mon.site_controller import SiteController, SiteScopeViolation, SQLiteEventSpool
 
 
 class AcceptingSender:
