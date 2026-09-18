@@ -12,6 +12,8 @@ import httpx
 from mon.domain import EventBatch, EventProcessingResult, SecurityEvent
 from mon.pipeline import SecurityPipeline
 from mon.recovery import RecoveryEngine
+from mon.site_command_client import SiteCommandClient
+from mon.site_response import SiteResponseExecutor
 
 
 class SiteScopeViolation(ValueError):
@@ -193,13 +195,21 @@ class SiteController:
         sender: EventBatchSender | None = None,
         pipeline: SecurityPipeline | None = None,
         recovery_engine: RecoveryEngine | None = None,
+        command_client: SiteCommandClient | None = None,
+        response_executor: SiteResponseExecutor | None = None,
     ) -> None:
         self.tenant_id = tenant_id
         self.site_id = site_id
         self.spool = spool
         self.sender = sender
         self.pipeline = pipeline or SecurityPipeline()
-        self.recovery_engine = recovery_engine
+        self.command_client = command_client
+        self.response_executor = response_executor
+        self.recovery_engine = recovery_engine or (
+            RecoveryEngine(response_executor.orchestrator)
+            if response_executor is not None
+            else None
+        )
 
     def ingest(self, event: SecurityEvent) -> EventProcessingResult:
         if event.tenant_id != self.tenant_id or event.site_id != self.site_id:
@@ -248,6 +258,48 @@ class SiteController:
             "unacknowledged": len(missing_ids),
         }
 
+    async def poll_commands(self, limit: int = 20) -> dict[str, object]:
+        if self.command_client is None or self.response_executor is None:
+            return {
+                "state": "DISABLED",
+                "attempted": 0,
+                "reported": 0,
+                "unreported": 0,
+            }
+
+        try:
+            commands = await self.command_client.pull_commands(limit=limit)
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+            return {
+                "state": "DEGRADED",
+                "attempted": 0,
+                "reported": 0,
+                "unreported": 0,
+                "error": str(exc)[:1000],
+            }
+
+        reported = 0
+        unreported = 0
+        failed = 0
+        for command in commands:
+            result = await self.response_executor.execute(command)
+            if not result.success:
+                failed += 1
+            try:
+                await self.command_client.submit_result(result)
+            except (httpx.HTTPError, OSError, RuntimeError, ValueError):
+                unreported += 1
+                continue
+            reported += 1
+
+        return {
+            "state": "SYNCED" if unreported == 0 else "DEGRADED",
+            "attempted": len(commands),
+            "reported": reported,
+            "unreported": unreported,
+            "failed": failed,
+        }
+
     async def recover_expired_responses(
         self,
         *,
@@ -284,6 +336,9 @@ class SiteController:
             "site_id": self.site_id,
             "cloud_sender_configured": self.sender is not None,
             "local_recovery_configured": self.recovery_engine is not None,
+            "command_channel_configured": (
+                self.command_client is not None and self.response_executor is not None
+            ),
             "spool": diagnostics,
             "local_incidents": len(
                 self.pipeline.store.list_incidents(self.tenant_id, self.site_id)

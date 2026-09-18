@@ -44,6 +44,8 @@ from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
 from mon.response import ResponseOrchestrator, ResponseStateError
+from mon.site_command_models import SiteCommand, SiteCommandRecord, SiteCommandResult
+from mon.site_command_queue import SiteCommandError, SiteCommandQueue
 from mon.site_identity import (
     EnrollmentDenied,
     IdentityConfigurationError,
@@ -77,6 +79,7 @@ pipeline = SecurityPipeline(
 live_hub = LiveEventHub()
 enforcement_registry = EnforcementRegistry()
 response_orchestrator = ResponseOrchestrator(store, enforcement_registry)
+site_command_queue = SiteCommandQueue(store)
 
 
 @app.get("/health")
@@ -547,6 +550,48 @@ def list_audit(
 ) -> list[AuditRecord]:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return store.list_audit_records(tenant_id, site_id)
+
+
+@app.get("/api/v1/site-commands", response_model=list[SiteCommandRecord])
+def list_site_command_records(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> list[SiteCommandRecord]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_site_commands(tenant_id, site_id)
+
+
+@app.get("/api/v1/site-commands/pending", response_model=list[SiteCommand])
+def pull_site_commands(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[SiteCommand]:
+    require_scope(principal, tenant_id, site_id, Permission.SITE_COMMAND)
+    return site_command_queue.pending(
+        tenant_id,
+        site_id,
+        limit=limit,
+    )
+
+
+@app.post("/api/v1/site-commands/results", response_model=SiteCommandRecord)
+def submit_site_command_result(
+    result: SiteCommandResult,
+    principal: CurrentPrincipal,
+) -> SiteCommandRecord:
+    require_scope(
+        principal,
+        result.tenant_id,
+        result.site_id,
+        Permission.SITE_COMMAND,
+    )
+    try:
+        return site_command_queue.complete(result)
+    except SiteCommandError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post(

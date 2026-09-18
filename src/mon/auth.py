@@ -27,6 +27,7 @@ class Permission(StrEnum):
     CONFIGURE = "configure"
     RESPOND = "respond"
     APPROVE_RESPONSE = "approve_response"
+    SITE_COMMAND = "site_command"
 
 
 _ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
@@ -36,6 +37,7 @@ _ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.CONFIGURE,
         Permission.RESPOND,
         Permission.APPROVE_RESPONSE,
+        Permission.SITE_COMMAND,
     },
     Role.TENANT_ADMIN: {
         Permission.VIEW,
@@ -45,7 +47,7 @@ _ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     },
     Role.SOC_ANALYST: {Permission.VIEW, Permission.RESPOND},
     Role.VIEWER: {Permission.VIEW},
-    Role.SITE_CONTROLLER: {Permission.INGEST},
+    Role.SITE_CONTROLLER: {Permission.INGEST, Permission.SITE_COMMAND},
 }
 
 
