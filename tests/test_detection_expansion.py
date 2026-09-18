@@ -18,7 +18,7 @@ def event(
         tenant_id="tenant-a",
         site_id="site-1",
         sensor_id="sensor",
-        observed_at=BASE + dt.timedelta(milliseconds=index * 40),
+        observed_at=BASE + dt.timedelta(milliseconds=index * 30),
         category=category,
         src_ip="10.0.0.17",
         dst_ip=dst,
