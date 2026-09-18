@@ -9,7 +9,7 @@ from mon.site_command_models import SiteCommandResult
 
 
 class SQLiteCommandResultOutbox:
-    """Durable site-side outbox for command results awaiting cloud acknowledgement."""
+    """Durable result outbox plus command receipt ledger for replay safety."""
 
     def __init__(self, path: str | Path, *, tenant_id: str, site_id: str) -> None:
         self.path = Path(path)
@@ -31,10 +31,21 @@ class SQLiteCommandResultOutbox:
                     payload TEXT NOT NULL,
                     attempts INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    reported_at TEXT
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(command_result_outbox)"
+                ).fetchall()
+            }
+            if "reported_at" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE command_result_outbox ADD COLUMN reported_at TEXT"
+                )
             self._connection.commit()
 
     def close(self) -> None:
@@ -85,7 +96,7 @@ class SQLiteCommandResultOutbox:
             rows = self._connection.execute(
                 """
                 SELECT payload FROM command_result_outbox
-                WHERE tenant_id = ? AND site_id = ?
+                WHERE tenant_id = ? AND site_id = ? AND reported_at IS NULL
                 ORDER BY created_at ASC
                 LIMIT ?
                 """,
@@ -97,10 +108,17 @@ class SQLiteCommandResultOutbox:
         with self._lock:
             cursor = self._connection.execute(
                 """
-                DELETE FROM command_result_outbox
+                UPDATE command_result_outbox
+                SET reported_at = ?, last_error = NULL
                 WHERE command_id = ? AND tenant_id = ? AND site_id = ?
+                  AND reported_at IS NULL
                 """,
-                (command_id, self.tenant_id, self.site_id),
+                (
+                    dt.datetime.now(dt.UTC).isoformat(),
+                    command_id,
+                    self.tenant_id,
+                    self.site_id,
+                ),
             )
             self._connection.commit()
             return cursor.rowcount == 1
@@ -112,6 +130,7 @@ class SQLiteCommandResultOutbox:
                 UPDATE command_result_outbox
                 SET attempts = attempts + 1, last_error = ?
                 WHERE command_id = ? AND tenant_id = ? AND site_id = ?
+                  AND reported_at IS NULL
                 """,
                 (error[:1000], command_id, self.tenant_id, self.site_id),
             )
@@ -122,16 +141,19 @@ class SQLiteCommandResultOutbox:
         with self._lock:
             row = self._connection.execute(
                 """
-                SELECT COUNT(*) AS queued,
-                       COALESCE(MAX(attempts), 0) AS max_attempts,
-                       MAX(last_error) AS last_error
+                SELECT
+                    SUM(CASE WHEN reported_at IS NULL THEN 1 ELSE 0 END) AS queued,
+                    COUNT(*) AS receipts,
+                    COALESCE(MAX(attempts), 0) AS max_attempts,
+                    MAX(last_error) AS last_error
                 FROM command_result_outbox
                 WHERE tenant_id = ? AND site_id = ?
                 """,
                 (self.tenant_id, self.site_id),
             ).fetchone()
         return {
-            "queued": int(row["queued"]) if row else 0,
+            "queued": int(row["queued"] or 0) if row else 0,
+            "receipts": int(row["receipts"]) if row else 0,
             "max_attempts": int(row["max_attempts"]) if row else 0,
             "last_error": row["last_error"] if row else None,
         }
