@@ -412,6 +412,26 @@ class ResponseApproval(BaseModel):
     approved_at: dt.datetime = Field(default_factory=utcnow)
 
 
+class ResponseExecutionCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request: ResponseRequest
+    approve: bool = False
+    approval_reason: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def require_reason_for_approval(self) -> ResponseExecutionCommand:
+        if self.approve and not self.approval_reason:
+            raise ValueError("approval_reason is required when approve=true")
+        return self
+
+
+class ResponseRollbackCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class ResponseExecution(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

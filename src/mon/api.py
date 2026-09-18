@@ -19,8 +19,10 @@ from mon.correlation import CorrelationEngine
 from mon.database import create_control_plane_store
 from mon.detection import DetectionEngine
 from mon.domain import (
+    ActorType,
     Asset,
     AttackGraphSnapshot,
+    AuditRecord,
     EnforcementBinding,
     EnforcementPoint,
     EventBatch,
@@ -29,15 +31,19 @@ from mon.domain import (
     Finding,
     Incident,
     IncidentInvestigation,
+    ResponseApproval,
+    ResponseExecution,
+    ResponseExecutionCommand,
     ResponsePlan,
     ResponseRequest,
+    ResponseRollbackCommand,
     SecurityEvent,
 )
-from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
+from mon.enforcement import EnforcementRegistry
 from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
-from mon.policy import evaluate_response
+from mon.response import ResponseOrchestrator, ResponseStateError
 from mon.site_identity import (
     EnrollmentDenied,
     IdentityConfigurationError,
@@ -69,6 +75,8 @@ pipeline = SecurityPipeline(
     correlator=correlator,
 )
 live_hub = LiveEventHub()
+enforcement_registry = EnforcementRegistry()
+response_orchestrator = ResponseOrchestrator(store, enforcement_registry)
 
 
 @app.get("/health")
@@ -198,6 +206,16 @@ async def live_snapshot(
         site_id,
         None,
     )
+    response_executions = await run_in_threadpool(
+        store.list_response_executions,
+        tenant_id,
+        site_id,
+    )
+    audit_records = await run_in_threadpool(
+        store.list_audit_records,
+        tenant_id,
+        site_id,
+    )
     sequence = await live_hub.current_sequence(tenant_id, site_id)
 
     return {
@@ -213,6 +231,12 @@ async def live_snapshot(
         ],
         "enforcement_bindings": [
             item.model_dump(mode="json") for item in enforcement_bindings
+        ],
+        "response_executions": [
+            item.model_dump(mode="json") for item in response_executions
+        ],
+        "audit_records": [
+            item.model_dump(mode="json") for item in audit_records
         ],
         "graph": snapshot.model_dump(mode="json"),
     }
@@ -390,49 +414,17 @@ async def plan_response(
         request.site_id,
         Permission.RESPOND,
     )
-    incident = await run_in_threadpool(
-        store.get_incident,
-        request.tenant_id,
-        request.site_id,
-        request.incident_id,
-    )
-    if incident is None:
-        raise HTTPException(status_code=404, detail="incident not found in tenant/site scope")
-
-    asset = None
-    if request.target.asset_id:
-        asset = await run_in_threadpool(
-            store.get_asset,
-            request.tenant_id,
-            request.site_id,
-            request.target.asset_id,
-        )
-        if asset is None:
-            raise HTTPException(status_code=404, detail="asset not found in tenant/site scope")
-
-    points = await run_in_threadpool(
-        store.list_enforcement_points,
-        request.tenant_id,
-        request.site_id,
-    )
-    bindings = await run_in_threadpool(
-        store.list_enforcement_bindings,
-        request.tenant_id,
-        request.site_id,
-        asset.asset_id if asset else None,
+    operator_request = request.model_copy(
+        update={
+            "actor_type": ActorType.OPERATOR,
+            "actor_id": principal.subject,
+        }
     )
     try:
-        selection = select_enforcement_point(request, points, bindings, asset)
-    except NoEnforcementPath as exc:
+        plan = await run_in_threadpool(response_orchestrator.plan, operator_request)
+    except ResponseStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    decision = evaluate_response(request, incident, selection.point, asset)
-    plan = ResponsePlan(
-        request=request,
-        decision=decision,
-        enforcement_point=selection.point,
-        selection_reasons=selection.reasons,
-    )
     await live_hub.publish(
         LiveMessageKind.RESPONSE_PLANNED,
         request.tenant_id,
@@ -440,6 +432,121 @@ async def plan_response(
         {"response_plan": plan.model_dump(mode="json")},
     )
     return plan
+
+
+async def _publish_response_execution(execution: ResponseExecution) -> None:
+    audit_records = await run_in_threadpool(
+        store.list_audit_records,
+        execution.tenant_id,
+        execution.site_id,
+    )
+    related_audit = [
+        item
+        for item in audit_records
+        if item.object_type == "response_execution"
+        and item.object_id == execution.execution_id
+    ]
+    await live_hub.publish(
+        LiveMessageKind.RESPONSE_EXECUTION_UPDATED,
+        execution.tenant_id,
+        execution.site_id,
+        {
+            "execution": execution.model_dump(mode="json"),
+            "audit_records": [
+                item.model_dump(mode="json") for item in related_audit
+            ],
+        },
+    )
+
+
+@app.post("/api/v1/responses/execute", response_model=ResponseExecution)
+async def execute_response(
+    command: ResponseExecutionCommand,
+    principal: CurrentPrincipal,
+) -> ResponseExecution:
+    request = command.request
+    require_scope(
+        principal,
+        request.tenant_id,
+        request.site_id,
+        Permission.RESPOND,
+    )
+    approval = None
+    if command.approve:
+        require_scope(
+            principal,
+            request.tenant_id,
+            request.site_id,
+            Permission.APPROVE_RESPONSE,
+        )
+        approval = ResponseApproval(
+            actor_id=principal.subject,
+            reason=command.approval_reason or "approved",
+        )
+
+    operator_request = request.model_copy(
+        update={
+            "actor_type": ActorType.OPERATOR,
+            "actor_id": principal.subject,
+        }
+    )
+    try:
+        execution = await response_orchestrator.execute(
+            operator_request,
+            approval=approval,
+        )
+    except ResponseStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    await _publish_response_execution(execution)
+    return execution
+
+
+@app.post(
+    "/api/v1/responses/{execution_id}/rollback",
+    response_model=ResponseExecution,
+)
+async def rollback_response(
+    execution_id: str,
+    command: ResponseRollbackCommand,
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> ResponseExecution:
+    require_scope(principal, tenant_id, site_id, Permission.RESPOND)
+    try:
+        execution = await response_orchestrator.rollback(
+            tenant_id,
+            site_id,
+            execution_id,
+            actor_id=principal.subject,
+            reason=command.reason,
+        )
+    except ResponseStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    await _publish_response_execution(execution)
+    return execution
+
+
+@app.get("/api/v1/responses", response_model=list[ResponseExecution])
+def list_responses(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> list[ResponseExecution]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_response_executions(tenant_id, site_id)
+
+
+@app.get("/api/v1/audit", response_model=list[AuditRecord])
+def list_audit(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> list[AuditRecord]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_audit_records(tenant_id, site_id)
 
 
 @app.post(

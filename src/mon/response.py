@@ -129,9 +129,24 @@ class ResponseOrchestrator:
             request.request_id,
         )
         if existing is not None:
-            return existing
+            if (
+                existing.status is ResponseExecutionStatus.PENDING_APPROVAL
+                and approval is not None
+            ):
+                plan = existing.plan
+                request = plan.request
+                self._audit(
+                    existing,
+                    "APPROVE",
+                    "APPROVED",
+                    actor_id=approval.actor_id,
+                    details={"reason": approval.reason},
+                )
+            else:
+                return existing
+        else:
+            plan = self.plan(request)
 
-        plan = self.plan(request)
         now = utcnow()
 
         if plan.decision.outcome is PolicyOutcome.DENY:
@@ -183,7 +198,7 @@ class ResponseOrchestrator:
             site_id=request.site_id,
             plan=plan,
             status=ResponseExecutionStatus.EXECUTING,
-            requested_at=now,
+            requested_at=existing.requested_at if existing is not None else now,
             approval=approval,
         )
         self.store.add_response_execution(execution)
@@ -274,6 +289,7 @@ class ResponseOrchestrator:
         execution_id: str,
         *,
         actor_id: str,
+        reason: str | None = None,
     ) -> ResponseExecution:
         execution = self.store.get_response_execution(
             tenant_id,
@@ -299,6 +315,7 @@ class ResponseOrchestrator:
             "ROLLBACK",
             "STARTED",
             actor_id=actor_id,
+            details={"reason": reason} if reason else None,
         )
 
         try:

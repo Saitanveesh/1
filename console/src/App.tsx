@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { LiveClient, type LiveState } from "./live";
 import type {
   Asset,
+  AuditRecord,
   EnforcementBinding,
   EnforcementPoint,
   Finding,
   Incident,
+  ResponseExecution,
   Severity
 } from "./types";
 import "./styles.css";
@@ -17,6 +19,8 @@ type View =
   | "Telemetry"
   | "Assets"
   | "Enforcement"
+  | "Response"
+  | "Audit"
   | "Sites"
   | "System";
 
@@ -27,6 +31,8 @@ const views: View[] = [
   "Telemetry",
   "Assets",
   "Enforcement",
+  "Response",
+  "Audit",
   "Sites",
   "System"
 ];
@@ -218,6 +224,62 @@ function EnforcementTable({
   );
 }
 
+function ResponseTable({ executions }: { executions: ResponseExecution[] }) {
+  const sorted = [...executions].sort((a, b) =>
+    b.requested_at.localeCompare(a.requested_at)
+  );
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>STATUS</th><th>ACTION</th><th>TARGET</th><th>ENFORCEMENT</th><th>POLICY</th><th>TTL</th><th>BLAST RADIUS</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((item) => (
+            <tr key={item.execution_id}>
+              <td><strong>{item.status}</strong></td>
+              <td>{item.plan.request.action}</td>
+              <td>{item.plan.request.target.asset_id ?? item.plan.request.target.ip_address ?? "—"}</td>
+              <td>{item.plan.enforcement_point.enforcement_point_id}</td>
+              <td>{item.plan.decision.outcome}</td>
+              <td>{item.plan.request.ttl_seconds == null ? "—" : `${item.plan.request.ttl_seconds}s`}</td>
+              <td>{item.plan.blast_radius_estimate ?? "UNKNOWN"}</td>
+            </tr>
+          ))}
+          {!executions.length && <tr><td colSpan={7} className="empty">No response executions recorded for this site.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AuditTable({ records }: { records: AuditRecord[] }) {
+  const sorted = [...records].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr><th>TIME</th><th>ACTOR</th><th>ACTION</th><th>OUTCOME</th><th>OBJECT</th></tr>
+        </thead>
+        <tbody>
+          {sorted.map((item) => (
+            <tr key={item.audit_id}>
+              <td>{new Date(item.occurred_at).toLocaleString()}</td>
+              <td>{item.actor_id}</td>
+              <td>{item.action}</td>
+              <td>{item.outcome}</td>
+              <td>{item.object_id}</td>
+            </tr>
+          ))}
+          {!records.length && <tr><td colSpan={5} className="empty">No audit records for this site.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function AttackGraph({ state }: { state: LiveState }) {
   const nodes = state.graph.nodes.slice(0, 18);
   const edges = state.graph.edges.slice(0, 30);
@@ -256,6 +318,8 @@ export default function App() {
     assets: [],
     enforcement_points: [],
     enforcement_bindings: [],
+    response_executions: [],
+    audit_records: [],
     telemetry: {
       tenant_id: tenantId,
       site_id: siteId,
@@ -354,6 +418,8 @@ export default function App() {
         {view === "Telemetry" && <TelemetryPanel state={state} />}
         {view === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
         {view === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
+        {view === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
+        {view === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
         {["Sites","System"].includes(view) && (
           <section className="panel full placeholder">
             <span className="eyebrow">MODULE FOUNDATION</span>

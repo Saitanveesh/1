@@ -20,6 +20,7 @@ class LiveMessageKind(StrEnum):
     INCIDENT_UPDATED = "incident.updated"
     ENFORCEMENT_UPDATED = "enforcement.updated"
     RESPONSE_PLANNED = "response.planned"
+    RESPONSE_EXECUTION_UPDATED = "response.execution.updated"
 
 
 class LiveEnvelope(BaseModel):

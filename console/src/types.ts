@@ -70,6 +70,45 @@ export interface EnforcementBinding {
   attributes: Record<string, unknown>;
 }
 
+export interface ResponseExecution {
+  execution_id: string;
+  tenant_id: string;
+  site_id: string;
+  status: string;
+  requested_at: string;
+  applied_at?: string;
+  expires_at?: string;
+  rollback_at?: string;
+  error?: string;
+  plan: {
+    request: {
+      incident_id: string;
+      action: string;
+      ttl_seconds?: number;
+      target: { asset_id?: string; ip_address?: string };
+    };
+    decision: { outcome: string; reasons: string[] };
+    enforcement_point: {
+      enforcement_point_id: string;
+      kind: string;
+      vendor: string;
+    };
+    blast_radius_estimate?: string;
+  };
+}
+
+export interface AuditRecord {
+  audit_id: string;
+  actor_id: string;
+  category: string;
+  object_type: string;
+  object_id: string;
+  action: string;
+  outcome: string;
+  occurred_at: string;
+  details: Record<string, unknown>;
+}
+
 export interface Incident {
   incident_id: string;
   tenant_id: string;
@@ -130,6 +169,8 @@ export interface LiveSnapshot {
   telemetry: TelemetrySnapshot;
   enforcement_points: EnforcementPoint[];
   enforcement_bindings: EnforcementBinding[];
+  response_executions: ResponseExecution[];
+  audit_records: AuditRecord[];
   graph: GraphSnapshot;
 }
 

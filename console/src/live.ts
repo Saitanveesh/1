@@ -1,12 +1,14 @@
 import { fetchSnapshot, liveWebSocketUrl } from "./api";
 import type {
   Asset,
+  AuditRecord,
   EnforcementBinding,
   EnforcementPoint,
   Finding,
   Incident,
   LiveEnvelope,
   LiveSnapshot,
+  ResponseExecution,
   TelemetrySnapshot
 } from "./types";
 
@@ -38,6 +40,8 @@ export class LiveClient {
       assets: [],
       enforcement_points: [],
       enforcement_bindings: [],
+      response_executions: [],
+      audit_records: [],
       telemetry: {
         tenant_id: tenantId,
         site_id: siteId,
@@ -157,6 +161,30 @@ export class LiveClient {
         incidents: [...incidentMap.values()],
         assets: [...assetMap.values()],
         telemetry: result.telemetry ?? this.state.telemetry
+      });
+      return;
+    }
+
+    if (envelope.kind === "response.execution.updated") {
+      const execution = envelope.payload.execution as
+        | ResponseExecution
+        | undefined;
+      const auditRecords = (envelope.payload.audit_records ?? []) as AuditRecord[];
+
+      const executionMap = new Map(
+        this.state.response_executions.map((item) => [item.execution_id, item])
+      );
+      if (execution) executionMap.set(execution.execution_id, execution);
+
+      const auditMap = new Map(
+        this.state.audit_records.map((item) => [item.audit_id, item])
+      );
+      for (const item of auditRecords) auditMap.set(item.audit_id, item);
+
+      this.emit({
+        ...common,
+        response_executions: [...executionMap.values()],
+        audit_records: [...auditMap.values()]
       });
       return;
     }

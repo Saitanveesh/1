@@ -12,6 +12,8 @@ describe("live snapshot contract", () => {
       assets: [],
       enforcement_points: [],
       enforcement_bindings: [],
+      response_executions: [],
+      audit_records: [],
       telemetry: {
         tenant_id: "tenant-a",
         site_id: "site-1",
