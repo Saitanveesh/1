@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Query
 from mon import __version__
 from mon.attack_graph import AttackGraphEngine
 from mon.correlation import CorrelationEngine
+from mon.database import create_control_plane_store
 from mon.detection import DetectionEngine
 from mon.domain import (
     Asset,
@@ -23,14 +24,13 @@ from mon.domain import (
 from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
 from mon.pipeline import SecurityPipeline
 from mon.policy import evaluate_response
-from mon.store import InMemoryStore
 
 app = FastAPI(
     title="MON Security Fabric Control Plane",
     version=__version__,
     description="Control-plane foundation for evidence-backed detection and safe response.",
 )
-store = InMemoryStore()
+store = create_control_plane_store()
 detector = DetectionEngine()
 graph = AttackGraphEngine()
 correlator = CorrelationEngine()

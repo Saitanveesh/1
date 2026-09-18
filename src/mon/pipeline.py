@@ -4,7 +4,7 @@ from mon.attack_graph import AttackGraphEngine
 from mon.correlation import CorrelationEngine
 from mon.detection import DetectionEngine
 from mon.domain import EventProcessingResult, SecurityEvent
-from mon.store import InMemoryStore
+from mon.store import InMemoryStore, Store
 
 
 class SecurityPipeline:
@@ -12,7 +12,7 @@ class SecurityPipeline:
 
     def __init__(
         self,
-        store: InMemoryStore | None = None,
+        store: Store | None = None,
         detector: DetectionEngine | None = None,
         graph: AttackGraphEngine | None = None,
         correlator: CorrelationEngine | None = None,
@@ -23,7 +23,8 @@ class SecurityPipeline:
         self.correlator = correlator or CorrelationEngine()
 
     def reset(self) -> None:
-        self.store.__init__()
+        if isinstance(self.store, InMemoryStore):
+            self.store.__init__()
         self.detector.reset()
         self.graph.reset()
         self.correlator.reset()
