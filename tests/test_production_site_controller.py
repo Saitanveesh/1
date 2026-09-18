@@ -11,6 +11,9 @@ from mon.site_controller import SQLiteEventSpool
 class FakeExecutor:
     def __init__(self) -> None:
         self.calls = 0
+        # SiteController derives its local recovery engine from the response
+        # executor's orchestrator. Keep the fake aligned with that contract.
+        self.orchestrator = object()
 
     async def execute(self, command: SiteCommand) -> SiteCommandResult:
         self.calls += 1
