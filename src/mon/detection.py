@@ -159,7 +159,10 @@ class DetectionEngine:
                         "ICMP host-discovery pattern",
                         Severity.MEDIUM,
                         0.78,
-                        f"{len(window)} ICMP echo requests reached {len(destinations)} hosts in 15s",
+                        (
+                            f"{len(window)} ICMP echo requests reached "
+                            f"{len(destinations)} hosts in 15s"
+                        ),
                         {
                             "window_seconds": 15,
                             "requests": len(window),
