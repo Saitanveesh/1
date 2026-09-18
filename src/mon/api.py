@@ -8,6 +8,13 @@ from starlette.concurrency import run_in_threadpool
 
 from mon import __version__
 from mon.attack_graph import AttackGraphEngine
+from mon.auth import (
+    CurrentPrincipal,
+    Permission,
+    Principal,
+    is_scope_authorized,
+    require_scope,
+)
 from mon.correlation import CorrelationEngine
 from mon.database import create_control_plane_store
 from mon.detection import DetectionEngine
@@ -58,12 +65,26 @@ def health() -> dict[str, str]:
     }
 
 
+@app.get("/api/v1/me", response_model=Principal)
+def who_am_i(principal: CurrentPrincipal) -> Principal:
+    return principal
+
+
 @app.post(
     "/api/v1/events",
     response_model=EventProcessingResult,
     status_code=201,
 )
-async def ingest_event(event: SecurityEvent) -> EventProcessingResult:
+async def ingest_event(
+    event: SecurityEvent,
+    principal: CurrentPrincipal,
+) -> EventProcessingResult:
+    require_scope(
+        principal,
+        event.tenant_id,
+        event.site_id,
+        Permission.INGEST,
+    )
     started = time.perf_counter()
     result = await run_in_threadpool(pipeline.process_event, event)
     processing_ms = (time.perf_counter() - started) * 1000
@@ -76,7 +97,18 @@ async def ingest_event(event: SecurityEvent) -> EventProcessingResult:
     response_model=EventBatchResult,
     status_code=201,
 )
-async def ingest_event_batch(batch: EventBatch) -> EventBatchResult:
+async def ingest_event_batch(
+    batch: EventBatch,
+    principal: CurrentPrincipal,
+) -> EventBatchResult:
+    first = batch.events[0]
+    require_scope(
+        principal,
+        first.tenant_id,
+        first.site_id,
+        Permission.INGEST,
+    )
+
     results: list[EventProcessingResult] = []
     for event in batch.events:
         started = time.perf_counter()
@@ -92,11 +124,17 @@ async def ingest_event_batch(batch: EventBatch) -> EventBatchResult:
 
 
 @app.websocket("/ws/v1/live")
-async def live_stream(websocket: WebSocket) -> None:
+async def live_stream(
+    websocket: WebSocket,
+    principal: CurrentPrincipal,
+) -> None:
     tenant_id = (websocket.query_params.get("tenant_id") or "").strip()
     site_id = (websocket.query_params.get("site_id") or "").strip()
     if not tenant_id or not site_id:
         await websocket.close(code=1008, reason="tenant_id and site_id are required")
+        return
+    if not is_scope_authorized(principal, tenant_id, site_id, Permission.VIEW):
+        await websocket.close(code=1008, reason="tenant/site access denied")
         return
 
     await websocket.accept()
@@ -123,9 +161,11 @@ async def live_stream(websocket: WebSocket) -> None:
 
 @app.get("/api/v1/live/snapshot")
 async def live_snapshot(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
 ) -> dict[str, object]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
     findings = await run_in_threadpool(store.list_findings, tenant_id, site_id)
     incidents = await run_in_threadpool(store.list_incidents, tenant_id, site_id)
     snapshot = await run_in_threadpool(graph.snapshot, tenant_id, site_id)
@@ -143,26 +183,32 @@ async def live_snapshot(
 
 @app.get("/api/v1/findings", response_model=list[Finding])
 def list_findings(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
 ) -> list[Finding]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return store.list_findings(tenant_id, site_id)
 
 
 @app.get("/api/v1/graph", response_model=AttackGraphSnapshot)
 def get_attack_graph(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
 ) -> AttackGraphSnapshot:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return graph.snapshot(tenant_id, site_id)
 
 
 @app.get("/api/v1/incidents/{incident_id}/graph", response_model=AttackGraphSnapshot)
 def get_incident_graph(
     incident_id: str,
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
 ) -> AttackGraphSnapshot:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
     incident = store.get_incident(tenant_id, site_id, incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail="incident not found in tenant/site scope")
@@ -170,7 +216,11 @@ def get_incident_graph(
 
 
 @app.post("/api/v1/assets", response_model=Asset, status_code=201)
-async def upsert_asset(asset: Asset) -> Asset:
+async def upsert_asset(
+    asset: Asset,
+    principal: CurrentPrincipal,
+) -> Asset:
+    require_scope(principal, asset.tenant_id, asset.site_id, Permission.CONFIGURE)
     stored = await run_in_threadpool(store.add_asset, asset)
     await live_hub.publish(
         LiveMessageKind.ASSET_UPDATED,
@@ -182,7 +232,11 @@ async def upsert_asset(asset: Asset) -> Asset:
 
 
 @app.post("/api/v1/incidents", response_model=Incident, status_code=201)
-async def create_incident(incident: Incident) -> Incident:
+async def create_incident(
+    incident: Incident,
+    principal: CurrentPrincipal,
+) -> Incident:
+    require_scope(principal, incident.tenant_id, incident.site_id, Permission.RESPOND)
     stored = await run_in_threadpool(store.add_incident, incident)
     await live_hub.publish(
         LiveMessageKind.INCIDENT_UPDATED,
@@ -195,14 +249,20 @@ async def create_incident(incident: Incident) -> Incident:
 
 @app.get("/api/v1/incidents", response_model=list[Incident])
 def list_incidents(
+    principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
 ) -> list[Incident]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return store.list_incidents(tenant_id, site_id)
 
 
 @app.post("/api/v1/enforcement-points", response_model=EnforcementPoint, status_code=201)
-async def upsert_enforcement_point(point: EnforcementPoint) -> EnforcementPoint:
+async def upsert_enforcement_point(
+    point: EnforcementPoint,
+    principal: CurrentPrincipal,
+) -> EnforcementPoint:
+    require_scope(principal, point.tenant_id, point.site_id, Permission.CONFIGURE)
     stored = await run_in_threadpool(store.add_enforcement_point, point)
     await live_hub.publish(
         LiveMessageKind.ENFORCEMENT_UPDATED,
@@ -214,7 +274,16 @@ async def upsert_enforcement_point(point: EnforcementPoint) -> EnforcementPoint:
 
 
 @app.post("/api/v1/enforcement-bindings", response_model=EnforcementBinding, status_code=201)
-async def upsert_enforcement_binding(binding: EnforcementBinding) -> EnforcementBinding:
+async def upsert_enforcement_binding(
+    binding: EnforcementBinding,
+    principal: CurrentPrincipal,
+) -> EnforcementBinding:
+    require_scope(
+        principal,
+        binding.tenant_id,
+        binding.site_id,
+        Permission.CONFIGURE,
+    )
     stored = await run_in_threadpool(store.add_enforcement_binding, binding)
     await live_hub.publish(
         LiveMessageKind.ENFORCEMENT_UPDATED,
@@ -226,7 +295,16 @@ async def upsert_enforcement_binding(binding: EnforcementBinding) -> Enforcement
 
 
 @app.post("/api/v1/responses/plan", response_model=ResponsePlan)
-async def plan_response(request: ResponseRequest) -> ResponsePlan:
+async def plan_response(
+    request: ResponseRequest,
+    principal: CurrentPrincipal,
+) -> ResponsePlan:
+    require_scope(
+        principal,
+        request.tenant_id,
+        request.site_id,
+        Permission.RESPOND,
+    )
     incident = await run_in_threadpool(
         store.get_incident,
         request.tenant_id,
