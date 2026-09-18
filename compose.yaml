@@ -1,0 +1,8 @@
+services:
+  control-plane:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      MON_ENV: development
+    restart: unless-stopped
