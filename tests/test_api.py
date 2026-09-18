@@ -2,7 +2,6 @@ from fastapi.testclient import TestClient
 
 from mon.api import app, store
 
-
 client = TestClient(app)
 
 
