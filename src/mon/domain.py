@@ -122,6 +122,19 @@ class SecurityEvent(BaseModel):
     evidence: list[EvidenceRef] = Field(default_factory=list)
 
 
+class EventBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    events: list[SecurityEvent] = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def require_single_scope(self) -> EventBatch:
+        scopes = {(event.tenant_id, event.site_id) for event in self.events}
+        if len(scopes) != 1:
+            raise ValueError("all events in a batch must belong to one tenant/site scope")
+        return self
+
+
 class Asset(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -311,3 +324,19 @@ class ResponsePlan(BaseModel):
     enforcement_point: EnforcementPoint
     rollback_action: ActionType = ActionType.RESTORE
     selection_reasons: list[str] = Field(default_factory=list)
+
+
+class EventProcessingResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: SecurityEvent
+    findings: list[Finding] = Field(default_factory=list)
+    incidents: list[Incident] = Field(default_factory=list)
+    duplicate: bool = False
+
+
+class EventBatchResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    results: list[EventProcessingResult] = Field(default_factory=list)
+    accepted_event_ids: list[str] = Field(default_factory=list)

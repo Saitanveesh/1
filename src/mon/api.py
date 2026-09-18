@@ -11,6 +11,9 @@ from mon.domain import (
     AttackGraphSnapshot,
     EnforcementBinding,
     EnforcementPoint,
+    EventBatch,
+    EventBatchResult,
+    EventProcessingResult,
     Finding,
     Incident,
     ResponsePlan,
@@ -18,6 +21,7 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
+from mon.pipeline import SecurityPipeline
 from mon.policy import evaluate_response
 from mon.store import InMemoryStore
 
@@ -30,6 +34,12 @@ store = InMemoryStore()
 detector = DetectionEngine()
 graph = AttackGraphEngine()
 correlator = CorrelationEngine()
+pipeline = SecurityPipeline(
+    store=store,
+    detector=detector,
+    graph=graph,
+    correlator=correlator,
+)
 
 
 @app.get("/health")
@@ -37,17 +47,26 @@ def health() -> dict[str, str]:
     return {"state": "READY", "service": "mon-control-plane", "version": __version__}
 
 
-@app.post("/api/v1/events", status_code=201)
-def ingest_event(event: SecurityEvent) -> dict[str, object]:
-    stored = store.add_event(event)
-    graph.observe_event(event)
-    findings = detector.process(event)
-    incidents = []
-    for finding in findings:
-        store.add_finding(finding)
-        graph.attach_finding(finding)
-        incidents.append(correlator.process(finding, store))
-    return {"event": stored, "findings": findings, "incidents": incidents}
+@app.post(
+    "/api/v1/events",
+    response_model=EventProcessingResult,
+    status_code=201,
+)
+def ingest_event(event: SecurityEvent) -> EventProcessingResult:
+    return pipeline.process_event(event)
+
+
+@app.post(
+    "/api/v1/events/batch",
+    response_model=EventBatchResult,
+    status_code=201,
+)
+def ingest_event_batch(batch: EventBatch) -> EventBatchResult:
+    results = [pipeline.process_event(event) for event in batch.events]
+    return EventBatchResult(
+        results=results,
+        accepted_event_ids=[result.event.event_id for result in results],
+    )
 
 
 @app.get("/api/v1/findings", response_model=list[Finding])

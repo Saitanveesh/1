@@ -1,0 +1,98 @@
+import datetime as dt
+
+import pytest
+
+from mon.domain import SecurityEvent
+from mon.site_controller import SiteController, SiteScopeViolation, SQLiteEventSpool
+
+
+class AcceptingSender:
+    async def send_batch(self, events: list[SecurityEvent]) -> set[str]:
+        return {event.event_id for event in events}
+
+
+class FailingSender:
+    async def send_batch(self, events: list[SecurityEvent]) -> set[str]:
+        raise RuntimeError("cloud unavailable")
+
+
+def event(index: int, *, tenant: str = "t1", site: str = "s1") -> SecurityEvent:
+    return SecurityEvent(
+        event_id=f"event-{index}",
+        tenant_id=tenant,
+        site_id=site,
+        sensor_id="sensor-1",
+        observed_at=dt.datetime(2026, 9, 18, 12, 0, tzinfo=dt.UTC)
+        + dt.timedelta(seconds=index),
+        category="network.connection",
+        src_ip="10.0.0.17",
+        dst_ip=f"10.0.1.{index + 1}",
+        protocol="tcp",
+        attributes={"direction": "east-west", "dst_port": 445},
+    )
+
+
+def test_spool_survives_reopen_and_deduplicates(tmp_path) -> None:
+    path = tmp_path / "spool.db"
+    spool = SQLiteEventSpool(path)
+    assert spool.enqueue(event(1)) is True
+    assert spool.enqueue(event(1)) is False
+    assert spool.count() == 1
+    spool.close()
+
+    reopened = SQLiteEventSpool(path)
+    assert [item.event_id for item in reopened.pending()] == ["event-1"]
+    reopened.close()
+
+
+def test_site_controller_rejects_wrong_scope(tmp_path) -> None:
+    spool = SQLiteEventSpool(tmp_path / "spool.db")
+    controller = SiteController("t1", "s1", spool)
+
+    with pytest.raises(SiteScopeViolation):
+        controller.ingest(event(1, tenant="other"))
+
+    spool.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_sync_retains_events_and_records_attempt(tmp_path) -> None:
+    spool = SQLiteEventSpool(tmp_path / "spool.db")
+    controller = SiteController("t1", "s1", spool, sender=FailingSender())
+    controller.ingest(event(1))
+
+    result = await controller.flush()
+    assert result["state"] == "DEGRADED"
+    assert spool.count() == 1
+    assert spool.diagnostics()["max_attempts"] == 1
+    spool.close()
+
+
+@pytest.mark.asyncio
+async def test_successful_sync_removes_acknowledged_events(tmp_path) -> None:
+    spool = SQLiteEventSpool(tmp_path / "spool.db")
+    controller = SiteController("t1", "s1", spool, sender=AcceptingSender())
+    controller.ingest(event(1))
+    controller.ingest(event(2))
+
+    result = await controller.flush()
+    assert result["state"] == "SYNCED"
+    assert result["delivered"] == 2
+    assert spool.count() == 0
+    spool.close()
+
+
+def test_local_detection_continues_without_cloud_sender(tmp_path) -> None:
+    spool = SQLiteEventSpool(tmp_path / "spool.db")
+    controller = SiteController("t1", "s1", spool)
+
+    result = None
+    for index in range(12):
+        result = controller.ingest(event(index))
+
+    assert result is not None
+    assert len(result.findings) == 1
+    assert len(result.incidents) == 1
+    assert spool.count() == 12
+    assert controller.status()["local_incidents"] == 1
+    spool.close()
