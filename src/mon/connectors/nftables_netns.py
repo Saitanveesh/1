@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import os
 import re
@@ -51,10 +52,8 @@ async def _default_runner(
             timeout=timeout_seconds,
         )
     except TimeoutError as exc:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
         await process.wait()
         raise EnforcementError("nftables namespace command timed out") from exc
 
