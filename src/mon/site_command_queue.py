@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from mon.domain import AuditRecord, ResponseExecutionStatus
 from mon.site_command_models import (
     SiteCommand,
     SiteCommandKind,
@@ -36,6 +37,96 @@ class SiteCommandQueue:
         record = SiteCommandRecord(command=command)
         return self.store.add_site_command(record)
 
+    def _expire_record(
+        self,
+        record: SiteCommandRecord,
+        check_at: dt.datetime,
+    ) -> SiteCommandRecord:
+        expired = record.model_copy(
+            update={
+                "status": SiteCommandStatus.EXPIRED,
+                "updated_at": check_at,
+            }
+        )
+        self.store.add_site_command(expired)
+
+        execution_id = (
+            record.command.response_plan.request.request_id
+            if record.command.kind is SiteCommandKind.APPLY_RESPONSE
+            and record.command.response_plan is not None
+            else record.command.rollback_execution_id
+        )
+        if execution_id is None:
+            return expired
+
+        execution = self.store.get_response_execution(
+            record.command.tenant_id,
+            record.command.site_id,
+            execution_id,
+        )
+        if execution is None:
+            return expired
+
+        status = None
+        error = None
+        if (
+            record.command.kind is SiteCommandKind.APPLY_RESPONSE
+            and execution.status is ResponseExecutionStatus.DISPATCH_PENDING
+        ):
+            status = ResponseExecutionStatus.FAILED
+            error = "site response command expired before delivery"
+        elif (
+            record.command.kind is SiteCommandKind.ROLLBACK_RESPONSE
+            and execution.status is ResponseExecutionStatus.ROLLBACK_PENDING
+        ):
+            status = ResponseExecutionStatus.ROLLBACK_FAILED
+            error = "site rollback command expired before delivery"
+
+        if status is None:
+            return expired
+
+        updated = execution.model_copy(
+            update={"status": status, "error": error}
+        )
+        self.store.add_response_execution(updated)
+        self.store.add_audit_record(
+            AuditRecord(
+                tenant_id=updated.tenant_id,
+                site_id=updated.site_id,
+                actor_id="mon-control-plane",
+                category="RESPONSE",
+                object_type="response_execution",
+                object_id=updated.execution_id,
+                action="SITE_COMMAND",
+                outcome="EXPIRED",
+                occurred_at=check_at,
+                details={
+                    "command_id": record.command.command_id,
+                    "command_kind": record.command.kind.value,
+                    "error": error,
+                },
+            )
+        )
+        return expired
+
+    def expire_due(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        now: dt.datetime | None = None,
+    ) -> int:
+        check_at = now or dt.datetime.now(dt.UTC)
+        count = 0
+        for record in self.store.list_site_commands(tenant_id, site_id):
+            if (
+                record.status is SiteCommandStatus.PENDING
+                and record.command.not_after <= check_at
+            ):
+                self._expire_record(record, check_at)
+                count += 1
+        return count
+
     def pending(
         self,
         tenant_id: str,
@@ -54,14 +145,7 @@ class SiteCommandQueue:
             if record.status is not SiteCommandStatus.PENDING:
                 continue
             if record.command.not_after <= check_at:
-                self.store.add_site_command(
-                    record.model_copy(
-                        update={
-                            "status": SiteCommandStatus.EXPIRED,
-                            "updated_at": check_at,
-                        }
-                    )
-                )
+                self._expire_record(record, check_at)
                 continue
             eligible.append(record)
 
