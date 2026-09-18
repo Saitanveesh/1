@@ -9,6 +9,18 @@ describe("live snapshot contract", () => {
       sequence: 42,
       findings: [],
       incidents: [],
+      assets: [],
+      telemetry: {
+        tenant_id: "tenant-a",
+        site_id: "site-1",
+        window_seconds: 60,
+        observed_at: new Date(0).toISOString(),
+        observation_count: 0,
+        unique_src_ips: 0,
+        unique_dst_ips: 0,
+        protocol_counts: {},
+        source_counts: {}
+      },
       graph: {
         tenant_id: "tenant-a",
         site_id: "site-1",

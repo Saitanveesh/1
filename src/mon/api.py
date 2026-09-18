@@ -182,7 +182,9 @@ async def live_snapshot(
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     findings = await run_in_threadpool(store.list_findings, tenant_id, site_id)
     incidents = await run_in_threadpool(store.list_incidents, tenant_id, site_id)
+    assets = await run_in_threadpool(store.list_assets, tenant_id, site_id)
     snapshot = await run_in_threadpool(graph.snapshot, tenant_id, site_id)
+    telemetry = await run_in_threadpool(pipeline.telemetry.snapshot, tenant_id, site_id)
     sequence = await live_hub.current_sequence(tenant_id, site_id)
 
     return {
@@ -191,6 +193,8 @@ async def live_snapshot(
         "sequence": sequence,
         "findings": [item.model_dump(mode="json") for item in findings],
         "incidents": [item.model_dump(mode="json") for item in incidents],
+        "assets": [item.model_dump(mode="json") for item in assets],
+        "telemetry": telemetry.model_dump(mode="json"),
         "graph": snapshot.model_dump(mode="json"),
     }
 
@@ -227,6 +231,16 @@ def get_incident_graph(
     if incident is None:
         raise HTTPException(status_code=404, detail="incident not found in tenant/site scope")
     return graph.trace_incident(incident)
+
+
+@app.get("/api/v1/assets", response_model=list[Asset])
+def list_assets(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> list[Asset]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_assets(tenant_id, site_id)
 
 
 @app.post("/api/v1/assets", response_model=Asset, status_code=201)

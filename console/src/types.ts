@@ -9,6 +9,44 @@ export interface EvidenceRef {
   observed_at: string;
 }
 
+export interface Asset {
+  asset_id: string;
+  tenant_id: string;
+  site_id: string;
+  display_name: string;
+  criticality: string;
+  ip_addresses: string[];
+  mac_addresses: string[];
+  hostnames: string[];
+  vendor?: string;
+  observed_tcp_services: number[];
+  peer_counts: Record<string, number>;
+  protocol_counts: Record<string, number>;
+  identity_evidence: string[];
+  measured_packets?: number;
+  measured_bytes?: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface TelemetrySnapshot {
+  tenant_id: string;
+  site_id: string;
+  window_seconds: number;
+  observed_at: string;
+  observation_count: number;
+  measurement_span_seconds?: number;
+  events_per_second?: number;
+  measured_packets?: number;
+  measured_bytes?: number;
+  measured_packets_per_second?: number;
+  measured_bytes_per_second?: number;
+  unique_src_ips: number;
+  unique_dst_ips: number;
+  protocol_counts: Record<string, number>;
+  source_counts: Record<string, number>;
+}
+
 export interface Incident {
   incident_id: string;
   tenant_id: string;
@@ -65,6 +103,8 @@ export interface LiveSnapshot {
   sequence: number;
   findings: Finding[];
   incidents: Incident[];
+  assets: Asset[];
+  telemetry: TelemetrySnapshot;
   graph: GraphSnapshot;
 }
 

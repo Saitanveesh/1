@@ -37,6 +37,8 @@ class Store(Protocol):
 
     def get_asset(self, tenant_id: str, site_id: str, asset_id: str) -> Asset | None: ...
 
+    def list_assets(self, tenant_id: str, site_id: str) -> list[Asset]: ...
+
     def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint: ...
 
     def get_enforcement_point(
@@ -55,7 +57,6 @@ class Store(Protocol):
         site_id: str,
         asset_id: str | None = None,
     ) -> list[EnforcementBinding]: ...
-
     def add_enrollment_token(
         self, record: EnrollmentTokenRecord
     ) -> EnrollmentTokenRecord: ...
@@ -83,7 +84,7 @@ class InMemoryStore:
         self.event_ids: set[tuple[str, str, str]] = set()
         self.incidents: dict[str, Incident] = {}
         self.findings: dict[str, Finding] = {}
-        self.assets: dict[str, Asset] = {}
+        self.assets: dict[tuple[str, str, str], Asset] = {}
         self.enforcement_points: dict[str, EnforcementPoint] = {}
         self.enforcement_bindings: dict[str, EnforcementBinding] = {}
         self.enrollment_tokens: dict[str, EnrollmentTokenRecord] = {}
@@ -130,14 +131,18 @@ class InMemoryStore:
         return None
 
     def add_asset(self, asset: Asset) -> Asset:
-        self.assets[asset.asset_id] = asset
+        self.assets[(asset.tenant_id, asset.site_id, asset.asset_id)] = asset
         return asset
 
     def get_asset(self, tenant_id: str, site_id: str, asset_id: str) -> Asset | None:
-        value = self.assets.get(asset_id)
-        if value and value.tenant_id == tenant_id and value.site_id == site_id:
-            return value
-        return None
+        return self.assets.get((tenant_id, site_id, asset_id))
+
+    def list_assets(self, tenant_id: str, site_id: str) -> list[Asset]:
+        return [
+            value
+            for (asset_tenant, asset_site, _), value in self.assets.items()
+            if asset_tenant == tenant_id and asset_site == site_id
+        ]
 
     def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint:
         self.enforcement_points[point.enforcement_point_id] = point

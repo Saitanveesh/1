@@ -237,6 +237,10 @@ class DatabaseStore:
         row = self._get(AssetRow, tenant_id, site_id, asset_id)
         return Asset.model_validate(row.payload) if row else None
 
+    def list_assets(self, tenant_id: str, site_id: str) -> list[Asset]:
+        rows = self._list_scope(AssetRow, tenant_id, site_id)
+        return [Asset.model_validate(row.payload) for row in rows]
+
     def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint:
         self._merge(
             EnforcementPointRow(
