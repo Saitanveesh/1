@@ -31,6 +31,14 @@ def make_ca() -> tuple[CertificateAuthority, str]:
         .not_valid_before(now - dt.timedelta(minutes=1))
         .not_valid_after(now + dt.timedelta(days=365))
         .add_extension(x509.BasicConstraints(ca=True, path_length=1), critical=True)
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()),
+            critical=False,
+        )
         .sign(key, hashes.SHA256())
     )
     certificate_pem = certificate.public_bytes(serialization.Encoding.PEM).decode()
@@ -61,6 +69,16 @@ def issue_server_certificate(ca: CertificateAuthority) -> tuple[str, str]:
         .add_extension(
             x509.SubjectAlternativeName(
                 [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            ),
+            critical=False,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                ca.certificate.public_key()
             ),
             critical=False,
         )
