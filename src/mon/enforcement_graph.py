@@ -121,7 +121,11 @@ def select_enforcement_point(
     binding = binding_by_point.get(chosen.enforcement_point_id)
     reasons = [
         f"selected {chosen.kind.value.lower()} enforcement for {request.action.value.lower()}",
-        "healthy/in-scope capability" if chosen.health is EnforcementHealth.HEALTHY else "degraded but usable",
+        (
+            "healthy/in-scope capability"
+            if chosen.health is EnforcementHealth.HEALTHY
+            else "degraded but usable"
+        ),
     ]
     if binding:
         reasons.append(f"asset-to-enforcement distance={binding.distance}")
