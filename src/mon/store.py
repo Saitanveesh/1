@@ -21,13 +21,21 @@ class InMemoryStore:
 
     def __init__(self) -> None:
         self.events: dict[tuple[str, str], list[SecurityEvent]] = defaultdict(list)
+        self.event_ids: set[tuple[str, str, str]] = set()
         self.incidents: dict[str, Incident] = {}
         self.findings: dict[str, Finding] = {}
         self.assets: dict[str, Asset] = {}
         self.enforcement_points: dict[str, EnforcementPoint] = {}
         self.enforcement_bindings: dict[str, EnforcementBinding] = {}
 
+    def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
+        return (tenant_id, site_id, event_id) in self.event_ids
+
     def add_event(self, event: SecurityEvent) -> SecurityEvent:
+        key = (event.tenant_id, event.site_id, event.event_id)
+        if key in self.event_ids:
+            return event
+        self.event_ids.add(key)
         self.events[(event.tenant_id, event.site_id)].append(event)
         return event
 
