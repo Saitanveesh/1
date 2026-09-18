@@ -86,12 +86,14 @@ class SiteCommandResult(BaseModel):
             raise ValueError("successful site command result requires execution")
         if not self.success and not self.error:
             raise ValueError("failed site command result requires error")
-        if self.execution is not None:
-            if (
+        if (
+            self.execution is not None
+            and (
                 self.execution.tenant_id != self.tenant_id
                 or self.execution.site_id != self.site_id
-            ):
-                raise ValueError("execution scope does not match site command result")
+            )
+        ):
+            raise ValueError("execution scope does not match site command result")
         for record in self.audit_records:
             if record.tenant_id != self.tenant_id or record.site_id != self.site_id:
                 raise ValueError("audit record scope does not match site command result")
