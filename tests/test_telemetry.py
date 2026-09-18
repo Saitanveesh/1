@@ -3,7 +3,6 @@ import datetime as dt
 from mon.domain import SecurityEvent
 from mon.telemetry import TelemetryEngine
 
-
 BASE = dt.datetime(2026, 9, 18, 12, 0, tzinfo=dt.UTC)
 
 
