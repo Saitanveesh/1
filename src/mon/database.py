@@ -34,6 +34,7 @@ from mon.sensor_fleet_models import (
 from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.store import InMemoryStore, Store
+from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
 
 
 class Base(DeclarativeBase):
@@ -147,6 +148,55 @@ class AssetRow(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
     __table_args__ = (Index("ix_assets_scope", "tenant_id", "site_id"),)
+
+
+class ThreatIntelSourceRow(Base):
+    __tablename__ = "threat_intel_sources"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_threat_intel_sources_scope", "tenant_id", "site_id"),
+    )
+
+
+class ThreatIndicatorRow(Base):
+    __tablename__ = "threat_indicators"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    indicator_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    stix_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    indicator_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    normalized_value: Mapped[str] = mapped_column(String(2048), nullable=False)
+    revoked: Mapped[str] = mapped_column(String(5), nullable=False)
+    valid_from: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    stix_modified: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_threat_indicators_scope", "tenant_id", "site_id"),
+        Index(
+            "ix_threat_indicators_match",
+            "tenant_id",
+            "site_id",
+            "indicator_type",
+            "normalized_value",
+        ),
+        Index(
+            "ix_threat_indicators_source",
+            "tenant_id",
+            "site_id",
+            "source_id",
+        ),
+    )
 
 
 class EnforcementPointRow(Base):
@@ -669,6 +719,110 @@ class DatabaseStore:
     def list_assets(self, tenant_id: str, site_id: str) -> list[Asset]:
         rows = self._list_scope(AssetRow, tenant_id, site_id)
         return [Asset.model_validate(row.payload) for row in rows]
+
+    def add_threat_intel_source(
+        self,
+        source: ThreatIntelSource,
+    ) -> ThreatIntelSource:
+        self._merge(
+            ThreatIntelSourceRow(
+                pk=_key(source.tenant_id, source.site_id, source.source_id),
+                tenant_id=source.tenant_id,
+                site_id=source.site_id,
+                source_id=source.source_id,
+                payload=source.model_dump(mode="json"),
+            )
+        )
+        return source
+
+    def get_threat_indicator(
+        self,
+        tenant_id: str,
+        site_id: str,
+        indicator_id: str,
+    ) -> ThreatIndicator | None:
+        row = self._get(ThreatIndicatorRow, tenant_id, site_id, indicator_id)
+        return ThreatIndicator.model_validate(row.payload) if row else None
+
+    def upsert_threat_indicator(self, indicator: ThreatIndicator) -> str:
+        existing = self.get_threat_indicator(
+            indicator.tenant_id,
+            indicator.site_id,
+            indicator.indicator_id,
+        )
+        if existing == indicator:
+            return "unchanged"
+        if existing is not None:
+            existing_modified = existing.stix_modified or existing.stix_created
+            incoming_modified = indicator.stix_modified or indicator.stix_created
+            if (
+                existing.stix_id == indicator.stix_id
+                and existing_modified is not None
+                and incoming_modified is not None
+                and incoming_modified < existing_modified
+            ):
+                return "unchanged"
+
+        self._merge(
+            ThreatIndicatorRow(
+                pk=_key(
+                    indicator.tenant_id,
+                    indicator.site_id,
+                    indicator.indicator_id,
+                ),
+                tenant_id=indicator.tenant_id,
+                site_id=indicator.site_id,
+                indicator_id=indicator.indicator_id,
+                source_id=indicator.source_id,
+                stix_id=indicator.stix_id,
+                indicator_type=indicator.indicator_type.value,
+                normalized_value=indicator.normalized_value,
+                revoked=str(indicator.revoked).lower(),
+                valid_from=indicator.valid_from,
+                valid_until=indicator.valid_until,
+                stix_modified=indicator.stix_modified,
+                payload=indicator.model_dump(mode="json"),
+            )
+        )
+        return "inserted" if existing is None else "updated"
+
+    def list_active_threat_indicators(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        indicator_type: IndicatorType | None = None,
+        now: dt.datetime | None = None,
+    ) -> list[ThreatIndicator]:
+        check_at = now or dt.datetime.now(dt.UTC)
+        if check_at.tzinfo is None or check_at.utcoffset() is None:
+            raise ValueError("threat indicator query time must be timezone-aware")
+        statement = select(ThreatIndicatorRow).where(
+            ThreatIndicatorRow.tenant_id == tenant_id,
+            ThreatIndicatorRow.site_id == site_id,
+            ThreatIndicatorRow.revoked == "false",
+        )
+        if indicator_type is not None:
+            statement = statement.where(
+                ThreatIndicatorRow.indicator_type == indicator_type.value
+            )
+        active = self._active_session()
+        if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
+            rows = active.scalars(statement).all()
+        else:
+            with self._session_factory() as session:
+                self._apply_rls_scope(session, tenant_id, site_id)
+                rows = session.scalars(statement).all()
+        indicators = [
+            ThreatIndicator.model_validate(row.payload)
+            for row in rows
+        ]
+        return [
+            indicator
+            for indicator in indicators
+            if indicator.active_at(check_at)
+        ]
 
     def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint:
         self._merge(

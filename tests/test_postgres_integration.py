@@ -17,6 +17,7 @@ from mon.sensor_fleet_models import (
     SensorRecord,
 )
 from mon.site_identity_models import EnrollmentTokenRecord
+from mon.threat_intel import ingest_stix_bundle
 
 
 @pytest.mark.skipif(
@@ -645,6 +646,101 @@ def test_postgres_connector_secret_vault_is_encrypted_and_rls_scoped() -> None:
                 "other-tenant",
                 "ci-secret-site",
                 secret_id,
+            )
+    finally:
+        store.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_threat_intel_persists_and_rls_scopes() -> None:
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    stix_id = f"indicator--{uuid.uuid4()}"
+    store = DatabaseStore(url)
+    try:
+        result = ingest_stix_bundle(
+            store,
+            tenant_id="ti-tenant-a",
+            site_id="ti-site-a",
+            source_id=f"source-{suffix}",
+            source_name="CI Feed",
+            imported_at=dt.datetime.now(dt.UTC),
+            bundle={
+                "type": "bundle",
+                "id": f"bundle--{uuid.uuid4()}",
+                "objects": [
+                    {
+                        "type": "indicator",
+                        "spec_version": "2.1",
+                        "id": stix_id,
+                        "created": "2026-09-19T00:00:00Z",
+                        "modified": "2026-09-19T00:00:00Z",
+                        "pattern": "[ipv4-addr:value = '203.0.113.44']",
+                        "pattern_type": "stix",
+                        "valid_from": "2026-09-19T00:00:00Z",
+                    }
+                ],
+            },
+        )
+        assert result.imported == 1
+        assert store.list_active_threat_indicators(
+            "ti-tenant-a",
+            "ti-site-a",
+            now=dt.datetime(2026, 9, 19, 1, tzinfo=dt.UTC),
+        )
+        assert (
+            store.list_active_threat_indicators(
+                "ti-tenant-b",
+                "ti-site-a",
+                now=dt.datetime(2026, 9, 19, 1, tzinfo=dt.UTC),
+            )
+            == []
+        )
+
+        with store.engine.connect() as connection:
+            assert connection.execute(
+                text(
+                    "SELECT stix_id FROM threat_indicators "
+                    "WHERE stix_id = :stix_id"
+                ),
+                {"stix_id": stix_id},
+            ).scalars().all() == []
+
+        with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {"tenant_id": "ti-tenant-a", "site_id": "ti-site-a"},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO threat_indicators("
+                    "pk, tenant_id, site_id, indicator_id, source_id, stix_id, "
+                    "indicator_type, normalized_value, revoked, payload"
+                    ") VALUES ("
+                    ":pk, :tenant_id, :site_id, :indicator_id, :source_id, "
+                    ":stix_id, 'IPV4', '203.0.113.45', 'false', "
+                    "CAST(:payload AS JSON)"
+                    ")"
+                ),
+                {
+                    "pk": f"ti-tenant-b\x1fti-site-a\x1fdenied-{suffix}",
+                    "tenant_id": "ti-tenant-b",
+                    "site_id": "ti-site-a",
+                    "indicator_id": f"denied-{suffix}",
+                    "source_id": f"source-{suffix}",
+                    "stix_id": f"indicator--{uuid.uuid4()}",
+                    "payload": "{}",
+                },
             )
     finally:
         store.close()
