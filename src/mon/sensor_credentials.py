@@ -306,7 +306,7 @@ class SensorCredentialStore:
             generation_id=generation_id,
             certificate_file=certificate_file,
             private_key_file=private_key_file,
-            fingerprint_sha256=identity.fingerprint_sha256,
+            fingerprint_sha256=certificate.fingerprint(hashes.SHA256()).hex(),
             expires_at=certificate.not_valid_after_utc,
             spiffe_uri=expected_spiffe,
         )
@@ -659,6 +659,13 @@ class SensorCredentialStore:
         if fingerprint != issued.fingerprint_sha256:
             raise SensorCredentialError(
                 "renewal response fingerprint does not match certificate"
+            )
+        if (
+            issued.expires_at.tzinfo is None
+            or issued.expires_at.utcoffset() is None
+        ):
+            raise SensorCredentialError(
+                "renewal response expiry must be timezone-aware"
             )
         if certificate.not_valid_after_utc != issued.expires_at.astimezone(dt.UTC):
             raise SensorCredentialError(
