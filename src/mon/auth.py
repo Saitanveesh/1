@@ -216,7 +216,9 @@ class JWKSAuthenticator:
             if item.get("kty") != "RSA":
                 raise AuthConfigurationError("JWKS authentication accepts RSA public keys only")
             if self._PRIVATE_RSA_FIELDS.intersection(item):
-                raise AuthConfigurationError(\n                    "JWKS must contain public keys, not RSA private material"\n                )
+                raise AuthConfigurationError(
+                    "JWKS must contain public keys, not RSA private material"
+                )
 
             kid = item.get("kid")
             if not isinstance(kid, str) or not kid.strip() or len(kid) > 256:
