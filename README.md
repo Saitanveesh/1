@@ -46,6 +46,7 @@ Implemented foundations include:
 - managed sensor enrollment, renewal/revocation, durable site trust, and fleet heartbeats;
 - crash-safe managed sensor credential generations with proactive certificate rotation;
 - typed tenant/site event-fabric envelopes with durable local consumer idempotency;
+- durable exact-envelope producer outbox with ordered retry and crash reconciliation;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
