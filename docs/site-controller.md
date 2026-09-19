@@ -14,8 +14,9 @@ command loops. It persists local delivery and response state under one site stat
 `MON_TENANT_ID` and `MON_SITE_ID` are required.
 
 `MON_SITE_STATE_DIR` defaults to `/var/lib/mon-site`. The directory contains independent
-SQLite databases for event buffering, response execution/audit state, command-result receipts,
-response updates, and the last synchronized sensor trust snapshot. These files are bound to
+SQLite databases for event buffering, exact event-fabric delivery, response execution/audit
+state, command-result receipts, response updates, and the last synchronized sensor trust
+snapshot. These files are bound to
 the configured tenant/site and must not be copied between site identities.
 
 The local API listens on `127.0.0.1:8090` by default. `MON_SITE_PORT` may change the
@@ -28,8 +29,9 @@ Cloud configuration may be omitted. In that mode MON still accepts local events,
 local evidence pipeline, preserves telemetry for later upload, reconciles local response state,
 and performs TTL recovery for responses already authorized and represented locally.
 
-Health output reports that the cloud sender and command channel are not configured. It does
-not fabricate cloud connectivity.
+Health output reports that the cloud publisher and command channel are not configured. It
+does not fabricate cloud connectivity. Analysis-ready telemetry is staged into the durable
+fabric outbox and remains there until authenticated cloud delivery resumes.
 
 ## Cloud/mTLS operation
 
@@ -46,6 +48,11 @@ service token in command arguments or general configuration files.
 `MON_SITE_CLIENT_KEY_PASSWORD` is optional for encrypted private keys.
 
 Plain HTTP is rejected by the production Site Controller configuration.
+
+The production event path uses the durable fabric outbox and sends one exact FabricEnvelope
+per HTTPS request. The same site mTLS identity and bearer token used for command/fleet traffic
+authenticate event delivery. The legacy EventBatch sender remains a compatibility boundary
+but is not the production mon-site event path.
 
 ## Loop intervals
 
@@ -110,9 +117,9 @@ adapter as a production host-firewall deployment path.
 
 ## Current restart boundary
 
-Event delivery, response state, command-result receipts, response-update receipts, TTL
-recovery, normalized local events, assets, findings, and incidents are durable across process
-restart.
+Event delivery, exact fabric-envelope identity, response state, command-result receipts,
+response-update receipts, TTL recovery, normalized local events, assets, findings, and
+incidents are durable across process restart.
 
 At startup the Site Controller warm-restores detector windows, telemetry windows, attack
 graph state, and active correlation pointers from durable evidence. `/health` reports
@@ -127,3 +134,14 @@ crash-recovery protocol.
 The remaining local scale boundary is retained analysis history and the resulting linear
 warm-restore cost. Retention/snapshotting must preserve evidence required by active
 investigations rather than silently discarding it.
+
+
+## Fabric upgrade boundary
+
+The current production Site Controller uses the fabric path documented by ADRs 0034-0036.
+A deployment upgrading from the older batch-delivery path should drain its legacy event spool
+before switching, unless historical control-plane event state has been explicitly reconciled.
+
+Control-plane migration 0006 intentionally does not invent processing receipts for historical
+events. If an old event exists without proof that its complete derived state committed, fabric
+redelivery returns an uncertain-state failure instead of acknowledging success.
