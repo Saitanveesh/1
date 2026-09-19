@@ -356,6 +356,7 @@ def build_site_service_resources(
             response_store=response_store,
             command_result_outbox=command_result_outbox,
             response_update_outbox=response_update_outbox,
+            sensor_trust_store=sensor_trust_store,
         )
     except Exception:
         sensor_trust_store.close()
