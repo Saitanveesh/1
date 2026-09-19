@@ -542,18 +542,64 @@ class SiteController:
                 "event tenant/site does not match this site-controller identity"
             )
         self.spool.enqueue(event)
-        return self.pipeline.process_event(event)
+        try:
+            result = self.pipeline.process_event(event)
+        except Exception as exc:
+            self.spool.mark_analysis_failed(event.event_id, str(exc))
+            raise
+        self.spool.mark_analysis_ready(event.event_id)
+        return result
+
+    def recover_pending_analysis(self, limit: int = 100) -> dict[str, object]:
+        pending = self.spool.pending_analysis(limit=limit)
+        recovered = 0
+        failed = 0
+        errors: dict[str, str] = {}
+        for event in pending:
+            try:
+                self.pipeline.process_event(event)
+            except Exception as exc:
+                error = str(exc)[:1000]
+                self.spool.mark_analysis_failed(event.event_id, error)
+                errors[event.event_id] = error
+                failed += 1
+                continue
+            self.spool.mark_analysis_ready(event.event_id)
+            recovered += 1
+
+        diagnostics = self.spool.diagnostics()
+        return {
+            "state": "RECOVERED" if failed == 0 else "DEGRADED",
+            "attempted": len(pending),
+            "recovered": recovered,
+            "failed": failed,
+            "analysis_pending": diagnostics["analysis_pending"],
+            "errors": errors,
+        }
 
     async def flush(self, limit: int = 100) -> dict[str, object]:
+        analysis = self.recover_pending_analysis(limit=limit)
         events = self.spool.pending(limit=limit)
+        diagnostics = self.spool.diagnostics()
         if not events:
-            return {"state": "SYNCED", "attempted": 0, "delivered": 0, "queued": 0}
+            return {
+                "state": (
+                    "DEGRADED"
+                    if analysis["failed"]
+                    else "SYNCED"
+                ),
+                "attempted": 0,
+                "delivered": 0,
+                "queued": diagnostics["queued"],
+                "analysis": analysis,
+            }
         if self.sender is None:
             return {
                 "state": "OFFLINE",
                 "attempted": 0,
                 "delivered": 0,
-                "queued": self.spool.count(),
+                "queued": diagnostics["queued"],
+                "analysis": analysis,
             }
 
         event_ids = {event.event_id for event in events}
@@ -566,6 +612,7 @@ class SiteController:
                 "attempted": len(events),
                 "delivered": 0,
                 "queued": self.spool.count(),
+                "analysis": analysis,
                 "error": str(exc)[:1000],
             }
 
@@ -576,11 +623,16 @@ class SiteController:
             self.spool.mark_failed(missing_ids, "control plane did not acknowledge event")
 
         return {
-            "state": "SYNCED" if not missing_ids else "DEGRADED",
+            "state": (
+                "SYNCED"
+                if not missing_ids and analysis["failed"] == 0
+                else "DEGRADED"
+            ),
             "attempted": len(events),
             "delivered": len(delivered_ids),
             "queued": self.spool.count(),
             "unacknowledged": len(missing_ids),
+            "analysis": analysis,
         }
 
     async def poll_commands(self, limit: int = 20) -> dict[str, object]:
@@ -700,7 +752,11 @@ class SiteController:
                     for item in executions
                 ),
             }
-        degraded = bool(diagnostics["last_error"])
+        degraded = bool(
+            diagnostics["last_error"]
+            or diagnostics["analysis_last_error"]
+            or diagnostics["analysis_pending"]
+        )
         if response_state is not None and response_state["executing_uncertain"]:
             degraded = True
         return {
