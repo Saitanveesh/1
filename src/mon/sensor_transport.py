@@ -15,6 +15,10 @@ from cryptography.x509.oid import ExtendedKeyUsageOID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mon.mtls_ingress import create_mtls_server_ssl_context
+from mon.sensor_fleet_models import (
+    SensorAuthorizationResult,
+    SensorFleetState,
+)
 
 
 class SensorCertificateError(ValueError):
@@ -62,6 +66,22 @@ class ExternalSuricataBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     records: list[ExternalSuricataRecord] = Field(min_length=1, max_length=1000)
+
+
+class ExternalSensorHeartbeat(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observed_at: dt.datetime
+    state: SensorFleetState
+    collector_kind: str = Field(min_length=1, max_length=64)
+    version: str | None = Field(default=None, max_length=64)
+    last_error: str | None = Field(default=None, max_length=1000)
+
+
+class ExternalSensorRenewalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    csr_pem: str = Field(min_length=64, max_length=32768)
 
 
 def _parse_sensor_spiffe_uri(uri: str) -> tuple[str, str, str]:
@@ -241,18 +261,54 @@ class MtlsSensorIngress:
             certificate_der
         )
 
-    def _authorize(self, request: web.Request) -> VerifiedSensorIdentity:
+    async def _authorize(
+        self,
+        request: web.Request,
+    ) -> VerifiedSensorIdentity:
         identity = self._verified_identity(request)
         require_sensor_matches_site(
             identity,
             tenant_id=self.tenant_id,
             site_id=self.site_id,
         )
+        async with httpx.AsyncClient(
+            base_url=self.internal_site_controller_url,
+            timeout=self.timeout_seconds,
+            trust_env=False,
+        ) as client:
+            try:
+                response = await client.post(
+                    "/api/v1/site/sensors/authorize",
+                    json={
+                        "sensor_id": identity.sensor_id,
+                        "fingerprint_sha256": identity.fingerprint_sha256,
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPServiceUnavailable(
+                    text="local sensor trust service is unavailable"
+                ) from exc
+        if response.status_code != 200:
+            raise web.HTTPServiceUnavailable(
+                text="local sensor trust service rejected authorization request"
+            )
+        try:
+            authorization = SensorAuthorizationResult.model_validate(
+                response.json()
+            )
+        except (ValueError, ValidationError) as exc:
+            raise web.HTTPServiceUnavailable(
+                text="local sensor trust service returned an invalid response"
+            ) from exc
+        if not authorization.authorized:
+            raise SensorCertificateScopeError(
+                "sensor certificate is not accepted by the local trust snapshot"
+            )
         return identity
 
     async def health(self, request: web.Request) -> web.Response:
         try:
-            identity = self._authorize(request)
+            identity = await self._authorize(request)
         except SensorCertificateError as exc:
             raise web.HTTPUnauthorized(text=str(exc)) from exc
         except SensorCertificateScopeError as exc:
@@ -324,6 +380,77 @@ class MtlsSensorIngress:
             },
         )
 
+    async def heartbeat(self, request: web.Request) -> web.Response:
+        try:
+            identity = await self._authorize(request)
+        except SensorCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+        except SensorCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        try:
+            body = ExternalSensorHeartbeat.model_validate_json(
+                await request.read()
+            )
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(
+                text="invalid sensor heartbeat"
+            ) from exc
+        if body.state not in {
+            SensorFleetState.READY,
+            SensorFleetState.DEGRADED,
+        }:
+            raise web.HTTPUnprocessableEntity(
+                text="sensor heartbeat state must be READY or DEGRADED"
+            )
+        if body.state is SensorFleetState.DEGRADED and not body.last_error:
+            raise web.HTTPUnprocessableEntity(
+                text="degraded sensor heartbeat requires last_error"
+            )
+
+        return await self._forward(
+            "/api/v1/site/sensors/heartbeat",
+            {
+                "tenant_id": identity.tenant_id,
+                "site_id": identity.site_id,
+                "sensor_id": identity.sensor_id,
+                "fingerprint_sha256": identity.fingerprint_sha256,
+                "observed_at": body.observed_at.isoformat(),
+                "state": body.state.value,
+                "collector_kind": body.collector_kind,
+                "version": body.version,
+                "last_error": body.last_error,
+            },
+        )
+
+    async def renew(self, request: web.Request) -> web.Response:
+        try:
+            identity = await self._authorize(request)
+        except SensorCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+        except SensorCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        try:
+            body = ExternalSensorRenewalRequest.model_validate_json(
+                await request.read()
+            )
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(
+                text="invalid sensor renewal request"
+            ) from exc
+
+        return await self._forward(
+            "/api/v1/site/sensors/renew",
+            {
+                "tenant_id": identity.tenant_id,
+                "site_id": identity.site_id,
+                "sensor_id": identity.sensor_id,
+                "current_fingerprint_sha256": identity.fingerprint_sha256,
+                "csr_pem": body.csr_pem,
+            },
+        )
+
     async def ingest_suricata(self, request: web.Request) -> web.Response:
         try:
             identity = self._authorize(request)
@@ -377,6 +504,14 @@ def create_app(
     app.router.add_post(
         "/api/v1/sensors/suricata/batch",
         ingress.ingest_suricata,
+    )
+    app.router.add_post(
+        "/api/v1/sensors/heartbeat",
+        ingress.heartbeat,
+    )
+    app.router.add_post(
+        "/api/v1/sensors/renew",
+        ingress.renew,
     )
     return app
 
