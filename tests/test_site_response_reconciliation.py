@@ -24,7 +24,6 @@ from mon.site_response_reconciliation import (
 )
 from mon.store import InMemoryStore
 
-
 NOW = dt.datetime(2026, 9, 19, 3, 0, tzinfo=dt.UTC)
 
 
