@@ -14,7 +14,9 @@ from mon.domain import (
     EnforcementBinding,
     EnforcementPoint,
     Finding,
+    IdentityRecord,
     Incident,
+    ProcessRecord,
     ResponseExecution,
     SecurityEvent,
 )
@@ -357,6 +359,8 @@ class InMemoryStore:
         self.threat_intel_sources: dict[tuple[str, str, str], ThreatIntelSource] = {}
         self.threat_indicators: dict[tuple[str, str, str], ThreatIndicator] = {}
         self.taxii_feeds: dict[tuple[str, str, str], TaxiiFeedRecord] = {}
+        self.identities: dict[tuple[str, str, str], IdentityRecord] = {}
+        self.processes: dict[tuple[str, str, str], ProcessRecord] = {}
         self._identity_lock = threading.RLock()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
@@ -433,6 +437,44 @@ class InMemoryStore:
             value
             for (asset_tenant, asset_site, _), value in self.assets.items()
             if asset_tenant == tenant_id and asset_site == site_id
+        ]
+
+    def get_identity(
+        self,
+        tenant_id: str,
+        site_id: str,
+        identity_id: str,
+    ) -> IdentityRecord | None:
+        return self.identities.get((tenant_id, site_id, identity_id))
+
+    def add_identity(self, identity: IdentityRecord) -> IdentityRecord:
+        self.identities[(identity.tenant_id, identity.site_id, identity.identity_id)] = identity
+        return identity
+
+    def list_identities(self, tenant_id: str, site_id: str) -> list[IdentityRecord]:
+        return [
+            identity
+            for (scope_tenant, scope_site, _), identity in self.identities.items()
+            if scope_tenant == tenant_id and scope_site == site_id
+        ]
+
+    def get_process(
+        self,
+        tenant_id: str,
+        site_id: str,
+        process_id: str,
+    ) -> ProcessRecord | None:
+        return self.processes.get((tenant_id, site_id, process_id))
+
+    def add_process(self, process: ProcessRecord) -> ProcessRecord:
+        self.processes[(process.tenant_id, process.site_id, process.process_id)] = process
+        return process
+
+    def list_processes(self, tenant_id: str, site_id: str) -> list[ProcessRecord]:
+        return [
+            process
+            for (scope_tenant, scope_site, _), process in self.processes.items()
+            if scope_tenant == tenant_id and scope_site == site_id
         ]
 
     def add_threat_intel_source(

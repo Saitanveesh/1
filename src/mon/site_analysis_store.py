@@ -11,7 +11,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from mon.analysis_checkpoint import CHECKPOINT_SCHEMA_VERSION, AnalysisCheckpointPayload
-from mon.domain import Asset, Finding, Incident, SecurityEvent
+from mon.domain import Asset, Finding, IdentityRecord, Incident, ProcessRecord, SecurityEvent
 
 _SCHEMA_VERSION = "3"
 _SUPPORTED_CHECKPOINT_SCHEMA_VERSIONS = {CHECKPOINT_SCHEMA_VERSION}
@@ -132,6 +132,30 @@ class SQLiteSiteAnalysisStore:
                     last_seen TEXT NOT NULL,
                     payload TEXT NOT NULL,
                     PRIMARY KEY (tenant_id, site_id, asset_id)
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_analysis_identities (
+                    tenant_id TEXT NOT NULL,
+                    site_id TEXT NOT NULL,
+                    identity_id TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, site_id, identity_id)
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_analysis_processes (
+                    tenant_id TEXT NOT NULL,
+                    site_id TEXT NOT NULL,
+                    process_id TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, site_id, process_id)
                 )
                 """
             )
@@ -622,6 +646,120 @@ class SQLiteSiteAnalysisStore:
             ).fetchall()
         return [Asset.model_validate_json(row["payload"]) for row in rows]
 
+    def add_identity(self, identity: IdentityRecord) -> IdentityRecord:
+        self._require_scope(identity.tenant_id, identity.site_id)
+        last_seen = self._utc_iso(
+            identity.last_seen,
+            field_name="identity last_seen",
+        )
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO site_analysis_identities(
+                    tenant_id, site_id, identity_id, last_seen, payload
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, site_id, identity_id) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    payload = excluded.payload
+                """,
+                (
+                    identity.tenant_id,
+                    identity.site_id,
+                    identity.identity_id,
+                    last_seen,
+                    identity.model_dump_json(),
+                ),
+            )
+            self._commit_if_autonomous()
+        return identity
+
+    def get_identity(
+        self,
+        tenant_id: str,
+        site_id: str,
+        identity_id: str,
+    ) -> IdentityRecord | None:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT payload FROM site_analysis_identities
+                WHERE tenant_id = ? AND site_id = ? AND identity_id = ?
+                """,
+                (tenant_id, site_id, identity_id),
+            ).fetchone()
+        return IdentityRecord.model_validate_json(row["payload"]) if row else None
+
+    def list_identities(self, tenant_id: str, site_id: str) -> list[IdentityRecord]:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT payload FROM site_analysis_identities
+                WHERE tenant_id = ? AND site_id = ?
+                ORDER BY last_seen ASC, identity_id ASC
+                """,
+                (tenant_id, site_id),
+            ).fetchall()
+        return [IdentityRecord.model_validate_json(row["payload"]) for row in rows]
+
+    def add_process(self, process: ProcessRecord) -> ProcessRecord:
+        self._require_scope(process.tenant_id, process.site_id)
+        last_seen = self._utc_iso(
+            process.last_seen,
+            field_name="process last_seen",
+        )
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO site_analysis_processes(
+                    tenant_id, site_id, process_id, last_seen, payload
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, site_id, process_id) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    payload = excluded.payload
+                """,
+                (
+                    process.tenant_id,
+                    process.site_id,
+                    process.process_id,
+                    last_seen,
+                    process.model_dump_json(),
+                ),
+            )
+            self._commit_if_autonomous()
+        return process
+
+    def get_process(
+        self,
+        tenant_id: str,
+        site_id: str,
+        process_id: str,
+    ) -> ProcessRecord | None:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT payload FROM site_analysis_processes
+                WHERE tenant_id = ? AND site_id = ? AND process_id = ?
+                """,
+                (tenant_id, site_id, process_id),
+            ).fetchone()
+        return ProcessRecord.model_validate_json(row["payload"]) if row else None
+
+    def list_processes(self, tenant_id: str, site_id: str) -> list[ProcessRecord]:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT payload FROM site_analysis_processes
+                WHERE tenant_id = ? AND site_id = ?
+                ORDER BY last_seen ASC, process_id ASC
+                """,
+                (tenant_id, site_id),
+            ).fetchall()
+        return [ProcessRecord.model_validate_json(row["payload"]) for row in rows]
+
     def diagnostics(self) -> dict[str, object]:
         tables = {
             "events": "site_analysis_events",
@@ -629,6 +767,8 @@ class SQLiteSiteAnalysisStore:
             "findings": "site_analysis_findings",
             "incidents": "site_analysis_incidents",
             "assets": "site_analysis_assets",
+            "identities": "site_analysis_identities",
+            "processes": "site_analysis_processes",
         }
         counts: dict[str, int] = {}
         with self._lock:

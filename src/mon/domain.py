@@ -92,12 +92,20 @@ class GraphNodeKind(StrEnum):
     ASSET = "ASSET"
     INTERNAL_IP = "INTERNAL_IP"
     EXTERNAL_IP = "EXTERNAL_IP"
+    IDENTITY = "IDENTITY"
+    PROCESS = "PROCESS"
 
 
 class GraphRelation(StrEnum):
     NETWORK_COMMUNICATION = "NETWORK_COMMUNICATION"
     ADMIN_SERVICE = "ADMIN_SERVICE"
     DNS_QUERY = "DNS_QUERY"
+    AUTHENTICATED_TO = "AUTHENTICATED_TO"
+    AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"
+    EXECUTED_PROCESS = "EXECUTED_PROCESS"
+    PARENT_PROCESS = "PARENT_PROCESS"
+    PROCESS_ON_ASSET = "PROCESS_ON_ASSET"
+    PROCESS_NETWORK_CONNECTION = "PROCESS_NETWORK_CONNECTION"
 
 
 class EvidenceRef(BaseModel):
@@ -164,6 +172,73 @@ class Asset(BaseModel):
     last_seen: dt.datetime = Field(default_factory=utcnow)
     tags: set[str] = Field(default_factory=set)
     attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityConfidence(StrEnum):
+    STRONG = "STRONG"
+    WEAK = "WEAK"
+
+
+class IdentityRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identity_id: str = Field(min_length=1, max_length=512)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    kind: str = Field(min_length=1, max_length=64)
+    source: str = Field(min_length=1, max_length=128)
+    principal: str = Field(min_length=1, max_length=512)
+    display_name: str | None = Field(default=None, max_length=512)
+    domain: str | None = Field(default=None, max_length=256)
+    asset_id: str | None = Field(default=None, max_length=256)
+    confidence: IdentityConfidence
+    evidence_basis: str = Field(min_length=1, max_length=500)
+    first_seen: dt.datetime = Field(default_factory=utcnow)
+    last_seen: dt.datetime = Field(default_factory=utcnow)
+    evidence_ids: set[str] = Field(default_factory=set)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def reject_sensitive_identity_attributes(self) -> IdentityRecord:
+        path = _inline_credential_path(self.attributes, "attributes")
+        if path is not None:
+            raise ValueError(f"inline identity credential at {path} is forbidden")
+        return self
+
+
+class ProcessConfidence(StrEnum):
+    STRONG = "STRONG"
+    OBSERVATIONAL = "OBSERVATIONAL"
+
+
+class ProcessRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    process_id: str = Field(min_length=1, max_length=512)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    asset_id: str = Field(min_length=1, max_length=256)
+    identity_id: str | None = Field(default=None, max_length=512)
+    parent_process_id: str | None = Field(default=None, max_length=512)
+    source_process_guid: str | None = Field(default=None, max_length=256)
+    pid: int | None = Field(default=None, ge=0, le=4_294_967_295)
+    session_id: str | None = Field(default=None, max_length=256)
+    image: str | None = Field(default=None, max_length=1000)
+    command_line: str | None = Field(default=None, max_length=1000)
+    hashes: dict[str, str] = Field(default_factory=dict)
+    confidence: ProcessConfidence
+    evidence_basis: str = Field(min_length=1, max_length=500)
+    first_seen: dt.datetime = Field(default_factory=utcnow)
+    last_seen: dt.datetime = Field(default_factory=utcnow)
+    evidence_ids: set[str] = Field(default_factory=set)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def reject_sensitive_process_attributes(self) -> ProcessRecord:
+        path = _inline_credential_path(self.attributes, "attributes")
+        if path is not None:
+            raise ValueError(f"inline process credential at {path} is forbidden")
+        return self
 
 
 class TelemetrySnapshot(BaseModel):
@@ -551,6 +626,8 @@ class EventProcessingResult(BaseModel):
 
     event: SecurityEvent
     asset_updates: list[Asset] = Field(default_factory=list)
+    identity_updates: list[IdentityRecord] = Field(default_factory=list)
+    process_updates: list[ProcessRecord] = Field(default_factory=list)
     telemetry: TelemetrySnapshot | None = None
     findings: list[Finding] = Field(default_factory=list)
     incidents: list[Incident] = Field(default_factory=list)

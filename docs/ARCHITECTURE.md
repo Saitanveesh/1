@@ -61,6 +61,22 @@ MON is not intended to replace every specialized security engine. Mature systems
 
 MON's differentiating layer is correlation, asset/enforcement graphing, attack-path reconstruction, policy-safe multi-point containment, recovery, and a unified operator experience.
 
+## Endpoint and identity foundation
+
+Endpoint telemetry enters MON as typed evidence, not as an implicit trust source. The
+current foundation normalizes process starts, authentication success/failure, and
+process-network connections into tenant/site-scoped `SecurityEvent` records. Derived
+identity and process records are persisted separately from forensic events, and the attack
+graph links identities, assets, processes, process parents, and endpoint network peers.
+
+Identity confidence is explicit. Source-provided Windows SIDs and Linux UIDs with a
+namespace are strong identities. Username-only observations are weak and scoped to the
+observed asset. Process confidence is also explicit: source process GUIDs are strong;
+PID-only observations are scoped to asset, session, and event time to avoid unsafe merges.
+
+This is a pipeline and graph foundation only. Production Windows/Linux endpoint collection
+is intentionally outside the current boundary.
+
 ## Non-negotiable properties
 
 - multi-tenant isolation

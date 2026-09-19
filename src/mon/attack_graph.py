@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import ipaddress
 from collections import defaultdict
 
@@ -14,6 +15,7 @@ from mon.domain import (
     Incident,
     SecurityEvent,
 )
+from mon.endpoint import identity_id_for, identity_key, process_id_for
 
 
 def _port(event: SecurityEvent) -> int | None:
@@ -77,6 +79,9 @@ class AttackGraphEngine:
         return GraphRelation.NETWORK_COMMUNICATION
 
     def observe_event(self, event: SecurityEvent) -> AttackGraphEdge | None:
+        endpoint_edge = self.observe_endpoint_event(event)
+        if event.category.casefold().startswith("endpoint.") and not event.dst_ip:
+            return endpoint_edge
         source = self._node_for_source(event)
         destination = self._node_for_destination(event)
         if source is None or destination is None:
@@ -139,6 +144,199 @@ class AttackGraphEngine:
             )
         self._edges[scope][edge_id] = current
         return current
+
+    def _upsert_node(
+        self,
+        scope: tuple[str, str],
+        *,
+        node_id: str,
+        tenant_id: str,
+        site_id: str,
+        kind: GraphNodeKind,
+        label: str,
+        attributes: dict[str, object] | None = None,
+    ) -> None:
+        current = self._nodes[scope].get(node_id)
+        if current is None:
+            self._nodes[scope][node_id] = AttackGraphNode(
+                node_id=node_id,
+                tenant_id=tenant_id,
+                site_id=site_id,
+                kind=kind,
+                label=label,
+                attributes=attributes or {},
+            )
+
+    def _upsert_edge(
+        self,
+        event: SecurityEvent,
+        *,
+        src_node_id: str,
+        dst_node_id: str,
+        relation: GraphRelation,
+        attributes: dict[str, object] | None = None,
+    ) -> AttackGraphEdge:
+        scope = (event.tenant_id, event.site_id)
+        edge_id = "|".join([src_node_id, dst_node_id, relation.value])
+        current = self._edges[scope].get(edge_id)
+        if current is None:
+            current = AttackGraphEdge(
+                edge_id=edge_id,
+                tenant_id=event.tenant_id,
+                site_id=event.site_id,
+                src_node_id=src_node_id,
+                dst_node_id=dst_node_id,
+                relation=relation,
+                first_seen=event.observed_at,
+                last_seen=event.observed_at,
+                event_ids={event.event_id},
+                attributes={
+                    "category": event.category,
+                    "evidence": [
+                        item.model_dump(mode="json")
+                        for item in event.evidence[:5]
+                    ],
+                    **(attributes or {}),
+                },
+            )
+        else:
+            event_ids = set(current.event_ids)
+            if len(event_ids) < 200:
+                event_ids.add(event.event_id)
+            current = current.model_copy(
+                update={
+                    "event_ids": event_ids,
+                    "event_count": current.event_count + 1,
+                    "first_seen": min(current.first_seen, event.observed_at),
+                    "last_seen": max(current.last_seen, event.observed_at),
+                }
+            )
+        self._edges[scope][edge_id] = current
+        return current
+
+    def observe_endpoint_event(self, event: SecurityEvent) -> AttackGraphEdge | None:
+        if not event.category.casefold().startswith("endpoint."):
+            return None
+        scope = (event.tenant_id, event.site_id)
+        asset_node = f"asset:{event.asset_id}" if event.asset_id else None
+        if asset_node is not None:
+            self._upsert_node(
+                scope,
+                node_id=asset_node,
+                tenant_id=event.tenant_id,
+                site_id=event.site_id,
+                kind=GraphNodeKind.ASSET,
+                label=event.asset_id or "asset",
+            )
+        identity_node = None
+        source, principal, domain, asset_id = identity_key(event)
+        if source and principal:
+            weak = event.attributes.get("identity_confidence") == "WEAK"
+            identity_id = identity_id_for(
+                event.tenant_id,
+                event.site_id,
+                source,
+                principal,
+                domain,
+                asset_id,
+                weak=weak,
+            )
+            identity_node = identity_id
+            self._upsert_node(
+                scope,
+                node_id=identity_node,
+                tenant_id=event.tenant_id,
+                site_id=event.site_id,
+                kind=GraphNodeKind.IDENTITY,
+                label=str(event.attributes.get("identity_display_name") or principal),
+                attributes={"confidence": event.attributes.get("identity_confidence")},
+            )
+        process_node = process_id_for(event)
+        if process_node:
+            self._upsert_node(
+                scope,
+                node_id=process_node,
+                tenant_id=event.tenant_id,
+                site_id=event.site_id,
+                kind=GraphNodeKind.PROCESS,
+                label=str(event.attributes.get("image") or event.attributes.get("process_pid")),
+                attributes={
+                    "pid": event.attributes.get("process_pid"),
+                    "basis": (
+                        "source process GUID"
+                        if event.attributes.get("process_guid")
+                        else "PID scoped to endpoint/session/time"
+                    ),
+                },
+            )
+        last_edge = None
+        category = event.category.casefold()
+        if identity_node and asset_node and category == "endpoint.auth.success":
+            last_edge = self._upsert_edge(
+                event,
+                src_node_id=identity_node,
+                dst_node_id=asset_node,
+                relation=GraphRelation.AUTHENTICATED_TO,
+            )
+        if identity_node and asset_node and category == "endpoint.auth.failure":
+            last_edge = self._upsert_edge(
+                event,
+                src_node_id=identity_node,
+                dst_node_id=asset_node,
+                relation=GraphRelation.AUTHENTICATION_FAILED,
+            )
+        if identity_node and process_node:
+            last_edge = self._upsert_edge(
+                event,
+                src_node_id=identity_node,
+                dst_node_id=process_node,
+                relation=GraphRelation.EXECUTED_PROCESS,
+            )
+        if process_node and asset_node:
+            last_edge = self._upsert_edge(
+                event,
+                src_node_id=process_node,
+                dst_node_id=asset_node,
+                relation=GraphRelation.PROCESS_ON_ASSET,
+            )
+        parent_guid = event.attributes.get("parent_process_guid")
+        if process_node and isinstance(parent_guid, str) and event.asset_id:
+            digest = hashlib.sha256(
+                f"{event.tenant_id}\x1f{event.site_id}\x1f{event.asset_id}\x1f{parent_guid}".encode()
+            ).hexdigest()
+            parent_node = f"process:{digest[:48]}"
+            self._upsert_node(
+                scope,
+                node_id=parent_node,
+                tenant_id=event.tenant_id,
+                site_id=event.site_id,
+                kind=GraphNodeKind.PROCESS,
+                label=str(event.attributes.get("parent_process_pid") or parent_guid),
+            )
+            last_edge = self._upsert_edge(
+                event,
+                src_node_id=parent_node,
+                dst_node_id=process_node,
+                relation=GraphRelation.PARENT_PROCESS,
+            )
+        if process_node and event.dst_ip:
+            peer_node = f"ip:{event.dst_ip}"
+            self._upsert_node(
+                scope,
+                node_id=peer_node,
+                tenant_id=event.tenant_id,
+                site_id=event.site_id,
+                kind=_ip_kind(event.dst_ip),
+                label=event.dst_ip,
+            )
+            last_edge = self._upsert_edge(
+                event,
+                src_node_id=process_node,
+                dst_node_id=peer_node,
+                relation=GraphRelation.PROCESS_NETWORK_CONNECTION,
+                attributes={"dst_port": event.attributes.get("dst_port")},
+            )
+        return last_edge
 
     def attach_finding(self, finding: Finding) -> int:
         scope = (finding.tenant_id, finding.site_id)
