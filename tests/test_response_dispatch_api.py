@@ -13,7 +13,6 @@ from mon.domain import (
     Severity,
 )
 
-
 client = TestClient(app)
 
 
