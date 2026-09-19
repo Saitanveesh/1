@@ -16,7 +16,7 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.event_fabric import FabricPublisher
-from mon.event_fabric_outbox import DurableFabricOutbox
+from mon.event_fabric_outbox import DurableFabricOutbox, sanitize_fabric_error
 from mon.pipeline import SecurityPipeline
 from mon.recovery import RecoveryEngine
 from mon.sensor_fleet_client import SensorFleetClient
@@ -750,18 +750,21 @@ class SiteController:
         diagnostics = self.fabric_outbox.diagnostics()
         pending = self.fabric_outbox.pending(limit=limit)
         if not pending:
+            state = "DEGRADED" if analysis["failed"] else "SYNCED"
+            if diagnostics["pending"] and diagnostics["backoff_active"]:
+                state = "DEGRADED"
             return {
-                "state": (
-                    "DEGRADED"
-                    if analysis["failed"]
-                    else "SYNCED"
-                ),
+                "state": state,
                 "attempted": 0,
                 "delivered": 0,
                 "queued": self.spool.count(),
                 "fabric_pending": diagnostics["pending"],
                 "fabric_staged": staged,
                 "fabric_reconciled": reconciled,
+                "fabric_backoff_active": diagnostics["backoff_active"],
+                "fabric_next_attempt_at": diagnostics["next_attempt_at"],
+                "fabric_max_attempts": diagnostics["max_attempts"],
+                "fabric_last_error": diagnostics["last_error"],
                 "analysis": analysis,
             }
 
@@ -774,6 +777,10 @@ class SiteController:
                 "fabric_pending": diagnostics["pending"],
                 "fabric_staged": staged,
                 "fabric_reconciled": reconciled,
+                "fabric_backoff_active": diagnostics["backoff_active"],
+                "fabric_next_attempt_at": diagnostics["next_attempt_at"],
+                "fabric_max_attempts": diagnostics["max_attempts"],
+                "fabric_last_error": diagnostics["last_error"],
                 "analysis": analysis,
             }
 
@@ -785,7 +792,7 @@ class SiteController:
             try:
                 await self.fabric_publisher.publish(envelope)
             except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
-                error = str(exc)[:1000]
+                error = sanitize_fabric_error(exc)
                 self.fabric_outbox.mark_failed(envelope.event_id, error)
                 # Preserve one logical ordering domain per tenant/site. Later
                 # envelopes are not allowed to overtake a failed predecessor.
@@ -812,6 +819,10 @@ class SiteController:
             "fabric_pending": diagnostics["pending"],
             "fabric_staged": staged,
             "fabric_reconciled": reconciled,
+            "fabric_backoff_active": diagnostics["backoff_active"],
+            "fabric_next_attempt_at": diagnostics["next_attempt_at"],
+            "fabric_max_attempts": diagnostics["max_attempts"],
+            "fabric_last_error": diagnostics["last_error"],
             "analysis": analysis,
         }
         if error is not None:

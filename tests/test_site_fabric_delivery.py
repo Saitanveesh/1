@@ -19,6 +19,17 @@ class RecordingPublisher:
             raise RuntimeError("fabric unavailable")
 
 
+class Clock:
+    def __init__(self, now: dt.datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> dt.datetime:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += dt.timedelta(seconds=seconds)
+
+
 def event(index: int) -> SecurityEvent:
     return SecurityEvent(
         event_id=f"event-{index}",
@@ -85,6 +96,7 @@ async def test_site_flush_stages_and_delivers_exact_fabric_envelopes(
 async def test_site_fabric_failure_preserves_order_and_exact_retry(
     tmp_path,
 ) -> None:
+    clock = Clock(dt.datetime(2026, 9, 19, 8, 5, tzinfo=dt.UTC))
     spool = SQLiteEventSpool(
         tmp_path / "spool.db",
         tenant_id="tenant-a",
@@ -94,6 +106,10 @@ async def test_site_fabric_failure_preserves_order_and_exact_retry(
         tmp_path / "fabric-outbox.db",
         tenant_id="tenant-a",
         site_id="site-a",
+        base_retry_delay=10,
+        max_retry_delay=60,
+        now=clock,
+        jitter=lambda _attempt: 0.0,
     )
     publisher = RecordingPublisher(fail_event_id="event-1")
     controller = SiteController(
@@ -114,9 +130,16 @@ async def test_site_fabric_failure_preserves_order_and_exact_retry(
         first_envelope = outbox.get("event-1")
         assert first_envelope is not None
         assert outbox.diagnostics()["pending"] == 2
+        assert outbox.diagnostics()["backoff_active"] is True
 
         publisher.fail_event_id = None
         publisher.published.clear()
+        still_backing_off = await controller.flush()
+        assert still_backing_off["state"] == "DEGRADED"
+        assert still_backing_off["attempted"] == 0
+        assert publisher.published == []
+
+        clock.advance(10)
         retried = await controller.flush()
 
         assert retried["state"] == "SYNCED"

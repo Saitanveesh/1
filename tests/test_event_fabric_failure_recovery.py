@@ -53,6 +53,17 @@ def build_pipeline(store: DatabaseStore) -> SecurityPipeline:
     )
 
 
+class Clock:
+    def __init__(self, now: dt.datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> dt.datetime:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += dt.timedelta(seconds=seconds)
+
+
 class IngressPublisher:
     def __init__(
         self,
@@ -84,6 +95,8 @@ def controller_for(
     tenant_id: str = "tenant-a",
     site_id: str = "site-a",
     publisher: IngressPublisher | None = None,
+    clock: Clock | None = None,
+    base_retry_delay: float = 10.0,
 ) -> tuple[SiteController, SQLiteEventSpool, DurableFabricOutbox]:
     spool = SQLiteEventSpool(
         tmp_path / f"{tenant_id}-{site_id}-spool.db",
@@ -94,6 +107,10 @@ def controller_for(
         tmp_path / f"{tenant_id}-{site_id}-outbox.db",
         tenant_id=tenant_id,
         site_id=site_id,
+        base_retry_delay=base_retry_delay,
+        max_retry_delay=60,
+        now=clock,
+        jitter=lambda _attempt: 0.0,
     )
     controller = SiteController(
         tenant_id,
@@ -116,7 +133,12 @@ async def test_temporary_control_plane_outage_recovers_without_event_loss(
         control_pipeline,
         fail_event_ids={"tenant-a-site-a-event-1"},
     )
-    controller, spool, outbox = controller_for(tmp_path, publisher=publisher)
+    clock = Clock(dt.datetime(2026, 9, 19, 10, 5, tzinfo=dt.UTC))
+    controller, spool, outbox = controller_for(
+        tmp_path,
+        publisher=publisher,
+        clock=clock,
+    )
     try:
         controller.ingest(event(1))
         controller.ingest(event(2))
@@ -131,11 +153,19 @@ async def test_temporary_control_plane_outage_recovers_without_event_loss(
         ]
         assert spool.count() == 3
         assert outbox.diagnostics()["pending"] == 3
+        assert outbox.diagnostics()["backoff_active"] is True
         first_envelope = outbox.get("tenant-a-site-a-event-1")
         assert first_envelope is not None
 
         publisher.fail_event_ids.clear()
         publisher.published.clear()
+        backing_off = await controller.flush()
+        assert backing_off["state"] == "DEGRADED"
+        assert backing_off["attempted"] == 0
+        assert backing_off["fabric_backoff_active"] is True
+        assert publisher.published == []
+
+        clock.advance(10)
         recovered = await controller.flush()
 
         assert recovered["state"] == "SYNCED"
@@ -166,7 +196,12 @@ async def test_lost_acknowledgement_replays_exact_envelope_idempotently(
         control_pipeline,
         lose_ack_once_for={event_id},
     )
-    controller, spool, outbox = controller_for(tmp_path, publisher=publisher)
+    clock = Clock(dt.datetime(2026, 9, 19, 10, 5, tzinfo=dt.UTC))
+    controller, spool, outbox = controller_for(
+        tmp_path,
+        publisher=publisher,
+        clock=clock,
+    )
     try:
         controller.ingest(event(1))
 
@@ -180,6 +215,12 @@ async def test_lost_acknowledgement_replays_exact_envelope_idempotently(
         assert receipt is not None
         assert receipt.status is FabricReceiptStatus.PROCESSED
 
+        blocked = await controller.flush()
+        assert blocked["state"] == "DEGRADED"
+        assert blocked["attempted"] == 0
+        assert len(publisher.published) == 1
+
+        clock.advance(10)
         retried = await controller.flush()
 
         assert retried["state"] == "SYNCED"
@@ -309,6 +350,7 @@ async def test_restart_with_queued_sender_state_delivers_after_reopen(
         outbox_path,
         tenant_id="tenant-a",
         site_id="site-a",
+        jitter=lambda _attempt: 0.0,
     )
     reopened = SiteController(
         "tenant-a",
@@ -344,15 +386,24 @@ async def test_retry_attempts_are_bounded_per_flush_and_preserve_order(
         build_pipeline(control),
         fail_event_ids={"tenant-a-site-a-event-1"},
     )
-    controller, spool, outbox = controller_for(tmp_path, publisher=publisher)
+    clock = Clock(dt.datetime(2026, 9, 19, 10, 5, tzinfo=dt.UTC))
+    controller, spool, outbox = controller_for(
+        tmp_path,
+        publisher=publisher,
+        clock=clock,
+    )
     try:
         for index in range(1, 4):
             controller.ingest(event(index))
 
         first = await controller.flush()
+        still_backing_off = await controller.flush()
+        clock.advance(10)
         second = await controller.flush()
 
         assert first["state"] == "DEGRADED"
+        assert still_backing_off["state"] == "DEGRADED"
+        assert still_backing_off["attempted"] == 0
         assert second["state"] == "DEGRADED"
         assert [item.event_id for item in publisher.published] == [
             "tenant-a-site-a-event-1",
@@ -363,6 +414,9 @@ async def test_retry_attempts_are_bounded_per_flush_and_preserve_order(
 
         publisher.fail_event_ids.clear()
         publisher.published.clear()
+        blocked = await controller.flush()
+        assert blocked["attempted"] == 0
+        clock.advance(20)
         recovered = await controller.flush()
 
         assert recovered["state"] == "SYNCED"
@@ -388,17 +442,21 @@ async def test_failed_tenant_queue_does_not_block_other_site_scope(
         fail_event_ids={"tenant-a-site-a-event-1"},
     )
     tenant_b_publisher = IngressPublisher(control, build_pipeline(control))
+    clock_a = Clock(dt.datetime(2026, 9, 19, 10, 5, tzinfo=dt.UTC))
+    clock_b = Clock(dt.datetime(2026, 9, 19, 10, 5, tzinfo=dt.UTC))
     controller_a, spool_a, outbox_a = controller_for(
         tmp_path,
         tenant_id="tenant-a",
         site_id="site-a",
         publisher=tenant_a_publisher,
+        clock=clock_a,
     )
     controller_b, spool_b, outbox_b = controller_for(
         tmp_path,
         tenant_id="tenant-b",
         site_id="site-b",
         publisher=tenant_b_publisher,
+        clock=clock_b,
     )
     try:
         controller_a.ingest(event(1, tenant_id="tenant-a", site_id="site-a"))

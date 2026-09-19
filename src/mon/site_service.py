@@ -52,6 +52,8 @@ class SiteServiceConfig:
     command_interval_seconds: float = 2.0
     sensor_trust_interval_seconds: float = 15.0
     request_timeout_seconds: float = 10.0
+    fabric_retry_base_delay_seconds: float = 1.0
+    fabric_retry_max_delay_seconds: float = 300.0
 
     def validate(self) -> SiteServiceConfig:
         if not self.tenant_id.strip() or not self.site_id.strip():
@@ -80,12 +82,19 @@ class SiteServiceConfig:
             "command_interval_seconds": self.command_interval_seconds,
             "sensor_trust_interval_seconds": self.sensor_trust_interval_seconds,
             "request_timeout_seconds": self.request_timeout_seconds,
+            "fabric_retry_base_delay_seconds": self.fabric_retry_base_delay_seconds,
+            "fabric_retry_max_delay_seconds": self.fabric_retry_max_delay_seconds,
         }
         for name, value in intervals.items():
             if value <= 0 or value > 3600:
                 raise SiteServiceConfigurationError(
                     f"{name} must be greater than 0 and at most 3600"
                 )
+        if self.fabric_retry_base_delay_seconds > self.fabric_retry_max_delay_seconds:
+            raise SiteServiceConfigurationError(
+                "fabric_retry_base_delay_seconds cannot exceed "
+                "fabric_retry_max_delay_seconds"
+            )
 
         cloud_fields = {
             "bearer_token": self.bearer_token,
@@ -216,6 +225,14 @@ class SiteServiceConfig:
                 "MON_SITE_REQUEST_TIMEOUT_SECONDS",
                 "10",
             ),
+            fabric_retry_base_delay_seconds=positive_float(
+                "MON_SITE_FABRIC_RETRY_BASE_DELAY_SECONDS",
+                "1",
+            ),
+            fabric_retry_max_delay_seconds=positive_float(
+                "MON_SITE_FABRIC_RETRY_MAX_DELAY_SECONDS",
+                "300",
+            ),
         )
         return config.validate()
 
@@ -260,6 +277,8 @@ def build_site_service_resources(
         config.state_dir / "fabric-outbox.db",
         tenant_id=config.tenant_id,
         site_id=config.site_id,
+        base_retry_delay=config.fabric_retry_base_delay_seconds,
+        max_retry_delay=config.fabric_retry_max_delay_seconds,
     )
     analysis_store = SQLiteSiteAnalysisStore(
         config.state_dir / "analysis-state.db",
