@@ -8,12 +8,14 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from mon.domain import EventBatch, SecurityEvent
+from mon.event_fabric import security_event_envelope
 from mon.mtls_ingress import (
     SiteCertificateError,
     SiteCertificateScopeError,
     create_mtls_server_ssl_context,
     extract_site_identity_from_verified_certificate,
     require_batch_matches_site_identity,
+    require_fabric_envelope_matches_site_identity,
     require_sensor_heartbeat_matches_site_identity,
     require_sensor_renewal_matches_site_identity,
 )
@@ -229,5 +231,32 @@ def test_sensor_fleet_messages_must_match_verified_site_scope() -> None:
     with pytest.raises(SiteCertificateScopeError):
         require_sensor_heartbeat_matches_site_identity(
             heartbeat.model_copy(update={"tenant_id": "tenant-b"}),
+            identity,
+        )
+
+
+def test_fabric_envelope_scope_must_match_verified_site_identity() -> None:
+    ca, _ = make_ca()
+    identity = extract_site_identity_from_verified_certificate(
+        site_certificate_der(ca)
+    )
+    event = SecurityEvent(
+        event_id="fabric-mtls-1",
+        tenant_id="tenant-a",
+        site_id="site-1",
+        sensor_id="sensor-1",
+        observed_at=dt.datetime(2026, 9, 19, 10, 0, tzinfo=dt.UTC),
+        category="network.connection",
+    )
+    envelope = security_event_envelope(
+        event,
+        produced_at=dt.datetime(2026, 9, 19, 10, 1, tzinfo=dt.UTC),
+    )
+
+    require_fabric_envelope_matches_site_identity(envelope, identity)
+
+    with pytest.raises(SiteCertificateScopeError, match="fabric"):
+        require_fabric_envelope_matches_site_identity(
+            envelope.model_copy(update={"site_id": "site-2"}),
             identity,
         )
