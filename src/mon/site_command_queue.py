@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from mon.domain import AuditRecord, ResponseExecutionStatus
 from mon.site_command_models import (
     SiteCommand,
     SiteCommandKind,
@@ -36,6 +37,120 @@ class SiteCommandQueue:
         record = SiteCommandRecord(command=command)
         return self.store.add_site_command(record)
 
+    @staticmethod
+    def _execution_id(record: SiteCommandRecord) -> str | None:
+        if (
+            record.command.kind is SiteCommandKind.APPLY_RESPONSE
+            and record.command.response_plan is not None
+        ):
+            return record.command.response_plan.request.request_id
+        return record.command.rollback_execution_id
+
+    def _reconcile_pending_failure(
+        self,
+        record: SiteCommandRecord,
+        *,
+        error: str,
+        occurred_at: dt.datetime,
+        outcome: str,
+    ) -> None:
+        execution_id = self._execution_id(record)
+        if execution_id is None:
+            return
+
+        execution = self.store.get_response_execution(
+            record.command.tenant_id,
+            record.command.site_id,
+            execution_id,
+        )
+        if execution is None:
+            return
+
+        status = None
+        if (
+            record.command.kind is SiteCommandKind.APPLY_RESPONSE
+            and execution.status is ResponseExecutionStatus.DISPATCH_PENDING
+        ):
+            status = ResponseExecutionStatus.FAILED
+        elif (
+            record.command.kind is SiteCommandKind.ROLLBACK_RESPONSE
+            and execution.status is ResponseExecutionStatus.ROLLBACK_PENDING
+        ):
+            status = ResponseExecutionStatus.ROLLBACK_FAILED
+
+        if status is None:
+            return
+
+        updated = execution.model_copy(
+            update={
+                "status": status,
+                "error": error[:2000],
+            }
+        )
+        self.store.add_response_execution(updated)
+        self.store.add_audit_record(
+            AuditRecord(
+                tenant_id=updated.tenant_id,
+                site_id=updated.site_id,
+                actor_id="mon-site-command",
+                category="RESPONSE",
+                object_type="response_execution",
+                object_id=updated.execution_id,
+                action="SITE_COMMAND",
+                outcome=outcome,
+                occurred_at=occurred_at,
+                details={
+                    "command_id": record.command.command_id,
+                    "command_kind": record.command.kind.value,
+                    "error": error[:1000],
+                },
+            )
+        )
+
+    def _expire_record(
+        self,
+        record: SiteCommandRecord,
+        check_at: dt.datetime,
+    ) -> SiteCommandRecord:
+        expired = record.model_copy(
+            update={
+                "status": SiteCommandStatus.EXPIRED,
+                "updated_at": check_at,
+            }
+        )
+        self.store.add_site_command(expired)
+
+        error = (
+            "site response command expired before delivery"
+            if record.command.kind is SiteCommandKind.APPLY_RESPONSE
+            else "site rollback command expired before delivery"
+        )
+        self._reconcile_pending_failure(
+            record,
+            error=error,
+            occurred_at=check_at,
+            outcome="EXPIRED",
+        )
+        return expired
+
+    def expire_due(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        now: dt.datetime | None = None,
+    ) -> int:
+        check_at = now or dt.datetime.now(dt.UTC)
+        count = 0
+        for record in self.store.list_site_commands(tenant_id, site_id):
+            if (
+                record.status is SiteCommandStatus.PENDING
+                and record.command.not_after <= check_at
+            ):
+                self._expire_record(record, check_at)
+                count += 1
+        return count
+
     def pending(
         self,
         tenant_id: str,
@@ -54,14 +169,7 @@ class SiteCommandQueue:
             if record.status is not SiteCommandStatus.PENDING:
                 continue
             if record.command.not_after <= check_at:
-                self.store.add_site_command(
-                    record.model_copy(
-                        update={
-                            "status": SiteCommandStatus.EXPIRED,
-                            "updated_at": check_at,
-                        }
-                    )
-                )
+                self._expire_record(record, check_at)
                 continue
             eligible.append(record)
 
@@ -95,18 +203,20 @@ class SiteCommandQueue:
                 return record
             raise SiteCommandError("site command already has a different terminal result")
 
-        expected_execution_id = (
-            record.command.response_plan.request.request_id
-            if record.command.kind is SiteCommandKind.APPLY_RESPONSE
-            and record.command.response_plan is not None
-            else record.command.rollback_execution_id
-        )
+        expected_execution_id = self._execution_id(record)
         if result.execution is not None:
             if result.execution.execution_id != expected_execution_id:
                 raise SiteCommandError(
                     "site command result execution_id does not match command"
                 )
             self.store.add_response_execution(result.execution)
+        elif not result.success:
+            self._reconcile_pending_failure(
+                record,
+                error=result.error or "site command failed without execution result",
+                occurred_at=result.completed_at,
+                outcome="FAILED",
+            )
 
         for audit in result.audit_records:
             if audit.object_type != "response_execution":
