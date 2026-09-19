@@ -7,10 +7,11 @@ import re
 import shutil
 import ssl
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Protocol
+from typing import Protocol
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
