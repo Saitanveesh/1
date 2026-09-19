@@ -1,6 +1,9 @@
+import datetime as dt
+
 from fastapi.testclient import TestClient
 
 from mon.api import app, correlator, detector, graph, store
+from mon.sensor_fleet_models import SensorIdentityRecord, SensorRecord
 
 client = TestClient(app)
 
@@ -40,3 +43,77 @@ def test_incident_reads_are_tenant_and_site_scoped() -> None:
 
     assert [item["incident_id"] for item in own.json()] == ["inc-a"]
     assert other.json() == []
+
+
+def test_sensor_fleet_api_is_site_scoped_and_revocation_updates_trust() -> None:
+    now = dt.datetime.now(dt.UTC)
+    identity = SensorIdentityRecord(
+        identity_id="sensor-identity-a",
+        tenant_id="tenant-a",
+        site_id="site-1",
+        sensor_id="sensor-1",
+        certificate_serial="123",
+        fingerprint_sha256="a" * 64,
+        spiffe_uri=(
+            "spiffe://mon.local/tenant/tenant-a/site/site-1/sensor/sensor-1"
+        ),
+        certificate_pem=(
+            "-----BEGIN CERTIFICATE-----\n"
+            + "A" * 80
+            + "\n-----END CERTIFICATE-----\n"
+        ),
+        issued_at=now,
+        expires_at=now + dt.timedelta(days=30),
+    )
+    sensor = SensorRecord(
+        tenant_id="tenant-a",
+        site_id="site-1",
+        sensor_id="sensor-1",
+        created_at=now,
+        updated_at=now,
+        current_identity_id=identity.identity_id,
+    )
+    store.save_sensor_lifecycle(sensor, [identity])
+
+    own = client.get(
+        "/api/v1/sensors",
+        params={"tenant_id": "tenant-a", "site_id": "site-1"},
+    )
+    assert own.status_code == 200
+    assert [item["sensor_id"] for item in own.json()] == ["sensor-1"]
+    assert own.json()[0]["state"] == "STALE"
+
+    foreign = client.get(
+        "/api/v1/sensors",
+        params={"tenant_id": "tenant-b", "site_id": "site-1"},
+    )
+    assert foreign.status_code == 200
+    assert foreign.json() == []
+
+    trust = client.get(
+        "/api/v1/site/sensors/trust",
+        params={"tenant_id": "tenant-a", "site_id": "site-1"},
+    )
+    assert trust.status_code == 200
+    assert len(trust.json()["identities"]) == 1
+
+    revoked = client.post(
+        "/api/v1/sensors/sensor-1/revoke",
+        params={"tenant_id": "tenant-a", "site_id": "site-1"},
+        json={"reason": "decommissioned"},
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["state"] == "REVOKED"
+
+    trust_after = client.get(
+        "/api/v1/site/sensors/trust",
+        params={"tenant_id": "tenant-a", "site_id": "site-1"},
+    )
+    assert trust_after.status_code == 200
+    assert trust_after.json()["identities"] == []
+
+    fleet_after = client.get(
+        "/api/v1/sensors",
+        params={"tenant_id": "tenant-a", "site_id": "site-1"},
+    )
+    assert fleet_after.json()[0]["state"] == "REVOKED"
