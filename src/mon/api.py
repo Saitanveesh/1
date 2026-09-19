@@ -45,6 +45,32 @@ from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
 from mon.response import ResponseOrchestrator, ResponseStateError
 from mon.response_dispatch import ResponseDispatcher
+from mon.sensor_fleet import (
+    SensorFleetError,
+    build_sensor_fleet,
+    build_sensor_trust_snapshot,
+    enroll_sensor,
+    issue_sensor_enrollment_token,
+    record_sensor_heartbeat,
+    renew_sensor,
+    revoke_sensor,
+)
+from mon.sensor_fleet_models import (
+    SensorEnrollmentRequest,
+    SensorEnrollmentResult,
+    SensorEnrollmentTokenIssue,
+    SensorEnrollmentTokenRequest,
+    SensorFleetView,
+    SensorHeartbeat,
+    SensorIdentityRecord,
+    SensorRenewalRequest,
+    SensorRevocationRequest,
+    SensorTrustSnapshot,
+)
+from mon.sensor_identity import (
+    SensorEnrollmentDenied,
+    get_sensor_certificate_authority,
+)
 from mon.site_command_models import (
     SiteCommand,
     SiteCommandKind,
@@ -704,3 +730,180 @@ def list_site_identities(
 ) -> list[SiteIdentityRecord]:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     return store.list_site_identities(tenant_id, site_id)
+
+
+@app.post(
+    "/api/v1/sensor-enrollment-tokens",
+    response_model=SensorEnrollmentTokenIssue,
+    status_code=201,
+)
+def create_sensor_enrollment_token(
+    request: SensorEnrollmentTokenRequest,
+    principal: CurrentPrincipal,
+) -> SensorEnrollmentTokenIssue:
+    require_scope(
+        principal,
+        request.tenant_id,
+        request.site_id,
+        Permission.CONFIGURE,
+    )
+    try:
+        return issue_sensor_enrollment_token(
+            store,
+            request.tenant_id,
+            request.site_id,
+            request.sensor_id,
+            request.ttl_seconds,
+            principal.subject,
+        )
+    except SensorFleetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/sensor-enrollment",
+    response_model=SensorEnrollmentResult,
+    status_code=201,
+)
+def complete_sensor_enrollment(
+    request: SensorEnrollmentRequest,
+) -> SensorEnrollmentResult:
+    try:
+        certificate_authority = get_sensor_certificate_authority()
+    except IdentityConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="sensor certificate authority is unavailable",
+        ) from exc
+
+    try:
+        return enroll_sensor(store, certificate_authority, request)
+    except SensorEnrollmentDenied as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except SensorFleetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/site/sensors/renew",
+    response_model=SensorEnrollmentResult,
+)
+def renew_sensor_certificate(
+    request: SensorRenewalRequest,
+    principal: CurrentPrincipal,
+) -> SensorEnrollmentResult:
+    require_scope(
+        principal,
+        request.tenant_id,
+        request.site_id,
+        Permission.SITE_COMMAND,
+    )
+    try:
+        certificate_authority = get_sensor_certificate_authority()
+    except IdentityConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="sensor certificate authority is unavailable",
+        ) from exc
+    try:
+        return renew_sensor(store, certificate_authority, request)
+    except (SensorEnrollmentDenied, SensorFleetError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/site/sensors/heartbeat",
+    response_model=dict[str, str],
+)
+def submit_sensor_heartbeat(
+    heartbeat: SensorHeartbeat,
+    principal: CurrentPrincipal,
+) -> dict[str, str]:
+    require_scope(
+        principal,
+        heartbeat.tenant_id,
+        heartbeat.site_id,
+        Permission.SITE_COMMAND,
+    )
+    try:
+        record_sensor_heartbeat(store, heartbeat)
+    except SensorFleetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"state": "RECORDED"}
+
+
+@app.get(
+    "/api/v1/site/sensors/trust",
+    response_model=SensorTrustSnapshot,
+)
+def get_sensor_trust_snapshot(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> SensorTrustSnapshot:
+    require_scope(
+        principal,
+        tenant_id,
+        site_id,
+        Permission.SITE_COMMAND,
+    )
+    return build_sensor_trust_snapshot(store, tenant_id, site_id)
+
+
+@app.get(
+    "/api/v1/sensors",
+    response_model=list[SensorFleetView],
+)
+def list_sensor_fleet(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    stale_after_seconds: int = Query(default=90, ge=1, le=86400),
+) -> list[SensorFleetView]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return build_sensor_fleet(
+        store,
+        tenant_id,
+        site_id,
+        stale_after_seconds=stale_after_seconds,
+    )
+
+
+@app.get(
+    "/api/v1/sensor-identities",
+    response_model=list[SensorIdentityRecord],
+)
+def list_sensor_identities(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    sensor_id: str | None = Query(default=None, min_length=1, max_length=128),
+) -> list[SensorIdentityRecord]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return store.list_sensor_identities(tenant_id, site_id, sensor_id)
+
+
+@app.post(
+    "/api/v1/sensors/{sensor_id}/revoke",
+    response_model=dict[str, str],
+)
+def revoke_sensor_identity(
+    sensor_id: str,
+    request: SensorRevocationRequest,
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> dict[str, str]:
+    require_scope(principal, tenant_id, site_id, Permission.CONFIGURE)
+    try:
+        revoke_sensor(
+            store,
+            tenant_id,
+            site_id,
+            sensor_id,
+            actor_id=principal.subject,
+            reason=request.reason,
+        )
+    except SensorFleetError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"state": "REVOKED"}
