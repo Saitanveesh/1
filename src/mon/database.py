@@ -341,13 +341,65 @@ class DatabaseStore:
             Base.metadata.create_all(self.engine)
 
     def close(self) -> None:
+        if getattr(self._transaction_state, "session", None) is not None:
+            raise RuntimeError("cannot close DatabaseStore during an active transaction")
         self.engine.dispose()
 
+    def _active_session(self) -> Session | None:
+        value = getattr(self._transaction_state, "session", None)
+        return value if isinstance(value, Session) else None
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        if self._active_session() is not None:
+            raise RuntimeError("nested database transactions are not supported")
+        with self._session_factory.begin() as session:
+            self._transaction_state.session = session
+            try:
+                yield
+            finally:
+                self._transaction_state.session = None
+
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
-        with self._session_factory() as session:
-            return session.get(EventRow, _key(tenant_id, site_id, event_id)) is not None
+        return self.get_event(tenant_id, site_id, event_id) is not None
+
+    def get_event(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> SecurityEvent | None:
+        row = self._get(EventRow, tenant_id, site_id, event_id)
+        return SecurityEvent.model_validate(row.payload) if row else None
+
+    def event_processed(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> bool:
+        row = self._get(
+            EventProcessingRow,
+            tenant_id,
+            site_id,
+            event_id,
+        )
+        return row is not None
 
     def add_event(self, event: SecurityEvent) -> SecurityEvent:
+        existing = self.get_event(
+            event.tenant_id,
+            event.site_id,
+            event.event_id,
+        )
+        if existing is not None:
+            if existing != event:
+                raise ValueError(
+                    "event_id already exists with different content "
+                    "in control-plane store"
+                )
+            return existing
+
         row = EventRow(
             pk=_key(event.tenant_id, event.site_id, event.event_id),
             tenant_id=event.tenant_id,
@@ -355,13 +407,64 @@ class DatabaseStore:
             event_id=event.event_id,
             payload=event.model_dump(mode="json"),
         )
-        with self._session_factory() as session:
-            try:
+        active = self._active_session()
+        if active is not None:
+            active.add(row)
+            active.flush()
+            return event
+
+        try:
+            with self._session_factory.begin() as session:
                 session.add(row)
-                session.commit()
-            except IntegrityError:
-                session.rollback()
+                session.flush()
+        except IntegrityError:
+            existing = self.get_event(
+                event.tenant_id,
+                event.site_id,
+                event.event_id,
+            )
+            if existing is None:
+                raise
+            if existing != event:
+                raise ValueError(
+                    "event_id already exists with different content "
+                    "in control-plane store"
+                ) from None
+            return existing
         return event
+
+    def mark_event_processed(self, event: SecurityEvent) -> None:
+        current = self.get_event(
+            event.tenant_id,
+            event.site_id,
+            event.event_id,
+        )
+        if current is None:
+            raise ValueError(
+                "cannot mark an event processed before its durable event record"
+            )
+        if current != event:
+            raise ValueError(
+                "processed event content does not match durable event record"
+            )
+
+        row = EventProcessingRow(
+            pk=_key(event.tenant_id, event.site_id, event.event_id),
+            tenant_id=event.tenant_id,
+            site_id=event.site_id,
+            event_id=event.event_id,
+            processed_at=dt.datetime.now(dt.UTC),
+        )
+        active = self._active_session()
+        if active is not None:
+            if active.get(EventProcessingRow, row.pk) is None:
+                active.add(row)
+                active.flush()
+            return
+
+        with self._session_factory.begin() as session:
+            if session.get(EventProcessingRow, row.pk) is None:
+                session.add(row)
 
     def list_events(
         self,
@@ -375,6 +478,35 @@ class DatabaseStore:
         if since is not None:
             events = [event for event in events if event.observed_at >= since]
         return sorted(events, key=lambda event: (event.observed_at, event.event_id))
+
+    def list_unprocessed_events(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SecurityEvent]:
+        statement = (
+            select(EventRow)
+            .outerjoin(
+                EventProcessingRow,
+                EventProcessingRow.pk == EventRow.pk,
+            )
+            .where(
+                EventRow.tenant_id == tenant_id,
+                EventRow.site_id == site_id,
+                EventProcessingRow.pk.is_(None),
+            )
+            .order_by(EventRow.event_id)
+        )
+        active = self._active_session()
+        if active is not None:
+            rows = active.scalars(statement).all()
+        else:
+            with self._session_factory() as session:
+                rows = session.scalars(statement).all()
+        return [
+            SecurityEvent.model_validate(row.payload)
+            for row in rows
+        ]
 
     def add_finding(self, finding: Finding) -> Finding:
         self._merge(
