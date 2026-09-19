@@ -231,6 +231,19 @@ class DatabaseStore:
                 session.rollback()
         return event
 
+    def list_events(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        since: dt.datetime | None = None,
+    ) -> list[SecurityEvent]:
+        rows = self._list_scope(EventRow, tenant_id, site_id)
+        events = [SecurityEvent.model_validate(row.payload) for row in rows]
+        if since is not None:
+            events = [event for event in events if event.observed_at >= since]
+        return sorted(events, key=lambda event: (event.observed_at, event.event_id))
+
     def add_finding(self, finding: Finding) -> Finding:
         self._merge(
             FindingRow(

@@ -33,12 +33,21 @@ def test_offline_site_service_builds_all_durable_state(tmp_path) -> None:
         assert status["command_channel_configured"] is False
         assert status["local_recovery_configured"] is True
         assert status["spool"]["durability"] == "WAL_FULL"
-        assert status["local_pipeline_state_persistence"] == "MEMORY_ONLY"
+        assert status["local_pipeline_state_persistence"] == "DURABLE_RESTORED"
+        assert status["local_pipeline_restore"] == {
+            "events": 0,
+            "findings": 0,
+            "incidents": 0,
+            "graph_finding_attachments": 0,
+            "correlation_pointers": 0,
+        }
+        assert resources.analysis_store.diagnostics()["tenant_id"] == "tenant-a"
         assert resources.response_store.diagnostics()["tenant_id"] == "tenant-a"
         assert resources.command_result_outbox.diagnostics()["queued"] == 0
         assert resources.response_update_outbox.diagnostics()["queued"] == 0
         for name in (
             "event-spool.db",
+            "analysis-state.db",
             "response-state.db",
             "command-results.db",
             "response-updates.db",

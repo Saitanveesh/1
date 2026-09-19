@@ -80,9 +80,15 @@ adapter as a production host-firewall deployment path.
 
 ## Current restart boundary
 
-Event delivery, response state, command-result receipts, response-update receipts, and TTL
-recovery are durable across process restart.
+Event delivery, response state, command-result receipts, response-update receipts, TTL
+recovery, normalized local events, assets, findings, and incidents are durable across process
+restart.
 
-Detector windows, local incident correlation state, telemetry windows, and in-memory attack
-graph state are not yet restart-persistent. `/health` exposes this boundary as
-`local_pipeline_state_persistence: MEMORY_ONLY`.
+At startup the Site Controller warm-restores detector windows, telemetry windows, attack
+graph state, and active correlation pointers from durable evidence. `/health` reports
+`local_pipeline_state_persistence: DURABLE_RESTORED` plus restore counts.
+
+The remaining crash boundary is inside processing of one event: the event and every derived
+asset/finding/incident mutation are not yet committed as one local transaction. ADR 0028
+documents this explicitly; a processing journal/transactional unit-of-work is the next
+required tranche.

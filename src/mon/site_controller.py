@@ -578,7 +578,8 @@ class SiteController:
             ),
             "spool": diagnostics,
             "response_state": response_state,
-            "local_pipeline_state_persistence": "MEMORY_ONLY",
+            "local_pipeline_state_persistence": self.pipeline.persistence_mode.value,
+            "local_pipeline_restore": self.pipeline.last_restore,
             "local_incidents": len(
                 self.pipeline.store.list_incidents(self.tenant_id, self.site_id)
             ),

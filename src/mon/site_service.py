@@ -11,7 +11,9 @@ import uvicorn
 from fastapi import FastAPI
 
 from mon.enforcement import EnforcementRegistry
+from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
 from mon.production_site_controller import ProductionSiteController
+from mon.site_analysis_store import SQLiteSiteAnalysisStore
 from mon.site_api import create_site_app
 from mon.site_command_client import HttpSiteCommandClient
 from mon.site_command_outbox import SQLiteCommandResultOutbox
@@ -201,6 +203,7 @@ class SiteServiceResources:
     controller: ProductionSiteController
     runtime: SiteControllerRuntime
     event_spool: SQLiteEventSpool
+    analysis_store: SQLiteSiteAnalysisStore
     response_store: SQLiteSiteResponseStore
     command_result_outbox: SQLiteCommandResultOutbox
     response_update_outbox: SQLiteResponseUpdateOutbox
@@ -209,6 +212,7 @@ class SiteServiceResources:
         self.response_update_outbox.close()
         self.command_result_outbox.close()
         self.response_store.close()
+        self.analysis_store.close()
         self.event_spool.close()
 
 
@@ -222,6 +226,11 @@ def build_site_service_resources(
 
     event_spool = SQLiteEventSpool(
         config.state_dir / "event-spool.db",
+        tenant_id=config.tenant_id,
+        site_id=config.site_id,
+    )
+    analysis_store = SQLiteSiteAnalysisStore(
+        config.state_dir / "analysis-state.db",
         tenant_id=config.tenant_id,
         site_id=config.site_id,
     )
@@ -242,6 +251,12 @@ def build_site_service_resources(
     )
 
     try:
+        pipeline = SecurityPipeline(
+            store=analysis_store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        pipeline.restore_scope(config.tenant_id, config.site_id)
+
         enforcement = registry or EnforcementRegistry()
         response_executor = SiteResponseExecutor(
             config.tenant_id,
@@ -281,6 +296,7 @@ def build_site_service_resources(
             config.site_id,
             event_spool,
             sender=sender,
+            pipeline=pipeline,
             command_client=command_client,
             response_executor=response_executor,
             result_outbox=command_result_outbox,
@@ -297,6 +313,7 @@ def build_site_service_resources(
             controller=controller,
             runtime=runtime,
             event_spool=event_spool,
+            analysis_store=analysis_store,
             response_store=response_store,
             command_result_outbox=command_result_outbox,
             response_update_outbox=response_update_outbox,
@@ -305,6 +322,7 @@ def build_site_service_resources(
         response_update_outbox.close()
         command_result_outbox.close()
         response_store.close()
+        analysis_store.close()
         event_spool.close()
         raise
 

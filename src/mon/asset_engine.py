@@ -6,7 +6,7 @@ import threading
 from collections.abc import Iterable
 
 from mon.domain import Asset, SecurityEvent
-from mon.store import Store
+from mon.store import PipelineStore
 
 _MAC_PATTERN = re.compile(r"^(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$")
 _HOSTNAME_KEYS = (
@@ -94,7 +94,7 @@ class AssetEngine:
     weaker observations because DHCP/re-addressing can change ownership over time.
     """
 
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: PipelineStore) -> None:
         self.store = store
         self._lock = threading.RLock()
 
