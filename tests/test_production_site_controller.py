@@ -88,13 +88,15 @@ def test_compaction_removes_only_old_acknowledged_receipts(tmp_path) -> None:
         command_id="old",
         tenant_id="tenant-a",
         site_id="site-a",
-        success=True,
+        success=False,
+        error="historical failed command result",
     )
     pending = SiteCommandResult(
         command_id="pending",
         tenant_id="tenant-a",
         site_id="site-a",
         success=False,
+        error="unreported failed command result",
     )
     try:
         outbox.enqueue(old)
