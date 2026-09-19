@@ -3,6 +3,8 @@ import datetime as dt
 from fastapi.testclient import TestClient
 
 from mon.api import app, correlator, detector, graph, store
+from mon.domain import SecurityEvent
+from mon.event_fabric import security_event_envelope
 from mon.sensor_fleet_models import SensorIdentityRecord, SensorRecord
 
 client = TestClient(app)
