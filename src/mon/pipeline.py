@@ -8,13 +8,21 @@ from mon.attack_graph import AttackGraphEngine
 from mon.correlation import CorrelationEngine
 from mon.detection import DetectionEngine
 from mon.domain import EventProcessingResult, SecurityEvent
-from mon.store import InMemoryStore, PipelineStore
+from mon.store import (
+    InMemoryStore,
+    PipelineStore,
+    TransactionalPipelineStore,
+)
 from mon.telemetry import TelemetryEngine
 
 
 class PipelinePersistenceMode(StrEnum):
     MEMORY_ONLY = "MEMORY_ONLY"
     DURABLE_RESTORED = "DURABLE_RESTORED"
+
+
+class PipelineStateError(RuntimeError):
+    pass
 
 
 class SecurityPipeline:
@@ -53,6 +61,14 @@ class SecurityPipeline:
     def restore_scope(self, tenant_id: str, site_id: str) -> dict[str, int]:
         """Rebuild bounded in-memory engines from durable local evidence state."""
         with self._lock:
+            if isinstance(self.store, TransactionalPipelineStore):
+                unprocessed = self.store.list_unprocessed_events(tenant_id, site_id)
+                if unprocessed:
+                    raise PipelineStateError(
+                        "durable local analysis contains events without atomic "
+                        "processing receipts"
+                    )
+
             self.detector.reset()
             self.graph.reset()
             self.correlator.reset()
@@ -84,27 +100,53 @@ class SecurityPipeline:
             self.last_restore = restored
             return restored
 
+    def _process_new_event(self, event: SecurityEvent) -> EventProcessingResult:
+        stored = self.store.add_event(event)
+        asset = self.asset_engine.observe(event)
+        telemetry = self.telemetry.observe(event)
+        self.graph.observe_event(event)
+        findings = self.detector.process(event)
+        incidents = []
+        for finding in findings:
+            self.store.add_finding(finding)
+            self.graph.attach_finding(finding)
+            incidents.append(self.correlator.process(finding, self.store))
+
+        return EventProcessingResult(
+            event=stored,
+            asset_updates=[asset] if asset is not None else [],
+            telemetry=telemetry,
+            findings=findings,
+            incidents=incidents,
+            duplicate=False,
+        )
+
     def process_event(self, event: SecurityEvent) -> EventProcessingResult:
         with self._lock:
             if self.store.event_exists(event.tenant_id, event.site_id, event.event_id):
+                if (
+                    isinstance(self.store, TransactionalPipelineStore)
+                    and not self.store.event_processed(
+                        event.tenant_id,
+                        event.site_id,
+                        event.event_id,
+                    )
+                ):
+                    raise PipelineStateError(
+                        "durable event exists without a completed processing receipt"
+                    )
                 return EventProcessingResult(event=event, duplicate=True)
 
-            stored = self.store.add_event(event)
-            asset = self.asset_engine.observe(event)
-            telemetry = self.telemetry.observe(event)
-            self.graph.observe_event(event)
-            findings = self.detector.process(event)
-            incidents = []
-            for finding in findings:
-                self.store.add_finding(finding)
-                self.graph.attach_finding(finding)
-                incidents.append(self.correlator.process(finding, self.store))
+            if not isinstance(self.store, TransactionalPipelineStore):
+                return self._process_new_event(event)
 
-            return EventProcessingResult(
-                event=stored,
-                asset_updates=[asset] if asset is not None else [],
-                telemetry=telemetry,
-                findings=findings,
-                incidents=incidents,
-                duplicate=False,
-            )
+            try:
+                with self.store.transaction():
+                    result = self._process_new_event(event)
+                    self.store.mark_event_processed(event)
+                return result
+            except Exception:
+                # Engine memory may have advanced before the durable transaction
+                # failed. Rebuild it from the last committed evidence boundary.
+                self.restore_scope(event.tenant_id, event.site_id)
+                raise
