@@ -1,4 +1,5 @@
 import datetime as dt
+import sqlite3
 
 import pytest
 
@@ -233,4 +234,69 @@ async def test_cloud_delivery_waits_for_atomic_local_analysis_recovery(
         assert analysis.diagnostics()["processed_events"] == 1
     finally:
         analysis.close()
+        spool.close()
+
+
+def test_v1_spool_rows_migrate_to_analysis_pending(tmp_path) -> None:
+    path = tmp_path / "legacy-spool.db"
+    item = event(1)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE event_spool (
+                event_id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                site_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE event_spool_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO event_spool_metadata(key, value) VALUES (?, ?)",
+            [
+                ("schema_version", "1"),
+                ("tenant_id", "t1"),
+                ("site_id", "s1"),
+            ],
+        )
+        connection.execute(
+            """
+            INSERT INTO event_spool(
+                event_id, tenant_id, site_id, observed_at, payload, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.event_id,
+                item.tenant_id,
+                item.site_id,
+                item.observed_at.isoformat(),
+                item.model_dump_json(),
+                item.observed_at.isoformat(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    spool = SQLiteEventSpool(path, tenant_id="t1", site_id="s1")
+    try:
+        assert spool.pending() == []
+        assert spool.pending_analysis() == [item]
+        diagnostics = spool.diagnostics()
+        assert diagnostics["analysis_pending"] == 1
+        assert diagnostics["delivery_ready"] == 0
+    finally:
         spool.close()
