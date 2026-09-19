@@ -5,12 +5,14 @@ import datetime as dt
 from mon.domain import (
     AuditRecord,
     EnforcementResult,
+    EnforcementVerification,
+    EnforcementVerificationState,
     PolicyOutcome,
     ResponseExecution,
     ResponseExecutionStatus,
     utcnow,
 )
-from mon.enforcement import EnforcementRegistry
+from mon.enforcement import EnforcementRegistry, VerifiableEnforcementAdapter
 from mon.response import ResponseRollbackEngine
 from mon.site_command_models import SiteCommand, SiteCommandKind, SiteCommandResult
 from mon.store import ResponseStateStore
@@ -87,6 +89,136 @@ class SiteResponseExecutor:
         if command.tenant_id != self.tenant_id or command.site_id != self.site_id:
             raise ValueError("site command scope does not match local site identity")
 
+    async def reconcile_execution(
+        self,
+        execution: ResponseExecution,
+    ) -> ResponseExecution:
+        """Resolve a crash-interrupted EXECUTING state using connector evidence."""
+        if execution.status is not ResponseExecutionStatus.EXECUTING:
+            return execution
+
+        try:
+            adapter = self.registry.resolve(
+                execution.plan.enforcement_point.kind,
+                execution.plan.enforcement_point.vendor,
+            )
+        except Exception as exc:
+            self._audit(
+                execution,
+                "VERIFY",
+                "ERROR",
+                "mon-site-reconciliation",
+                {"error": str(exc)[:1000]},
+            )
+            return execution
+
+        if not isinstance(adapter, VerifiableEnforcementAdapter):
+            return execution
+
+        try:
+            verification = EnforcementVerification.model_validate(
+                await adapter.verify(execution.plan, execution.execution_id)
+            )
+        except Exception as exc:
+            self._audit(
+                execution,
+                "VERIFY",
+                "ERROR",
+                "mon-site-reconciliation",
+                {"error": str(exc)[:1000]},
+            )
+            return execution
+
+        self._audit(
+            execution,
+            "VERIFY",
+            verification.state.value,
+            "mon-site-reconciliation",
+            {
+                "message": verification.message,
+                "external_reference": verification.external_reference,
+                "details": verification.details,
+            },
+        )
+
+        if verification.state is EnforcementVerificationState.UNKNOWN:
+            return execution
+
+        if verification.state is EnforcementVerificationState.ABSENT:
+            failed = execution.model_copy(
+                update={
+                    "status": ResponseExecutionStatus.FAILED,
+                    "error": (
+                        "enforcement verification confirmed the effect is absent "
+                        "after an interrupted execution"
+                    ),
+                }
+            )
+            self.store.add_response_execution(failed)
+            return failed
+
+        ttl_seconds = execution.plan.request.ttl_seconds
+        expires_at = (
+            execution.requested_at + dt.timedelta(seconds=ttl_seconds)
+            if ttl_seconds is not None
+            else None
+        )
+        applied = execution.model_copy(
+            update={
+                "status": ResponseExecutionStatus.APPLIED,
+                # The exact apply instant was lost in the crash window. Do not
+                # fabricate applied_at. The conservative expiry bound starts at
+                # the durable pre-call requested_at, so containment cannot be
+                # extended beyond the configured TTL by reconciliation.
+                "applied_at": None,
+                "expires_at": expires_at,
+                "result": EnforcementResult(
+                    success=True,
+                    message=(
+                        "enforcement effect verified present after interrupted "
+                        "execution; original apply result was not persisted"
+                    ),
+                    external_reference=verification.external_reference,
+                    details={
+                        "reconciled_after_interruption": True,
+                        "verification_message": verification.message,
+                        "verification_details": verification.details,
+                    },
+                ),
+                "error": None,
+            }
+        )
+        self.store.add_response_execution(applied)
+        return applied
+
+    async def reconcile_uncertain_executions(self) -> dict[str, int]:
+        candidates = [
+            execution
+            for execution in self.store.list_response_executions(
+                self.tenant_id,
+                self.site_id,
+            )
+            if execution.status is ResponseExecutionStatus.EXECUTING
+        ]
+        resolved = 0
+        present = 0
+        absent = 0
+        for execution in candidates:
+            updated = await self.reconcile_execution(execution)
+            if updated.status is ResponseExecutionStatus.APPLIED:
+                resolved += 1
+                present += 1
+            elif updated.status is ResponseExecutionStatus.FAILED:
+                resolved += 1
+                absent += 1
+        return {
+            "attempted": len(candidates),
+            "resolved": resolved,
+            "present": present,
+            "absent": absent,
+            "unresolved": len(candidates) - resolved,
+        }
+
     async def execute(self, command: SiteCommand) -> SiteCommandResult:
         try:
             self._validate_scope(command)
@@ -99,16 +231,15 @@ class SiteResponseExecutor:
                 error=str(exc),
             )
 
-        if command.not_after <= utcnow():
-            return SiteCommandResult(
-                command_id=command.command_id,
-                tenant_id=self.tenant_id,
-                site_id=self.site_id,
-                success=False,
-                error="site command expired before local execution",
-            )
-
         if command.kind is SiteCommandKind.ROLLBACK_RESPONSE:
+            if command.not_after <= utcnow():
+                return SiteCommandResult(
+                    command_id=command.command_id,
+                    tenant_id=self.tenant_id,
+                    site_id=self.site_id,
+                    success=False,
+                    error="site command expired before local execution",
+                )
             return await self._rollback(command)
         return await self._apply(command)
 
@@ -122,6 +253,8 @@ class SiteResponseExecutor:
             request.request_id,
         )
         if existing is not None:
+            if existing.status is ResponseExecutionStatus.EXECUTING:
+                existing = await self.reconcile_execution(existing)
             success = existing.status in {
                 ResponseExecutionStatus.APPLIED,
                 ResponseExecutionStatus.ROLLED_BACK,
@@ -131,6 +264,15 @@ class SiteResponseExecutor:
                 success=success,
                 execution=existing,
                 error=None if success else existing.error or existing.status.value,
+            )
+
+        if command.not_after <= utcnow():
+            return SiteCommandResult(
+                command_id=command.command_id,
+                tenant_id=self.tenant_id,
+                site_id=self.site_id,
+                success=False,
+                error="site command expired before local execution",
             )
 
         if plan.decision.outcome is PolicyOutcome.DENY:
