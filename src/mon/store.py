@@ -28,6 +28,7 @@ from mon.sensor_fleet_models import (
 )
 from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
+from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
 
 
 class PipelineStore(Protocol):
@@ -352,6 +353,8 @@ class InMemoryStore:
         self.audit_records: dict[tuple[str, str, str], AuditRecord] = {}
         self.site_commands: dict[tuple[str, str, str], SiteCommandRecord] = {}
         self.fabric_receipts: dict[tuple[str, str, str], FabricReceipt] = {}
+        self.threat_intel_sources: dict[tuple[str, str, str], ThreatIntelSource] = {}
+        self.threat_indicators: dict[tuple[str, str, str], ThreatIndicator] = {}
         self._identity_lock = threading.RLock()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
@@ -428,6 +431,61 @@ class InMemoryStore:
             value
             for (asset_tenant, asset_site, _), value in self.assets.items()
             if asset_tenant == tenant_id and asset_site == site_id
+        ]
+
+    def add_threat_intel_source(
+        self,
+        source: ThreatIntelSource,
+    ) -> ThreatIntelSource:
+        self.threat_intel_sources[
+            (source.tenant_id, source.site_id, source.source_id)
+        ] = source
+        return source
+
+    def get_threat_indicator(
+        self,
+        tenant_id: str,
+        site_id: str,
+        indicator_id: str,
+    ) -> ThreatIndicator | None:
+        return self.threat_indicators.get((tenant_id, site_id, indicator_id))
+
+    def upsert_threat_indicator(self, indicator: ThreatIndicator) -> str:
+        key = (indicator.tenant_id, indicator.site_id, indicator.indicator_id)
+        existing = self.threat_indicators.get(key)
+        if existing is None:
+            self.threat_indicators[key] = indicator
+            return "inserted"
+        if existing == indicator:
+            return "unchanged"
+        existing_modified = existing.stix_modified or existing.stix_created
+        incoming_modified = indicator.stix_modified or indicator.stix_created
+        if (
+            existing.stix_id == indicator.stix_id
+            and existing_modified is not None
+            and incoming_modified is not None
+            and incoming_modified < existing_modified
+        ):
+            return "unchanged"
+        self.threat_indicators[key] = indicator
+        return "updated"
+
+    def list_active_threat_indicators(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        indicator_type: IndicatorType | None = None,
+        now: dt.datetime | None = None,
+    ) -> list[ThreatIndicator]:
+        check_at = now or dt.datetime.now(dt.UTC)
+        return [
+            indicator
+            for (scope_tenant, scope_site, _), indicator in self.threat_indicators.items()
+            if scope_tenant == tenant_id
+            and scope_site == site_id
+            and (indicator_type is None or indicator.indicator_type is indicator_type)
+            and indicator.active_at(check_at)
         ]
 
     def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint:

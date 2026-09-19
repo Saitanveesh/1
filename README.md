@@ -54,6 +54,8 @@ Implemented foundations include:
 - verified site-mTLS fabric ingress with durable control-plane processing receipts;
 - tenant/site-scoped durable local analysis checkpoints for bounded warm restore without
   deleting forensic evidence;
+- STIX 2.1 indicator-bundle ingestion with tenant/site-scoped persistence and
+  evidence-backed exact indicator matching for IPs, domains, URLs, and file hashes;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
@@ -64,7 +66,10 @@ warm-restored after restart from integrity-checked analysis checkpoints plus pos
 event replay; and one event plus its derived durable state is committed as an atomic local
 analysis unit before the event becomes cloud-deliverable. Local forensic history is not
 silently pruned by checkpoint maintenance. The nftables adapter in this repository remains
-disposable-sandbox-only rather than a production host firewall connector.
+disposable-sandbox-only rather than a production host firewall connector. Threat-intelligence
+support currently covers direct STIX bundle ingestion and exact indicator matching; TAXII
+polling, scheduled feed synchronization, and complex STIX pattern evaluation are not yet
+implemented.
 
 See:
 

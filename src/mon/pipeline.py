@@ -18,6 +18,7 @@ from mon.store import (
     TransactionalPipelineStore,
 )
 from mon.telemetry import TelemetryEngine
+from mon.threat_intel import ThreatIntelRepository, match_event_indicators
 
 
 class PipelinePersistenceMode(StrEnum):
@@ -180,6 +181,8 @@ class SecurityPipeline:
         telemetry = self.telemetry.observe(event)
         self.graph.observe_event(event)
         findings = self.detector.process(event)
+        if isinstance(self.store, ThreatIntelRepository):
+            findings.extend(match_event_indicators(self.store, event))
         incidents = []
         for finding in findings:
             self.store.add_finding(finding)
