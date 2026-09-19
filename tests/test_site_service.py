@@ -1,4 +1,5 @@
 import datetime as dt
+import ssl
 from pathlib import Path
 
 import pytest
@@ -230,3 +231,38 @@ def test_site_service_rejects_non_loopback_listener(tmp_path) -> None:
         listen_host="::1",
     ).validate()
     assert config.listen_host == "::1"
+
+
+def test_cloud_site_service_uses_fabric_publisher_not_legacy_batch_sender(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ca = tmp_path / "ca.pem"
+    cert = tmp_path / "site.pem"
+    key = tmp_path / "site-key.pem"
+    for path in (ca, cert, key):
+        path.write_text("fixture", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "mon.site_service.create_mtls_client_ssl_context",
+        lambda *args, **kwargs: ssl.create_default_context(),
+    )
+    config = SiteServiceConfig(
+        tenant_id="tenant-a",
+        site_id="site-a",
+        state_dir=tmp_path / "state",
+        ingress_url="https://control.example",
+        bearer_token="site-token",
+        ca_certificate_file=ca,
+        client_certificate_file=cert,
+        client_private_key_file=key,
+    ).validate()
+
+    resources = build_site_service_resources(config)
+    try:
+        assert resources.controller.sender is None
+        assert resources.controller.fabric_publisher is not None
+        assert resources.controller.fabric_outbox is resources.fabric_outbox
+        assert resources.controller.status()["cloud_sender_configured"] is True
+    finally:
+        resources.close()
