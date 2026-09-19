@@ -592,10 +592,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.site,
                 args.secret_id,
             )
-        if isinstance(result, BaseModel):
-            output = result.model_dump(mode="json")
-        else:
-            output = result
+        output = (
+            result.model_dump(mode="json")
+            if isinstance(result, BaseModel)
+            else result
+        )
         sys.stdout.write(json.dumps(output, sort_keys=True) + "\n")
         return 0
     except ConnectorSecretError as exc:
