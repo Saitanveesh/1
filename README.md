@@ -33,6 +33,7 @@ Implemented foundations include:
 - typed tenant/site-scoped domain models and APIs;
 - PostgreSQL control-plane persistence and migrations;
 - forced PostgreSQL tenant/site row-level security under a non-bypass runtime role;
+- AES-256-GCM connector-secret vault with external keyring and reference-only credentials;
 - RBAC/authentication boundaries and site enrollment identities;
 - rotatable RS256 JWKS trust sets with fail-closed hot reload;
 - mTLS site ingress;
@@ -69,6 +70,7 @@ See:
 - `docs/ARCHITECTURE.md` for the architecture baseline;
 - `docs/adr/` for accepted architecture decisions;
 - `docs/site-controller.md` for Site Controller runtime configuration.
+- `docs/connector-secrets.md` for connector credential provisioning and key rotation.
 
 No binary or deployment is considered production-ready merely because it compiles or starts.
 Release claims require the repository release gates and appropriate disposable/VM validation.
