@@ -17,9 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-
 from mon import __version__
 from mon.sensor_credentials import (
     SensorCredentialError,
@@ -815,38 +812,21 @@ def _collector_client_from_environment() -> tuple[
         )
     ingress_url = os.environ.get("MON_SENSOR_INGRESS_URL", "").strip()
     ca_file = os.environ.get("MON_SENSOR_SERVER_CA_CERT_FILE", "").strip()
-    cert_file = os.environ.get("MON_SENSOR_CLIENT_CERT_FILE", "").strip()
-    key_file = os.environ.get("MON_SENSOR_CLIENT_KEY_FILE", "").strip()
-    if not ingress_url or not ca_file or not cert_file or not key_file:
+    cert_file = (
+        os.environ.get("MON_SENSOR_CLIENT_CERT_FILE", "").strip() or None
+    )
+    key_file = (
+        os.environ.get("MON_SENSOR_CLIENT_KEY_FILE", "").strip() or None
+    )
+    if not ingress_url or not ca_file:
         raise RuntimeError(
-            "MON_SENSOR_INGRESS_URL, MON_SENSOR_SERVER_CA_CERT_FILE, "
-            "MON_SENSOR_CLIENT_CERT_FILE and MON_SENSOR_CLIENT_KEY_FILE "
+            "MON_SENSOR_INGRESS_URL and MON_SENSOR_SERVER_CA_CERT_FILE "
             "must be configured"
         )
-    for value in (ca_file, cert_file, key_file):
-        if not Path(value).is_file():
-            raise RuntimeError(
-                f"sensor collector certificate file does not exist: {value}"
-            )
-    try:
-        certificate = x509.load_pem_x509_certificate(
-            Path(cert_file).read_bytes()
-        )
-        identity = extract_sensor_identity_from_verified_certificate(
-            certificate.public_bytes(serialization.Encoding.DER)
-        )
-    except (ValueError, OSError) as exc:
+    if not Path(ca_file).is_file():
         raise RuntimeError(
-            "MON_SENSOR_CLIENT_CERT_FILE is not a valid sensor certificate"
-        ) from exc
-    if (
-        identity.tenant_id != tenant_id
-        or identity.site_id != site_id
-        or identity.sensor_id != sensor_id
-    ):
-        raise RuntimeError(
-            "configured tenant/site/sensor identity does not match "
-            "MON_SENSOR_CLIENT_CERT_FILE"
+            "sensor ingress server CA certificate file does not exist: "
+            f"{ca_file}"
         )
 
     try:
@@ -858,9 +838,12 @@ def _collector_client_from_environment() -> tuple[
     state_dir = Path(
         os.environ.get("MON_SENSOR_STATE_DIR", "/var/lib/mon-sensor")
     )
+    scope_digest = hashlib.sha256(
+        f"{tenant_id}\x1f{site_id}\x1f{sensor_id}".encode()
+    ).hexdigest()[:24]
     private_key_password = os.environ.get("MON_SENSOR_CLIENT_KEY_PASSWORD")
     credential_store = SensorCredentialStore(
-        state_dir / "credentials",
+        state_dir / "credentials" / scope_digest,
         tenant_id=tenant_id,
         site_id=site_id,
         sensor_id=sensor_id,
@@ -1091,7 +1074,13 @@ def zeek_main() -> None:
 
 def suricata_main() -> None:
     logging.basicConfig(level=logging.INFO)
-    tenant_id, site_id, sensor_id, client = _collector_client_from_environment()
+    (
+        tenant_id,
+        site_id,
+        sensor_id,
+        client,
+        credential_store,
+    ) = _collector_client_from_environment()
     eve_path = Path(
         os.environ.get(
             "MON_SURICATA_EVE_FILE",
