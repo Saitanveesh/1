@@ -21,7 +21,13 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from mon import __version__
-from mon.sensor_fleet_models import SensorFleetState
+from mon.sensor_credentials import (
+    SensorCredentialError,
+    SensorCredentialStore,
+    SensorCredentialTransportError,
+    rotate_sensor_credentials_if_due,
+)
+from mon.sensor_fleet_models import SensorFleetState, SensorRenewalResult
 from mon.sensor_transport import extract_sensor_identity_from_verified_certificate
 from mon.site_identity import create_mtls_client_ssl_context
 
@@ -41,7 +47,10 @@ class SensorRecordError(SensorCollectorError):
     pass
 
 
-class SensorDeliveryError(SensorCollectorError):
+class SensorDeliveryError(
+    SensorCollectorError,
+    SensorCredentialTransportError,
+):
     pass
 
 
@@ -479,9 +488,12 @@ class SensorBatchClient:
         self.base_url = base_url.rstrip("/")
         self.ssl_context = ssl_context
         self.timeout_seconds = timeout_seconds
-        self._client = httpx.AsyncClient(
+        self._client = self._new_client(self.ssl_context)
+
+    def _new_client(self, ssl_context: ssl.SSLContext) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
             base_url=self.base_url,
-            verify=self.ssl_context,
+            verify=ssl_context,
             timeout=self.timeout_seconds,
             trust_env=False,
         )
@@ -544,6 +556,78 @@ class SensorBatchClient:
                 "last_error": last_error,
             },
         )
+
+    async def renew_certificate(
+        self,
+        csr_pem: str,
+    ) -> SensorRenewalResult:
+        try:
+            response = await self._client.post(
+                "/api/v1/sensors/renew",
+                json={"csr_pem": csr_pem},
+            )
+        except httpx.HTTPError as exc:
+            raise SensorDeliveryError(
+                "sensor credential renewal endpoint is unavailable"
+            ) from exc
+        if response.status_code < 200 or response.status_code >= 300:
+            detail = response.text.strip()[:500]
+            raise SensorDeliveryError(
+                "sensor credential renewal was rejected with HTTP "
+                f"{response.status_code}: {detail}"
+            )
+        try:
+            return SensorRenewalResult.model_validate(response.json())
+        except ValueError as exc:
+            raise SensorDeliveryError(
+                "sensor credential renewal returned invalid data"
+            ) from exc
+
+    async def probe_ssl_context(
+        self,
+        ssl_context: ssl.SSLContext,
+        *,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str,
+    ) -> None:
+        async with self._new_client(ssl_context) as candidate:
+            try:
+                response = await candidate.get("/health")
+            except httpx.HTTPError as exc:
+                raise SensorDeliveryError(
+                    "renewed sensor credential probe failed"
+                ) from exc
+        if response.status_code != 200:
+            detail = response.text.strip()[:500]
+            raise SensorDeliveryError(
+                "renewed sensor credential was not accepted by ingress: "
+                f"HTTP {response.status_code}: {detail}"
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise SensorDeliveryError(
+                "sensor ingress health returned invalid JSON"
+            ) from exc
+        if (
+            payload.get("tenant_id") != tenant_id
+            or payload.get("site_id") != site_id
+            or payload.get("sensor_id") != sensor_id
+        ):
+            raise SensorDeliveryError(
+                "renewed sensor credential probe returned the wrong identity"
+            )
+
+    async def replace_ssl_context(
+        self,
+        ssl_context: ssl.SSLContext,
+    ) -> None:
+        replacement = self._new_client(ssl_context)
+        previous = self._client
+        self._client = replacement
+        self.ssl_context = ssl_context
+        await previous.aclose()
 
 
 class ZeekFileCollector:
@@ -720,6 +804,7 @@ def _collector_client_from_environment() -> tuple[
     str,
     str,
     SensorBatchClient,
+    SensorCredentialStore,
 ]:
     tenant_id = os.environ.get("MON_TENANT_ID", "").strip()
     site_id = os.environ.get("MON_SITE_ID", "").strip()
@@ -770,17 +855,33 @@ def _collector_client_from_environment() -> tuple[
         raise RuntimeError(
             "MON_SENSOR_TIMEOUT_SECONDS must be numeric"
         ) from exc
+    state_dir = Path(
+        os.environ.get("MON_SENSOR_STATE_DIR", "/var/lib/mon-sensor")
+    )
+    private_key_password = os.environ.get("MON_SENSOR_CLIENT_KEY_PASSWORD")
+    credential_store = SensorCredentialStore(
+        state_dir / "credentials",
+        tenant_id=tenant_id,
+        site_id=site_id,
+        sensor_id=sensor_id,
+        server_ca_certificate_file=ca_file,
+        bootstrap_certificate_file=cert_file,
+        bootstrap_private_key_file=key_file,
+        private_key_password=private_key_password,
+    )
+    active = credential_store.active_generation()
     context = create_mtls_client_ssl_context(
         ca_file,
-        cert_file,
-        key_file,
-        private_key_password=os.environ.get("MON_SENSOR_CLIENT_KEY_PASSWORD"),
+        str(active.certificate_file),
+        str(active.private_key_file),
+        private_key_password=private_key_password,
     )
-    return tenant_id, site_id, sensor_id, SensorBatchClient(
+    client = SensorBatchClient(
         ingress_url,
         context,
         timeout_seconds=timeout,
     )
+    return tenant_id, site_id, sensor_id, client, credential_store
 
 
 def _positive_int_env(name: str, default: str) -> int:
@@ -803,26 +904,88 @@ def _positive_float_env(name: str, default: str) -> float:
     return value
 
 
+def _bounded_float_env(
+    name: str,
+    default: str,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be numeric") from exc
+    if value < minimum or value > maximum:
+        raise RuntimeError(
+            f"{name} must be between {minimum:g} and {maximum:g}"
+        )
+    return value
+
+
 async def _run_collector_process(
     poll: Callable[[], Any],
     client: SensorBatchClient,
     *,
+    credential_store: SensorCredentialStore,
     collector_kind: str,
     poll_interval_seconds: float,
     heartbeat_interval_seconds: float,
+    renewal_check_interval_seconds: float,
+    renew_before_seconds: float,
 ) -> None:
     if heartbeat_interval_seconds <= 0 or heartbeat_interval_seconds > 3600:
         raise ValueError(
             "heartbeat_interval_seconds must be greater than 0 and at most 3600"
         )
+    if (
+        renewal_check_interval_seconds <= 0
+        or renewal_check_interval_seconds > 3600
+    ):
+        raise ValueError(
+            "renewal_check_interval_seconds must be greater than 0 and at most 3600"
+        )
+    if renew_before_seconds < 60 or renew_before_seconds > 7_776_000:
+        raise ValueError(
+            "renew_before_seconds must be between 60 and 7776000"
+        )
     loop = asyncio.get_running_loop()
     next_heartbeat_at = 0.0
+    next_renewal_check_at = 0.0
     logger = logging.getLogger("mon.sensor_collector")
 
     async def managed_poll() -> dict[str, object]:
-        nonlocal next_heartbeat_at
+        nonlocal next_heartbeat_at, next_renewal_check_at
         result = await poll()
         now = loop.time()
+        if now >= next_renewal_check_at:
+            try:
+                rotation = await rotate_sensor_credentials_if_due(
+                    credential_store,
+                    client,
+                    renew_before=dt.timedelta(
+                        seconds=renew_before_seconds
+                    ),
+                )
+                if rotation["state"] == "ROTATED":
+                    result["credential_rotation"] = rotation
+                next_renewal_check_at = now + renewal_check_interval_seconds
+            except (
+                SensorCredentialError,
+                SensorCredentialTransportError,
+                OSError,
+                ssl.SSLError,
+            ) as exc:
+                error = str(exc)[:1000]
+                result["state"] = "DEGRADED"
+                result["credential_rotation_error"] = error
+                logger.warning(
+                    "sensor credential rotation failed: %s",
+                    error,
+                )
+                next_renewal_check_at = now + min(
+                    60.0,
+                    renewal_check_interval_seconds,
+                )
         if now >= next_heartbeat_at:
             state = (
                 SensorFleetState.READY
@@ -831,6 +994,8 @@ async def _run_collector_process(
             )
             error: str | None = None
             raw_error = result.get("error")
+            if raw_error is None:
+                raw_error = result.get("credential_rotation_error")
             if raw_error is not None:
                 error = str(raw_error)[:1000]
             elif state is SensorFleetState.DEGRADED:
@@ -868,7 +1033,13 @@ async def _run_collector_process(
 
 def zeek_main() -> None:
     logging.basicConfig(level=logging.INFO)
-    tenant_id, site_id, sensor_id, client = _collector_client_from_environment()
+    (
+        tenant_id,
+        site_id,
+        sensor_id,
+        client,
+        credential_store,
+    ) = _collector_client_from_environment()
     log_dir = Path(
         os.environ.get("MON_ZEEK_LOG_DIR", "/opt/zeek/logs/current")
     )
@@ -892,6 +1063,7 @@ def zeek_main() -> None:
             _run_collector_process(
                 collector.poll_once,
                 client,
+                credential_store=credential_store,
                 collector_kind="ZEEK",
                 poll_interval_seconds=_positive_float_env(
                     "MON_SENSOR_POLL_INTERVAL_SECONDS",
@@ -900,6 +1072,16 @@ def zeek_main() -> None:
                 heartbeat_interval_seconds=_positive_float_env(
                     "MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS",
                     "30",
+                ),
+                renewal_check_interval_seconds=_positive_float_env(
+                    "MON_SENSOR_RENEW_CHECK_INTERVAL_SECONDS",
+                    "300",
+                ),
+                renew_before_seconds=_bounded_float_env(
+                    "MON_SENSOR_RENEW_BEFORE_SECONDS",
+                    "604800",
+                    minimum=60,
+                    maximum=7_776_000,
                 ),
             )
         )
@@ -936,6 +1118,7 @@ def suricata_main() -> None:
             _run_collector_process(
                 collector.poll_once,
                 client,
+                credential_store=credential_store,
                 collector_kind="SURICATA",
                 poll_interval_seconds=_positive_float_env(
                     "MON_SENSOR_POLL_INTERVAL_SECONDS",
@@ -944,6 +1127,16 @@ def suricata_main() -> None:
                 heartbeat_interval_seconds=_positive_float_env(
                     "MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS",
                     "30",
+                ),
+                renewal_check_interval_seconds=_positive_float_env(
+                    "MON_SENSOR_RENEW_CHECK_INTERVAL_SECONDS",
+                    "300",
+                ),
+                renew_before_seconds=_bounded_float_env(
+                    "MON_SENSOR_RENEW_BEFORE_SECONDS",
+                    "604800",
+                    minimum=60,
+                    maximum=7_776_000,
                 ),
             )
         )
