@@ -388,6 +388,17 @@ def test_postgres_audit_records_reject_update_and_delete() -> None:
         with pytest.raises(DBAPIError), store.engine.begin() as connection:
             connection.execute(
                 text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": record.tenant_id,
+                    "site_id": record.site_id,
+                },
+            )
+            connection.execute(
+                text(
                     "UPDATE audit_records SET occurred_at = occurred_at "
                     "WHERE tenant_id = :tenant_id "
                     "AND site_id = :site_id AND audit_id = :audit_id"
@@ -400,6 +411,17 @@ def test_postgres_audit_records_reject_update_and_delete() -> None:
             )
 
         with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": record.tenant_id,
+                    "site_id": record.site_id,
+                },
+            )
             connection.execute(
                 text(
                     "DELETE FROM audit_records "
