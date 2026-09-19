@@ -194,6 +194,7 @@ async def test_mtls_sensor_health_derives_identity_from_client_certificate(
         async with httpx.AsyncClient(
             verify=client_context,
             timeout=5,
+            trust_env=False,
         ) as client:
             response = await client.get(
                 f"https://localhost:{port}/health"
@@ -248,6 +249,7 @@ async def test_valid_certificate_for_other_site_is_forbidden(tmp_path) -> None:
         async with httpx.AsyncClient(
             verify=client_context,
             timeout=5,
+            trust_env=False,
         ) as client:
             response = await client.get(
                 f"https://localhost:{port}/health"
@@ -311,6 +313,7 @@ async def test_ingress_injects_verified_sensor_id_into_internal_batch(
         async with httpx.AsyncClient(
             verify=client_context,
             timeout=5,
+            trust_env=False,
         ) as client:
             response = await client.post(
                 f"https://localhost:{port}/api/v1/sensors/suricata/batch",
@@ -364,3 +367,49 @@ def test_sensor_ingress_internal_forwarding_is_loopback_only() -> None:
         require_loopback_site_controller_url(
             "https://127.0.0.1:8090"
         )
+
+
+@pytest.mark.asyncio
+async def test_sensor_ingress_rejects_connection_without_client_certificate(
+    tmp_path,
+) -> None:
+    ca, ca_pem = make_ca()
+    server_cert, server_key = make_server_certificate(ca)
+    server_cert_path = tmp_path / "server.pem"
+    server_key_path = tmp_path / "server-key.pem"
+    ca_path = tmp_path / "sensor-ca.pem"
+    server_cert_path.write_text(server_cert, encoding="utf-8")
+    server_key_path.write_text(server_key, encoding="utf-8")
+    ca_path.write_text(ca_pem, encoding="utf-8")
+
+    ingress = MtlsSensorIngress(
+        "tenant-a",
+        "site-a",
+        "http://127.0.0.1:8090",
+    )
+    app = web.Application()
+    app.router.add_get("/health", ingress.health)
+    runner, port = await start_ingress(
+        app,
+        create_mtls_server_ssl_context(
+            str(server_cert_path),
+            str(server_key_path),
+            str(ca_path),
+        ),
+    )
+
+    client_context = ssl.create_default_context(
+        ssl.Purpose.SERVER_AUTH,
+        cafile=str(ca_path),
+    )
+    client_context.minimum_version = ssl.TLSVersion.TLSv1_2
+    try:
+        async with httpx.AsyncClient(
+            verify=client_context,
+            timeout=5,
+            trust_env=False,
+        ) as client:
+            with pytest.raises(httpx.ConnectError):
+                await client.get(f"https://localhost:{port}/health")
+    finally:
+        await runner.cleanup()
