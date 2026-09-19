@@ -63,8 +63,24 @@ The local service currently exposes:
 
 - `GET /health`
 - `POST /api/v1/site/events`
+- `POST /api/v1/site/sensors/zeek/batch`
+- `POST /api/v1/site/sensors/suricata/batch`
 - `POST /api/v1/site/flush`
 - `GET /api/v1/site/runtime`
+
+The raw sensor endpoints normalize Zeek JSON and Suricata EVE records into tenant/site-scoped
+MON events before they enter the same durable local analysis path used by
+`/api/v1/site/events`. A complete raw batch is normalized before the first event is
+submitted, so malformed sensor data does not create a partially normalized batch.
+
+Supported Zeek inputs are `conn`, `dns`, `http`, `ssl`, `notice`, and `weird`.
+Supported Suricata EVE inputs are `alert`, `flow`, `dns`, `http`, and `tls`.
+Unsupported types fail closed rather than becoming generic evidence.
+
+The Site Controller supplies tenant/site scope. The request supplies a `sensor_id`, which
+is currently a local collector assertion rather than cryptographic proof of remote sensor
+identity. Do not expose these raw ingestion endpoints beyond a trusted local collector
+boundary until an authenticated sensor-enrollment/transport layer is added.
 
 The runtime endpoint reports the last state/error for cloud flush, local recovery, and command
 poll loops.

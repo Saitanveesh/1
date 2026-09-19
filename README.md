@@ -41,6 +41,7 @@ Implemented foundations include:
 - late response-state convergence after site command expiry;
 - disposable Linux network-namespace/nftables enforcement validation;
 - local event buffering and a production site-controller service composition;
+- Zeek JSON and Suricata EVE normalization into scoped, deterministic MON evidence;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
