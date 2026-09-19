@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 
+from mon.domain import EventProcessingResult
 from mon.event_fabric import (
     FabricEnvelope,
     FabricIngestResult,
@@ -21,13 +23,19 @@ class FabricProcessingUncertain(RuntimeError):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class FabricIngressOutcome:
+    acknowledgement: FabricIngestResult
+    processing_result: EventProcessingResult | None
+
+
 def ingest_fabric_envelope(
     store: Store,
     pipeline: SecurityPipeline,
     envelope: FabricEnvelope,
     *,
     received_at: dt.datetime | None = None,
-) -> FabricIngestResult:
+) -> FabricIngressOutcome:
     """Claim and process one exact fabric envelope.
 
     The exact-envelope claim is durable before domain processing. A failed
@@ -78,10 +86,13 @@ def ingest_fabric_envelope(
         )
 
     if receipt.status is FabricReceiptStatus.PROCESSED:
-        return FabricIngestResult(
-            event_id=envelope.event_id,
-            duplicate=True,
-            envelope_sha256=digest,
+        return FabricIngressOutcome(
+            acknowledgement=FabricIngestResult(
+                event_id=envelope.event_id,
+                duplicate=True,
+                envelope_sha256=digest,
+            ),
+            processing_result=None,
         )
 
     existing_event = store.get_event(
@@ -108,10 +119,13 @@ def ingest_fabric_envelope(
             envelope.event_id,
             processed_at=dt.datetime.now(dt.UTC),
         )
-        return FabricIngestResult(
-            event_id=envelope.event_id,
-            duplicate=True,
-            envelope_sha256=digest,
+        return FabricIngressOutcome(
+            acknowledgement=FabricIngestResult(
+                event_id=envelope.event_id,
+                duplicate=True,
+                envelope_sha256=digest,
+            ),
+            processing_result=None,
         )
 
     result = pipeline.process_event(event)
@@ -130,8 +144,11 @@ def ingest_fabric_envelope(
         envelope.event_id,
         processed_at=dt.datetime.now(dt.UTC),
     )
-    return FabricIngestResult(
-        event_id=envelope.event_id,
-        duplicate=result.duplicate,
-        envelope_sha256=digest,
+    return FabricIngressOutcome(
+        acknowledgement=FabricIngestResult(
+            event_id=envelope.event_id,
+            duplicate=result.duplicate,
+            envelope_sha256=digest,
+        ),
+        processing_result=result,
     )
