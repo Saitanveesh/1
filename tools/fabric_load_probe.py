@@ -36,8 +36,7 @@ def percentile(values: list[float], fraction: float) -> float:
 def load_envelopes(path: Path) -> list[bytes]:
     envelopes: list[bytes] = []
     for line_number, raw_line in enumerate(path.read_bytes().splitlines(), start=1):
-        raw_line = raw_line.strip()
-        if not raw_line:
+        if not raw_line.strip():
             continue
         try:
             value: Any = json.loads(raw_line)
