@@ -9,7 +9,7 @@ from mon.site_response_models import SiteResponseUpdate
 
 
 class SQLiteResponseUpdateOutbox:
-    """Durable outbox for autonomous site response-state updates."""
+    """Durable outbox and receipt ledger for autonomous response updates."""
 
     def __init__(self, path: str | Path, *, tenant_id: str, site_id: str) -> None:
         self.path = Path(path)
@@ -31,10 +31,21 @@ class SQLiteResponseUpdateOutbox:
                     payload TEXT NOT NULL,
                     attempts INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    reported_at TEXT
                 )
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in self._connection.execute(
+                    "PRAGMA table_info(response_update_outbox)"
+                ).fetchall()
+            }
+            if "reported_at" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE response_update_outbox ADD COLUMN reported_at TEXT"
+                )
             self._connection.commit()
 
     def close(self) -> None:
@@ -65,6 +76,19 @@ class SQLiteResponseUpdateOutbox:
             self._connection.commit()
             return cursor.rowcount == 1
 
+    def get(self, update_id: str) -> SiteResponseUpdate | None:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT payload FROM response_update_outbox
+                WHERE update_id = ? AND tenant_id = ? AND site_id = ?
+                """,
+                (update_id, self.tenant_id, self.site_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return SiteResponseUpdate.model_validate_json(row["payload"])
+
     def pending(self, limit: int = 100) -> list[SiteResponseUpdate]:
         if limit < 1 or limit > 1000:
             raise ValueError("limit must be between 1 and 1000")
@@ -72,7 +96,7 @@ class SQLiteResponseUpdateOutbox:
             rows = self._connection.execute(
                 """
                 SELECT payload FROM response_update_outbox
-                WHERE tenant_id = ? AND site_id = ?
+                WHERE tenant_id = ? AND site_id = ? AND reported_at IS NULL
                 ORDER BY created_at ASC, update_id ASC
                 LIMIT ?
                 """,
@@ -83,14 +107,28 @@ class SQLiteResponseUpdateOutbox:
             for row in rows
         ]
 
-    def mark_delivered(self, update_id: str) -> bool:
+    def mark_reported(
+        self,
+        update_id: str,
+        *,
+        now: dt.datetime | None = None,
+    ) -> bool:
+        reported_at = now or dt.datetime.now(dt.UTC)
+        if reported_at.utcoffset() is None:
+            raise ValueError("reported_at must be timezone-aware")
         with self._lock:
             cursor = self._connection.execute(
                 """
-                DELETE FROM response_update_outbox
+                UPDATE response_update_outbox
+                SET reported_at = COALESCE(reported_at, ?), last_error = NULL
                 WHERE update_id = ? AND tenant_id = ? AND site_id = ?
                 """,
-                (update_id, self.tenant_id, self.site_id),
+                (
+                    reported_at.isoformat(),
+                    update_id,
+                    self.tenant_id,
+                    self.site_id,
+                ),
             )
             self._connection.commit()
             return cursor.rowcount == 1
@@ -102,27 +140,57 @@ class SQLiteResponseUpdateOutbox:
                 UPDATE response_update_outbox
                 SET attempts = attempts + 1, last_error = ?
                 WHERE update_id = ? AND tenant_id = ? AND site_id = ?
+                  AND reported_at IS NULL
                 """,
                 (error[:1000], update_id, self.tenant_id, self.site_id),
             )
             self._connection.commit()
             return cursor.rowcount == 1
 
+    def compact_reported(
+        self,
+        *,
+        retain_for: dt.timedelta,
+        now: dt.datetime | None = None,
+    ) -> int:
+        if retain_for <= dt.timedelta(0):
+            raise ValueError("response update receipt retention must be positive")
+        current = now or dt.datetime.now(dt.UTC)
+        if current.utcoffset() is None:
+            raise ValueError("compaction time must be timezone-aware")
+        cutoff = current - retain_for
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                DELETE FROM response_update_outbox
+                WHERE tenant_id = ? AND site_id = ?
+                  AND reported_at IS NOT NULL
+                  AND reported_at <= ?
+                """,
+                (self.tenant_id, self.site_id, cutoff.isoformat()),
+            )
+            self._connection.commit()
+            return cursor.rowcount
+
     def diagnostics(self) -> dict[str, object]:
         with self._lock:
             row = self._connection.execute(
                 """
                 SELECT
-                    COUNT(*) AS queued,
+                    COUNT(*) AS receipts,
+                    SUM(CASE WHEN reported_at IS NULL THEN 1 ELSE 0 END) AS queued,
+                    SUM(CASE WHEN reported_at IS NOT NULL THEN 1 ELSE 0 END) AS reported,
                     COALESCE(MAX(attempts), 0) AS max_attempts,
-                    MAX(last_error) AS last_error
+                    MAX(CASE WHEN reported_at IS NULL THEN last_error END) AS last_error
                 FROM response_update_outbox
                 WHERE tenant_id = ? AND site_id = ?
                 """,
                 (self.tenant_id, self.site_id),
             ).fetchone()
         return {
-            "queued": int(row["queued"]) if row else 0,
+            "receipts": int(row["receipts"]) if row else 0,
+            "queued": int(row["queued"] or 0) if row else 0,
+            "reported": int(row["reported"] or 0) if row else 0,
             "max_attempts": int(row["max_attempts"]) if row else 0,
             "last_error": row["last_error"] if row else None,
         }
