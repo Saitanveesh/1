@@ -43,6 +43,7 @@ class SensorCredentialGeneration:
     certificate_file: Path
     private_key_file: Path
     fingerprint_sha256: str
+    not_before: dt.datetime
     expires_at: dt.datetime
     spiffe_uri: str
 
@@ -364,6 +365,7 @@ class SensorCredentialStore:
             certificate_file=certificate_file,
             private_key_file=private_key_file,
             fingerprint_sha256=certificate.fingerprint(hashes.SHA256()).hex(),
+            not_before=certificate.not_valid_before_utc,
             expires_at=certificate.not_valid_after_utc,
             spiffe_uri=expected_spiffe,
         )
@@ -566,7 +568,14 @@ class SensorCredentialStore:
         if self.pending_file.exists():
             return True
         check_at = (now or dt.datetime.now(dt.UTC)).astimezone(dt.UTC)
-        return self.active_generation().expires_at - check_at <= renew_before
+        active = self.active_generation()
+        certificate_lifetime = active.expires_at - active.not_before
+        if renew_before >= certificate_lifetime:
+            raise SensorCredentialError(
+                "sensor renewal lead time must be shorter than "
+                "the active certificate lifetime"
+            )
+        return active.expires_at - check_at <= renew_before
 
     def begin_renewal(
         self,
