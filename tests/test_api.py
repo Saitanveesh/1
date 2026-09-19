@@ -117,3 +117,66 @@ def test_sensor_fleet_api_is_site_scoped_and_revocation_updates_trust() -> None:
         params={"tenant_id": "tenant-a", "site_id": "site-1"},
     )
     assert fleet_after.json()[0]["state"] == "REVOKED"
+
+
+def test_fabric_ingress_is_idempotent_and_pins_exact_envelope() -> None:
+    event = SecurityEvent(
+        event_id="api-fabric-1",
+        tenant_id="tenant-a",
+        site_id="site-1",
+        sensor_id="sensor-1",
+        observed_at=dt.datetime(2026, 9, 19, 10, 0, tzinfo=dt.UTC),
+        category="network.connection",
+    )
+    first_envelope = security_event_envelope(
+        event,
+        produced_at=dt.datetime(2026, 9, 19, 10, 1, tzinfo=dt.UTC),
+    )
+
+    first = client.post(
+        "/api/v1/fabric/events",
+        json=first_envelope.model_dump(mode="json"),
+    )
+    assert first.status_code == 201
+    assert first.json()["duplicate"] is False
+    assert first.json()["envelope_sha256"] == first_envelope.canonical_sha256
+
+    duplicate = client.post(
+        "/api/v1/fabric/events",
+        json=first_envelope.model_dump(mode="json"),
+    )
+    assert duplicate.status_code == 201
+    assert duplicate.json()["duplicate"] is True
+
+    changed = security_event_envelope(
+        event,
+        produced_at=dt.datetime(2026, 9, 19, 10, 2, tzinfo=dt.UTC),
+    )
+    conflict = client.post(
+        "/api/v1/fabric/events",
+        json=changed.model_dump(mode="json"),
+    )
+    assert conflict.status_code == 409
+
+
+def test_fabric_ingress_rejects_outer_inner_identity_mismatch() -> None:
+    event = SecurityEvent(
+        event_id="api-fabric-invalid",
+        tenant_id="tenant-a",
+        site_id="site-1",
+        sensor_id="sensor-1",
+        observed_at=dt.datetime(2026, 9, 19, 10, 0, tzinfo=dt.UTC),
+        category="network.connection",
+    )
+    envelope = security_event_envelope(
+        event,
+        produced_at=dt.datetime(2026, 9, 19, 10, 1, tzinfo=dt.UTC),
+    ).model_copy(update={"source": "sensor-other"})
+
+    response = client.post(
+        "/api/v1/fabric/events",
+        json=envelope.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 422
+    assert "source" in response.json()["detail"]
