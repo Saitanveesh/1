@@ -114,8 +114,9 @@ class SQLiteResponseUpdateOutbox:
         now: dt.datetime | None = None,
     ) -> bool:
         reported_at = now or dt.datetime.now(dt.UTC)
-        if reported_at.utcoffset() is None:
+        if reported_at.tzinfo is None or reported_at.utcoffset() is None:
             raise ValueError("reported_at must be timezone-aware")
+        reported_at = reported_at.astimezone(dt.UTC)
         with self._lock:
             cursor = self._connection.execute(
                 """
@@ -156,9 +157,9 @@ class SQLiteResponseUpdateOutbox:
         if retain_for <= dt.timedelta(0):
             raise ValueError("response update receipt retention must be positive")
         current = now or dt.datetime.now(dt.UTC)
-        if current.utcoffset() is None:
+        if current.tzinfo is None or current.utcoffset() is None:
             raise ValueError("compaction time must be timezone-aware")
-        cutoff = current - retain_for
+        cutoff = current.astimezone(dt.UTC) - retain_for
         with self._lock:
             cursor = self._connection.execute(
                 """
