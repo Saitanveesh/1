@@ -8,11 +8,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from mon.domain import EventBatch, SecurityEvent
-from mon.sensor_fleet_models import (
-    SensorFleetState,
-    SensorHeartbeat,
-    SensorRenewalRequest,
-)
 from mon.mtls_ingress import (
     SiteCertificateError,
     SiteCertificateScopeError,
@@ -21,6 +16,11 @@ from mon.mtls_ingress import (
     require_batch_matches_site_identity,
     require_sensor_heartbeat_matches_site_identity,
     require_sensor_renewal_matches_site_identity,
+)
+from mon.sensor_fleet_models import (
+    SensorFleetState,
+    SensorHeartbeat,
+    SensorRenewalRequest,
 )
 from mon.site_identity import CertificateAuthority, generate_site_key_and_csr
 
