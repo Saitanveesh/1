@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 from dataclasses import dataclass
 
+from mon.event_fabric_outbox import sanitize_fabric_error
 from mon.site_controller import SiteController
 
 
@@ -78,8 +79,28 @@ class SiteControllerRuntime:
         error = result.get("error")
         if error is None:
             return None
-        text = str(error).strip()
-        return text[:1000] if text else None
+        text = sanitize_fabric_error(error)
+        return text if text else None
+
+    def _flush_wait_seconds(self, result: dict[str, object]) -> float:
+        wait_seconds = self.flush_interval_seconds
+        raw_next = result.get("fabric_next_attempt_at")
+        if not isinstance(raw_next, str) or not raw_next.strip():
+            return wait_seconds
+        try:
+            next_attempt_at = dt.datetime.fromisoformat(raw_next)
+        except ValueError:
+            return wait_seconds
+        if (
+            next_attempt_at.tzinfo is None
+            or next_attempt_at.utcoffset() is None
+        ):
+            return wait_seconds
+        now = dt.datetime.now(dt.UTC)
+        until_due = (next_attempt_at.astimezone(dt.UTC) - now).total_seconds()
+        if until_due <= wait_seconds:
+            return wait_seconds
+        return min(until_due, 3600.0)
 
     async def _flush_loop(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
@@ -89,9 +110,12 @@ class SiteControllerRuntime:
                 self._last_flush_error = self._result_error(result)
             except Exception as exc:
                 self._last_flush_state = "ERROR"
-                self._last_flush_error = str(exc)[:1000]
+                self._last_flush_error = sanitize_fabric_error(exc)
+                wait_seconds = self.flush_interval_seconds
+            else:
+                wait_seconds = self._flush_wait_seconds(result)
             self._last_flush_at = dt.datetime.now(dt.UTC)
-            if await self._wait_or_stop(stop_event, self.flush_interval_seconds):
+            if await self._wait_or_stop(stop_event, wait_seconds):
                 return
 
     async def _recovery_loop(self, stop_event: asyncio.Event) -> None:
@@ -102,7 +126,7 @@ class SiteControllerRuntime:
                 self._last_recovery_error = self._result_error(result)
             except Exception as exc:
                 self._last_recovery_state = "ERROR"
-                self._last_recovery_error = str(exc)[:1000]
+                self._last_recovery_error = sanitize_fabric_error(exc)
             self._last_recovery_at = dt.datetime.now(dt.UTC)
             if await self._wait_or_stop(stop_event, self.recovery_interval_seconds):
                 return
@@ -133,7 +157,7 @@ class SiteControllerRuntime:
                     self._last_sensor_trust_error = self._result_error(result)
                 except Exception as exc:
                     self._last_sensor_trust_state = "ERROR"
-                    self._last_sensor_trust_error = str(exc)[:1000]
+                    self._last_sensor_trust_error = sanitize_fabric_error(exc)
             self._last_sensor_trust_at = dt.datetime.now(dt.UTC)
             if await self._wait_or_stop(
                 stop_event,
