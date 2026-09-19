@@ -15,6 +15,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID
 from pydantic import ValidationError
 
 from mon.domain import EventBatch
+from mon.sensor_fleet_models import SensorHeartbeat, SensorRenewalRequest
 from mon.site_command_models import SiteCommandResult
 from mon.site_response_models import SiteResponseUpdate
 
@@ -128,6 +129,29 @@ def require_response_update_matches_site_identity(
     if update.tenant_id != identity.tenant_id or update.site_id != identity.site_id:
         raise SiteCertificateScopeError(
             "site response update tenant/site does not match verified client certificate"
+        )
+
+
+def require_sensor_renewal_matches_site_identity(
+    request: SensorRenewalRequest,
+    identity: VerifiedSiteIdentity,
+) -> None:
+    if request.tenant_id != identity.tenant_id or request.site_id != identity.site_id:
+        raise SiteCertificateScopeError(
+            "sensor renewal tenant/site does not match verified site certificate"
+        )
+
+
+def require_sensor_heartbeat_matches_site_identity(
+    heartbeat: SensorHeartbeat,
+    identity: VerifiedSiteIdentity,
+) -> None:
+    if (
+        heartbeat.tenant_id != identity.tenant_id
+        or heartbeat.site_id != identity.site_id
+    ):
+        raise SiteCertificateScopeError(
+            "sensor heartbeat tenant/site does not match verified site certificate"
         )
 
 
@@ -326,6 +350,146 @@ class MtlsSiteIngress:
             )},
         )
 
+    async def renew_sensor(self, request: web.Request) -> web.Response:
+        try:
+            identity = self._verified_identity(request)
+        except SiteCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+
+        try:
+            raw_body = await request.read()
+            renewal = SensorRenewalRequest.model_validate_json(raw_body)
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(
+                text="invalid sensor renewal request"
+            ) from exc
+        try:
+            require_sensor_renewal_matches_site_identity(renewal, identity)
+        except SiteCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        authorization = self._authorization(request)
+        async with httpx.AsyncClient(
+            base_url=self.internal_control_plane_url,
+            timeout=self.timeout_seconds,
+            trust_env=False,
+        ) as client:
+            try:
+                response = await client.post(
+                    "/api/v1/site/sensors/renew",
+                    content=raw_body,
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPBadGateway(
+                    text="control plane is unavailable"
+                ) from exc
+        return web.Response(
+            status=response.status_code,
+            body=response.content,
+            headers={
+                "Content-Type": response.headers.get(
+                    "content-type",
+                    "application/json",
+                )
+            },
+        )
+
+    async def submit_sensor_heartbeat(
+        self,
+        request: web.Request,
+    ) -> web.Response:
+        try:
+            identity = self._verified_identity(request)
+        except SiteCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+
+        try:
+            raw_body = await request.read()
+            heartbeat = SensorHeartbeat.model_validate_json(raw_body)
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(
+                text="invalid sensor heartbeat"
+            ) from exc
+        try:
+            require_sensor_heartbeat_matches_site_identity(
+                heartbeat,
+                identity,
+            )
+        except SiteCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        authorization = self._authorization(request)
+        async with httpx.AsyncClient(
+            base_url=self.internal_control_plane_url,
+            timeout=self.timeout_seconds,
+            trust_env=False,
+        ) as client:
+            try:
+                response = await client.post(
+                    "/api/v1/site/sensors/heartbeat",
+                    content=raw_body,
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPBadGateway(
+                    text="control plane is unavailable"
+                ) from exc
+        return web.Response(
+            status=response.status_code,
+            body=response.content,
+            headers={
+                "Content-Type": response.headers.get(
+                    "content-type",
+                    "application/json",
+                )
+            },
+        )
+
+    async def sensor_trust_snapshot(
+        self,
+        request: web.Request,
+    ) -> web.Response:
+        try:
+            identity = self._verified_identity(request)
+        except SiteCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+        authorization = self._authorization(request)
+        async with httpx.AsyncClient(
+            base_url=self.internal_control_plane_url,
+            timeout=self.timeout_seconds,
+            trust_env=False,
+        ) as client:
+            try:
+                response = await client.get(
+                    "/api/v1/site/sensors/trust",
+                    params={
+                        "tenant_id": identity.tenant_id,
+                        "site_id": identity.site_id,
+                    },
+                    headers={"Authorization": authorization},
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPBadGateway(
+                    text="control plane is unavailable"
+                ) from exc
+        return web.Response(
+            status=response.status_code,
+            body=response.content,
+            headers={
+                "Content-Type": response.headers.get(
+                    "content-type",
+                    "application/json",
+                )
+            },
+        )
+
     async def submit_response_update(self, request: web.Request) -> web.Response:
         try:
             identity = self._verified_identity(request)
@@ -389,6 +553,18 @@ def create_app(
     app.router.add_post(
         "/api/v1/site/responses/updates",
         ingress.submit_response_update,
+    )
+    app.router.add_post(
+        "/api/v1/site/sensors/renew",
+        ingress.renew_sensor,
+    )
+    app.router.add_post(
+        "/api/v1/site/sensors/heartbeat",
+        ingress.submit_sensor_heartbeat,
+    )
+    app.router.add_get(
+        "/api/v1/site/sensors/trust",
+        ingress.sensor_trust_snapshot,
     )
     return app
 
