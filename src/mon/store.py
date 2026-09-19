@@ -106,6 +106,15 @@ class FabricReceiptStore(Protocol):
         receipt: FabricReceipt,
     ) -> FabricReceipt: ...
 
+    def complete_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+        *,
+        processed_at: dt.datetime,
+    ) -> FabricReceipt: ...
+
 
 class ResponseStateStore(Protocol):
     """Persistence contract required by local response execution and recovery."""
@@ -202,6 +211,33 @@ class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
             return existing
         self.fabric_receipts[key] = receipt
         return receipt
+
+    def complete_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+        *,
+        processed_at: dt.datetime,
+    ) -> FabricReceipt:
+        from mon.event_fabric import FabricReceiptStatus
+
+        if processed_at.tzinfo is None or processed_at.utcoffset() is None:
+            raise ValueError("fabric receipt processed_at must be timezone-aware")
+        key = (tenant_id, site_id, event_id)
+        existing = self.fabric_receipts.get(key)
+        if existing is None:
+            raise ValueError("fabric receipt does not exist")
+        if existing.status is FabricReceiptStatus.PROCESSED:
+            return existing
+        completed = existing.model_copy(
+            update={
+                "status": FabricReceiptStatus.PROCESSED,
+                "processed_at": processed_at.astimezone(dt.UTC),
+            }
+        )
+        self.fabric_receipts[key] = completed
+        return completed
 
     def add_enrollment_token(
         self, record: EnrollmentTokenRecord
@@ -317,6 +353,15 @@ class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
     def add_fabric_receipt(
         self,
         receipt: FabricReceipt,
+    ) -> FabricReceipt: ...
+
+    def complete_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+        *,
+        processed_at: dt.datetime,
     ) -> FabricReceipt: ...
 
 
