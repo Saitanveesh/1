@@ -215,6 +215,14 @@ class Store(PipelineStore, ResponseStateStore, Protocol):
         identities: list[SensorIdentityRecord],
     ) -> None: ...
 
+    def complete_sensor_renewal(
+        self,
+        previous_identity_id: str,
+        sensor: SensorRecord,
+        previous: SensorIdentityRecord,
+        successor: SensorIdentityRecord,
+    ) -> bool: ...
+
     def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord: ...
 
     def get_site_command(
@@ -537,6 +545,40 @@ class InMemoryStore:
             ] = sensor
             for identity in identities:
                 self.sensor_identities[identity.identity_id] = identity
+
+    def complete_sensor_renewal(
+        self,
+        previous_identity_id: str,
+        sensor: SensorRecord,
+        previous: SensorIdentityRecord,
+        successor: SensorIdentityRecord,
+    ) -> bool:
+        with self._identity_lock:
+            stored = self.sensor_identities.get(previous_identity_id)
+            if stored is None or stored.status.value != "ACTIVE":
+                return False
+            if (
+                stored.tenant_id != sensor.tenant_id
+                or stored.site_id != sensor.site_id
+                or stored.sensor_id != sensor.sensor_id
+                or previous.identity_id != stored.identity_id
+                or previous.status.value != "RETIRING"
+                or successor.tenant_id != sensor.tenant_id
+                or successor.site_id != sensor.site_id
+                or successor.sensor_id != sensor.sensor_id
+            ):
+                return False
+            current_sensor = self.sensor_records.get(
+                (sensor.tenant_id, sensor.site_id, sensor.sensor_id)
+            )
+            if current_sensor is None or current_sensor.revoked_at is not None:
+                return False
+            self.sensor_identities[previous.identity_id] = previous
+            self.sensor_identities[successor.identity_id] = successor
+            self.sensor_records[
+                (sensor.tenant_id, sensor.site_id, sensor.sensor_id)
+            ] = sensor
+            return True
 
     def add_response_execution(
         self,
