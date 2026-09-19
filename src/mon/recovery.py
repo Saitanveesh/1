@@ -5,7 +5,7 @@ import datetime as dt
 from dataclasses import dataclass, field
 
 from mon.domain import ResponseExecutionStatus
-from mon.response import ResponseOrchestrator
+from mon.response import ResponseOrchestrator, ResponseRollbackEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +26,7 @@ class RecoveryEngine:
 
     def __init__(
         self,
-        orchestrator: ResponseOrchestrator,
+        orchestrator: ResponseOrchestrator | ResponseRollbackEngine,
         *,
         actor_id: str = "mon-site-recovery",
     ) -> None:
