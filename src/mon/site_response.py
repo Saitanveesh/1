@@ -11,9 +11,9 @@ from mon.domain import (
     utcnow,
 )
 from mon.enforcement import EnforcementRegistry
-from mon.response import ResponseOrchestrator
+from mon.response import ResponseRollbackEngine
 from mon.site_command_models import SiteCommand, SiteCommandKind, SiteCommandResult
-from mon.store import Store
+from mon.store import ResponseStateStore
 
 
 class SiteResponseExecutor:
@@ -23,14 +23,14 @@ class SiteResponseExecutor:
         self,
         tenant_id: str,
         site_id: str,
-        store: Store,
+        store: ResponseStateStore,
         registry: EnforcementRegistry,
     ) -> None:
         self.tenant_id = tenant_id
         self.site_id = site_id
         self.store = store
         self.registry = registry
-        self.orchestrator = ResponseOrchestrator(store, registry)
+        self.orchestrator = ResponseRollbackEngine(store, registry)
 
     def _audit(
         self,
