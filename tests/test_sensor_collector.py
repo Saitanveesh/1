@@ -287,3 +287,35 @@ async def test_same_inode_truncation_is_reported_as_gap(tmp_path) -> None:
         assert "truncated below committed offset" in result["error"]
     finally:
         store.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_core_sensor_sources_report_degraded(tmp_path) -> None:
+    zeek_dir = tmp_path / "zeek"
+    zeek_dir.mkdir()
+    zeek_store = SQLiteSensorCursorStore(
+        tmp_path / "zeek-missing.db",
+        sensor_id="zeek-1",
+    )
+    suricata_store = SQLiteSensorCursorStore(
+        tmp_path / "suricata-missing.db",
+        sensor_id="suricata-1",
+    )
+    client = FakeSensorClient()
+    try:
+        zeek = ZeekFileCollector(zeek_dir, zeek_store, client)
+        zeek_result = await zeek.poll_once()
+        assert zeek_result["state"] == "DEGRADED"
+        assert zeek_result["required_source_missing"] is True
+
+        suricata = SuricataFileCollector(
+            tmp_path / "missing-eve.json",
+            suricata_store,
+            client,
+        )
+        suricata_result = await suricata.poll_once()
+        assert suricata_result["state"] == "DEGRADED"
+        assert suricata_result["source_missing"] is True
+    finally:
+        zeek_store.close()
+        suricata_store.close()
