@@ -19,6 +19,42 @@ from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 
 
+class PipelineStore(Protocol):
+    """Persistence contract required by the local evidence pipeline."""
+
+    def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
+
+    def add_event(self, event: SecurityEvent) -> SecurityEvent: ...
+
+    def list_events(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        since: dt.datetime | None = None,
+    ) -> list[SecurityEvent]: ...
+
+    def add_finding(self, finding: Finding) -> Finding: ...
+
+    def list_findings(self, tenant_id: str, site_id: str) -> list[Finding]: ...
+
+    def add_incident(self, incident: Incident) -> Incident: ...
+
+    def list_incidents(self, tenant_id: str, site_id: str) -> list[Incident]: ...
+
+    def get_incident(
+        self, tenant_id: str, site_id: str, incident_id: str
+    ) -> Incident | None: ...
+
+    def add_asset(self, asset: Asset) -> Asset: ...
+
+    def get_asset(
+        self, tenant_id: str, site_id: str, asset_id: str
+    ) -> Asset | None: ...
+
+    def list_assets(self, tenant_id: str, site_id: str) -> list[Asset]: ...
+
+
 class ResponseStateStore(Protocol):
     """Persistence contract required by local response execution and recovery."""
 
@@ -41,7 +77,7 @@ class ResponseStateStore(Protocol):
     ) -> list[AuditRecord]: ...
 
 
-class Store(ResponseStateStore, Protocol):
+class Store(PipelineStore, ResponseStateStore, Protocol):
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
 
     def add_event(self, event: SecurityEvent) -> SecurityEvent: ...
@@ -139,6 +175,18 @@ class InMemoryStore:
         self.event_ids.add(key)
         self.events[(event.tenant_id, event.site_id)].append(event)
         return event
+
+    def list_events(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        since: dt.datetime | None = None,
+    ) -> list[SecurityEvent]:
+        values = list(self.events[(tenant_id, site_id)])
+        if since is not None:
+            values = [item for item in values if item.observed_at >= since]
+        return sorted(values, key=lambda item: (item.observed_at, item.event_id))
 
     def add_finding(self, finding: Finding) -> Finding:
         self.findings[finding.finding_id] = finding
