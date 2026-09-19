@@ -504,6 +504,7 @@ class ZeekFileCollector:
     async def poll_once(self) -> dict[str, object]:
         sent = 0
         missing = 0
+        required_missing = False
         errors: dict[str, str] = {}
         for log_type in _SUPPORTED_ZEEK_LOGS:
             source_id = f"zeek:{log_type}"
@@ -516,6 +517,8 @@ class ZeekFileCollector:
                 )
                 if batch.source_missing:
                     missing += 1
+                    if log_type == "conn":
+                        required_missing = True
                     continue
                 if batch.records:
                     await self.client.send_zeek(log_type, batch.records)
@@ -530,9 +533,14 @@ class ZeekFileCollector:
                 self.cursor_store.record_failure(source_id, error)
                 errors[source_id] = error
         return {
-            "state": "READY" if not errors else "DEGRADED",
+            "state": (
+                "READY"
+                if not errors and not required_missing
+                else "DEGRADED"
+            ),
             "sent": sent,
             "missing_sources": missing,
+            "required_source_missing": required_missing,
             "errors": errors,
         }
 
@@ -574,10 +582,11 @@ class SuricataFileCollector:
             )
             if batch.source_missing:
                 return {
-                    "state": "READY",
+                    "state": "DEGRADED",
                     "sent": 0,
                     "source_missing": True,
                     "filtered": 0,
+                    "error": "Suricata EVE source file is missing",
                 }
             if batch.records:
                 await self.client.send_suricata(batch.records)
@@ -623,15 +632,21 @@ async def run_collector(
 
     logger = logging.getLogger("mon.sensor_collector")
     last_state: str | None = None
+    last_log_at = 0.0
     while not stop_event.is_set():
         result = await poll()
         state = str(result.get("state", "UNKNOWN"))
-        if state != last_state or state == "DEGRADED":
+        now = loop.time()
+        should_log = state != last_state
+        if state == "DEGRADED" and now - last_log_at >= 60:
+            should_log = True
+        if should_log:
             logger.info(
                 "sensor collector state=%s result=%s",
                 state,
                 json.dumps(result, sort_keys=True, default=str),
             )
+            last_log_at = now
         last_state = state
         try:
             await asyncio.wait_for(
