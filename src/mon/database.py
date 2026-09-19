@@ -1239,6 +1239,8 @@ class DatabaseStore:
             site_id=row.site_id,
             envelope_sha256=row.envelope_sha256,
             envelope_json=row.envelope_json,
+            status=FabricReceiptStatus(row.status),
+            received_at=row.received_at,
             processed_at=row.processed_at,
         )
 
@@ -1278,6 +1280,8 @@ class DatabaseStore:
             event_id=receipt.event_id,
             envelope_sha256=receipt.envelope_sha256,
             envelope_json=receipt.envelope_json,
+            status=receipt.status.value,
+            received_at=receipt.received_at,
             processed_at=receipt.processed_at,
         )
         active = self._active_session()
@@ -1305,6 +1309,40 @@ class DatabaseStore:
                 ) from None
             return existing
         return receipt
+
+    def complete_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+        *,
+        processed_at: dt.datetime,
+    ) -> FabricReceipt:
+        if processed_at.tzinfo is None or processed_at.utcoffset() is None:
+            raise ValueError("fabric receipt processed_at must be timezone-aware")
+        key = _key(tenant_id, site_id, event_id)
+        active = self._active_session()
+        if active is not None:
+            row = active.get(FabricReceiptRow, key)
+            if row is None:
+                raise ValueError("fabric receipt does not exist")
+            if row.status != FabricReceiptStatus.PROCESSED.value:
+                row.status = FabricReceiptStatus.PROCESSED.value
+                row.processed_at = processed_at.astimezone(dt.UTC)
+                active.flush()
+            return self.get_fabric_receipt(tenant_id, site_id, event_id)
+
+        with self._session_factory.begin() as session:
+            row = session.get(FabricReceiptRow, key)
+            if row is None:
+                raise ValueError("fabric receipt does not exist")
+            if row.status != FabricReceiptStatus.PROCESSED.value:
+                row.status = FabricReceiptStatus.PROCESSED.value
+                row.processed_at = processed_at.astimezone(dt.UTC)
+        completed = self.get_fabric_receipt(tenant_id, site_id, event_id)
+        if completed is None:
+            raise RuntimeError("completed fabric receipt disappeared")
+        return completed
 
     def _merge(self, row: Any) -> None:
         active = self._active_session()
