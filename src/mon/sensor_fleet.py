@@ -375,47 +375,19 @@ def record_sensor_heartbeat(
     ):
         raise SensorFleetError("sensor heartbeat is too far in the future")
 
-    sensor = store.get_sensor_record(
+    current = store.get_sensor_record(
         heartbeat.tenant_id,
         heartbeat.site_id,
         heartbeat.sensor_id,
     )
-    if sensor is None:
+    if current is None:
         raise SensorFleetError("sensor is not enrolled")
-    if sensor.revoked_at is not None:
+    if current.revoked_at is not None:
         raise SensorFleetError("revoked sensor heartbeat is rejected")
 
-    identity = store.get_sensor_identity_by_fingerprint(
-        heartbeat.tenant_id,
-        heartbeat.site_id,
-        heartbeat.fingerprint_sha256,
-    )
-    if (
-        identity is None
-        or identity.sensor_id != heartbeat.sensor_id
-        or not _identity_is_accepted(identity, now=server_time)
-    ):
+    updated = store.record_sensor_heartbeat(heartbeat, server_time)
+    if updated is None:
         raise SensorFleetError("sensor heartbeat certificate is not accepted")
-
-    updates: dict[str, object] = {
-        "updated_at": server_time,
-        "last_seen_at": server_time,
-    }
-    if (
-        sensor.last_heartbeat_observed_at is None
-        or heartbeat.observed_at >= sensor.last_heartbeat_observed_at
-    ):
-        updates.update(
-            {
-                "last_heartbeat_observed_at": heartbeat.observed_at,
-                "last_health_state": heartbeat.state,
-                "collector_kind": heartbeat.collector_kind,
-                "version": heartbeat.version,
-                "last_error": heartbeat.last_error,
-            }
-        )
-    updated = sensor.model_copy(update=updates)
-    store.save_sensor_lifecycle(updated, [])
     return updated
 
 
