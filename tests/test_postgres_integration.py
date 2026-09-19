@@ -5,7 +5,13 @@ import uuid
 import pytest
 
 from mon.database import DatabaseStore
-from mon.domain import SecurityEvent
+from mon.domain import (
+    IdentityConfidence,
+    IdentityRecord,
+    ProcessConfidence,
+    ProcessRecord,
+    SecurityEvent,
+)
 from mon.event_fabric import FabricReceiptStatus, security_event_envelope
 from mon.fabric_ingress import ingest_fabric_envelope
 from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
@@ -305,6 +311,123 @@ def test_postgres_pipeline_commits_event_and_processing_receipt_atomically() -> 
         }
     finally:
         second.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_identity_and_process_state_persists_and_rls_scopes() -> None:
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    now = dt.datetime.now(dt.UTC)
+    identity = IdentityRecord(
+        identity_id=f"identity-{suffix}",
+        tenant_id="identity-tenant-a",
+        site_id="identity-site-a",
+        kind="windows_sid",
+        source="windows_sid",
+        principal=f"S-1-5-21-{suffix[:8]}",
+        display_name="alice",
+        domain="MON",
+        confidence=IdentityConfidence.STRONG,
+        evidence_basis="source provided Windows SID",
+        first_seen=now,
+        last_seen=now,
+    )
+    process = ProcessRecord(
+        process_id=f"process-{suffix}",
+        tenant_id=identity.tenant_id,
+        site_id=identity.site_id,
+        asset_id="asset-1",
+        identity_id=identity.identity_id,
+        source_process_guid=f"{{{suffix}}}",
+        pid=4242,
+        image="powershell.exe",
+        confidence=ProcessConfidence.STRONG,
+        evidence_basis="source process GUID",
+        first_seen=now,
+        last_seen=now,
+    )
+    store = DatabaseStore(url)
+    try:
+        store.add_identity(identity)
+        store.add_process(process)
+
+        assert store.get_identity(
+            identity.tenant_id,
+            identity.site_id,
+            identity.identity_id,
+        ) == identity
+        assert store.get_process(
+            process.tenant_id,
+            process.site_id,
+            process.process_id,
+        ) == process
+        assert store.get_identity(
+            "identity-tenant-b",
+            identity.site_id,
+            identity.identity_id,
+        ) is None
+        assert store.get_process(
+            "identity-tenant-b",
+            process.site_id,
+            process.process_id,
+        ) is None
+
+        with store.engine.connect() as connection:
+            assert connection.execute(
+                text(
+                    "SELECT identity_id FROM identities "
+                    "WHERE identity_id = :identity_id"
+                ),
+                {"identity_id": identity.identity_id},
+            ).scalars().all() == []
+            assert connection.execute(
+                text(
+                    "SELECT process_id FROM processes "
+                    "WHERE process_id = :process_id"
+                ),
+                {"process_id": process.process_id},
+            ).scalars().all() == []
+
+        with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": identity.tenant_id,
+                    "site_id": identity.site_id,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO identities("
+                    "pk, tenant_id, site_id, identity_id, source, "
+                    "principal, confidence, last_seen, payload"
+                    ") VALUES ("
+                    ":pk, :tenant_id, :site_id, :identity_id, "
+                    "'username', 'mallory', 'WEAK', :last_seen, "
+                    "CAST(:payload AS JSON)"
+                    ")"
+                ),
+                {
+                    "pk": f"identity-tenant-b\x1fidentity-site-a\x1fdenied-{suffix}",
+                    "tenant_id": "identity-tenant-b",
+                    "site_id": identity.site_id,
+                    "identity_id": f"denied-{suffix}",
+                    "last_seen": now,
+                    "payload": "{}",
+                },
+            )
+    finally:
+        store.close()
 
 
 @pytest.mark.skipif(

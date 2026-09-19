@@ -58,6 +58,10 @@ Implemented foundations include:
   evidence-backed exact indicator matching for IPs, domains, URLs, and file hashes;
 - TAXII 2.1 read-only feed synchronization with vault-backed credentials, bounded HTTP
   behavior, pagination, added_after cursors, retry/backoff state, and tenant/site RLS;
+- typed endpoint process/auth/process-network telemetry normalization with durable
+  tenant/site-scoped identity and process analysis state;
+- identity/process attack-graph relationships for authentication, execution,
+  parent/child process, and process-network evidence;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
@@ -71,7 +75,9 @@ silently pruned by checkpoint maintenance. The nftables adapter in this reposito
 disposable-sandbox-only rather than a production host firewall connector. Threat-intelligence
 support currently covers direct STIX bundle ingestion and exact indicator matching; TAXII
 feed synchronization is read-only and client-side. MON does not yet implement a TAXII server,
-TAXII write/publish APIs, or complex STIX pattern evaluation.
+TAXII write/publish APIs, or complex STIX pattern evaluation. Endpoint support currently
+normalizes typed endpoint telemetry into the pipeline and graph; it is not yet a production
+Windows or Linux endpoint agent.
 
 See:
 

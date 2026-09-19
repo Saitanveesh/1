@@ -19,7 +19,9 @@ from mon.domain import (
     EnforcementBinding,
     EnforcementPoint,
     Finding,
+    IdentityRecord,
     Incident,
+    ProcessRecord,
     ResponseExecution,
     SecurityEvent,
 )
@@ -222,6 +224,45 @@ class TaxiiFeedRow(Base):
             "enabled",
             "next_attempt_after",
         ),
+    )
+
+
+class IdentityRow(Base):
+    __tablename__ = "identities"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    identity_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    source: Mapped[str] = mapped_column(String(128), nullable=False)
+    principal: Mapped[str] = mapped_column(String(512), nullable=False)
+    confidence: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_seen: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_identities_scope", "tenant_id", "site_id"),
+        Index("ix_identities_principal", "tenant_id", "site_id", "source", "principal"),
+    )
+
+
+class ProcessRow(Base):
+    __tablename__ = "processes"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    process_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    identity_id: Mapped[str | None] = mapped_column(String(512))
+    parent_process_id: Mapped[str | None] = mapped_column(String(512))
+    last_seen: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_processes_scope", "tenant_id", "site_id"),
+        Index("ix_processes_asset", "tenant_id", "site_id", "asset_id"),
+        Index("ix_processes_identity", "tenant_id", "site_id", "identity_id"),
     )
 
 
@@ -849,6 +890,64 @@ class DatabaseStore:
             for indicator in indicators
             if indicator.active_at(check_at)
         ]
+
+    def get_identity(
+        self,
+        tenant_id: str,
+        site_id: str,
+        identity_id: str,
+    ) -> IdentityRecord | None:
+        row = self._get(IdentityRow, tenant_id, site_id, identity_id)
+        return IdentityRecord.model_validate(row.payload) if row else None
+
+    def add_identity(self, identity: IdentityRecord) -> IdentityRecord:
+        self._merge(
+            IdentityRow(
+                pk=_key(identity.tenant_id, identity.site_id, identity.identity_id),
+                tenant_id=identity.tenant_id,
+                site_id=identity.site_id,
+                identity_id=identity.identity_id,
+                source=identity.source,
+                principal=identity.principal,
+                confidence=identity.confidence.value,
+                last_seen=identity.last_seen,
+                payload=identity.model_dump(mode="json"),
+            )
+        )
+        return identity
+
+    def list_identities(self, tenant_id: str, site_id: str) -> list[IdentityRecord]:
+        rows = self._list_scope(IdentityRow, tenant_id, site_id)
+        return [IdentityRecord.model_validate(row.payload) for row in rows]
+
+    def get_process(
+        self,
+        tenant_id: str,
+        site_id: str,
+        process_id: str,
+    ) -> ProcessRecord | None:
+        row = self._get(ProcessRow, tenant_id, site_id, process_id)
+        return ProcessRecord.model_validate(row.payload) if row else None
+
+    def add_process(self, process: ProcessRecord) -> ProcessRecord:
+        self._merge(
+            ProcessRow(
+                pk=_key(process.tenant_id, process.site_id, process.process_id),
+                tenant_id=process.tenant_id,
+                site_id=process.site_id,
+                process_id=process.process_id,
+                asset_id=process.asset_id,
+                identity_id=process.identity_id,
+                parent_process_id=process.parent_process_id,
+                last_seen=process.last_seen,
+                payload=process.model_dump(mode="json"),
+            )
+        )
+        return process
+
+    def list_processes(self, tenant_id: str, site_id: str) -> list[ProcessRecord]:
+        rows = self._list_scope(ProcessRow, tenant_id, site_id)
+        return [ProcessRecord.model_validate(row.payload) for row in rows]
 
     @staticmethod
     def _taxii_feed_row(record: TaxiiFeedRecord) -> TaxiiFeedRow:
