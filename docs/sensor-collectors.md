@@ -127,7 +127,9 @@ types are filtered and counted in cursor diagnostics. Malformed JSON or a record
 
 ## Cursor and rotation behavior
 
-Collector state is persisted in SQLite under `MON_SENSOR_STATE_DIR`.
+Collector state is persisted in SQLite under `MON_SENSOR_STATE_DIR`. The cursor database
+is bound to the configured tenant, site, and sensor identity and cannot be reused under a
+different scope.
 
 A checkpoint advances only after the sensor ingress accepts the batch. Network or server
 failure therefore causes safe replay rather than silent loss.
