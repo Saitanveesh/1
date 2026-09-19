@@ -7,6 +7,7 @@ import sqlite3
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -71,6 +72,58 @@ class FabricPublisher(Protocol):
     """
 
     async def publish(self, envelope: FabricEnvelope) -> None: ...
+
+
+class FabricReceiptStatus(StrEnum):
+    PENDING = "PENDING"
+    PROCESSED = "PROCESSED"
+
+
+class FabricReceipt(BaseModel):
+    """Durable control-plane claim for one exact fabric envelope."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str = Field(min_length=1, max_length=256)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    envelope_sha256: str = Field(min_length=64, max_length=64)
+    envelope_json: str = Field(min_length=2)
+    status: FabricReceiptStatus = FabricReceiptStatus.PENDING
+    received_at: dt.datetime
+    processed_at: dt.datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_times(self) -> FabricReceipt:
+        if (
+            self.received_at.tzinfo is None
+            or self.received_at.utcoffset() is None
+        ):
+            raise ValueError("fabric receipt received_at must be timezone-aware")
+        if self.processed_at is not None and (
+            self.processed_at.tzinfo is None
+            or self.processed_at.utcoffset() is None
+        ):
+            raise ValueError("fabric receipt processed_at must be timezone-aware")
+        if self.status is FabricReceiptStatus.PENDING:
+            if self.processed_at is not None:
+                raise ValueError(
+                    "pending fabric receipt cannot have processed_at"
+                )
+        elif self.processed_at is None:
+            raise ValueError(
+                "processed fabric receipt requires processed_at"
+            )
+        return self
+
+
+class FabricIngestResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str = Field(min_length=1, max_length=256)
+    accepted: bool = True
+    duplicate: bool
+    envelope_sha256: str = Field(min_length=64, max_length=64)
 
 
 @dataclass(frozen=True, slots=True)
