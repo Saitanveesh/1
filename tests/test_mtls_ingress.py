@@ -12,6 +12,7 @@ from mon.event_fabric import security_event_envelope
 from mon.mtls_ingress import (
     SiteCertificateError,
     SiteCertificateScopeError,
+    create_app,
     create_mtls_server_ssl_context,
     extract_site_identity_from_verified_certificate,
     require_batch_matches_site_identity,
@@ -260,3 +261,12 @@ def test_fabric_envelope_scope_must_match_verified_site_identity() -> None:
             envelope.model_copy(update={"site_id": "site-2"}),
             identity,
         )
+
+
+def test_mtls_ingress_exposes_site_fabric_route() -> None:
+    app = create_app("http://control-plane:8080")
+    routes = {
+        resource.canonical
+        for resource in app.router.resources()
+    }
+    assert "/api/v1/site/fabric/events" in routes
