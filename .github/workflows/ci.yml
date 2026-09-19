@@ -67,6 +67,30 @@ jobs:
           pip install -e '.[dev]'
       - name: Apply migrations
         run: alembic upgrade head
+      - name: Create non-bypass application database role
+        run: |
+          python - <<'PY'
+          import psycopg
+
+          with psycopg.connect(
+              "postgresql://mon:mon-test@127.0.0.1:5432/mon_test"
+          ) as connection:
+              connection.execute(
+                  "CREATE ROLE mon_app_ci LOGIN PASSWORD 'mon-app-ci-test' "
+                  "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+              connection.execute("GRANT CONNECT ON DATABASE mon_test TO mon_app_ci")
+              connection.execute("GRANT USAGE ON SCHEMA public TO mon_app_ci")
+              connection.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO mon_app_ci"
+              )
+              connection.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO mon_app_ci"
+              )
+          PY
+          echo "MON_TEST_DATABASE_URL=postgresql+psycopg://mon_app_ci:mon-app-ci-test@127.0.0.1:5432/mon_test" >> "$GITHUB_ENV"
       - name: PostgreSQL integration tests
         run: pytest -q tests/test_postgres_integration.py
 
