@@ -251,7 +251,12 @@ class MtlsSensorIngress:
         return identity
 
     async def health(self, request: web.Request) -> web.Response:
-        identity = self._authorize(request)
+        try:
+            identity = self._authorize(request)
+        except SensorCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+        except SensorCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
         return web.json_response(
             {
                 "state": "READY",
