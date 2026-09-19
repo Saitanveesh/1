@@ -44,6 +44,7 @@ Implemented foundations include:
 - Zeek JSON and Suricata EVE normalization into scoped, deterministic MON evidence;
 - mTLS-authenticated sensor ingress plus durable Zeek/Suricata file collectors;
 - managed sensor enrollment, renewal/revocation, durable site trust, and fleet heartbeats;
+- crash-safe managed sensor credential generations with proactive certificate rotation;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
