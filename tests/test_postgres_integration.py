@@ -416,3 +416,132 @@ def test_postgres_audit_records_reject_update_and_delete() -> None:
         assert store.list_audit_records("ci-tenant", "ci-site")[-1] == record
     finally:
         store.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_rls_blocks_unscoped_raw_access() -> None:
+    import json
+
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    event_a = SecurityEvent(
+        event_id=f"rls-a-{suffix}",
+        tenant_id="rls-tenant-a",
+        site_id="rls-site-1",
+        sensor_id="ci-sensor",
+        observed_at=dt.datetime.now(dt.UTC),
+        category="integration.rls",
+    )
+    event_b = SecurityEvent(
+        event_id=f"rls-b-{suffix}",
+        tenant_id="rls-tenant-b",
+        site_id="rls-site-1",
+        sensor_id="ci-sensor",
+        observed_at=dt.datetime.now(dt.UTC),
+        category="integration.rls",
+    )
+    store = DatabaseStore(url)
+    try:
+        store.add_event(event_a)
+        store.add_event(event_b)
+
+        with store.engine.connect() as connection:
+            visible_without_scope = connection.execute(
+                text(
+                    "SELECT event_id FROM security_events "
+                    "WHERE event_id IN (:event_a, :event_b)"
+                ),
+                {
+                    "event_a": event_a.event_id,
+                    "event_b": event_b.event_id,
+                },
+            ).scalars().all()
+        assert visible_without_scope == []
+
+        with store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": event_a.tenant_id,
+                    "site_id": event_a.site_id,
+                },
+            )
+            visible = connection.execute(
+                text(
+                    "SELECT event_id FROM security_events "
+                    "WHERE event_id IN (:event_a, :event_b) "
+                    "ORDER BY event_id"
+                ),
+                {
+                    "event_a": event_a.event_id,
+                    "event_b": event_b.event_id,
+                },
+            ).scalars().all()
+            assert visible == [event_a.event_id]
+
+        denied_id = f"rls-denied-{suffix}"
+        with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": event_a.tenant_id,
+                    "site_id": event_a.site_id,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO security_events("
+                    "pk, tenant_id, site_id, event_id, payload"
+                    ") VALUES ("
+                    ":pk, :tenant_id, :site_id, :event_id, "
+                    "CAST(:payload AS JSON)"
+                    ")"
+                ),
+                {
+                    "pk": (
+                        f"{event_b.tenant_id}\x1f"
+                        f"{event_b.site_id}\x1f{denied_id}"
+                    ),
+                    "tenant_id": event_b.tenant_id,
+                    "site_id": event_b.site_id,
+                    "event_id": denied_id,
+                    "payload": json.dumps(
+                        event_b.model_copy(
+                            update={"event_id": denied_id}
+                        ).model_dump(mode="json")
+                    ),
+                },
+            )
+    finally:
+        store.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_rls_transaction_refuses_scope_switch() -> None:
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    store = DatabaseStore(url)
+    try:
+        with store.transaction():
+            store.list_events("rls-tenant-a", "rls-site-1")
+            with pytest.raises(RuntimeError, match="cannot cross"):
+                store.list_events("rls-tenant-b", "rls-site-1")
+    finally:
+        store.close()
+
