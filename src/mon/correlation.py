@@ -52,7 +52,6 @@ class CorrelationEngine:
         """Rebuild active correlation pointers from durable findings/incidents."""
         self._active.clear()
         findings_by_id = {finding.finding_id: finding for finding in findings}
-        restored = 0
         for incident in incidents:
             if incident.status not in {
                 IncidentStatus.OPEN,
@@ -71,8 +70,7 @@ class CorrelationEngine:
                         incident_id=incident.incident_id,
                         last_seen=finding.last_seen,
                     )
-                    restored += 1
-        return restored
+        return len(self._active)
 
     @staticmethod
     def _actor(finding: Finding) -> str:
