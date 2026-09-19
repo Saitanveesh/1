@@ -46,11 +46,12 @@ Implemented foundations include:
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
 
 Known boundaries are reported explicitly rather than hidden. Local evidence objects
-(events, assets, findings, and incidents) are durable and detector/correlation/graph windows
-are warm-restored from that evidence after restart. Per-event persistence is not yet one
-atomic unit of work, so interrupted local analysis is tracked as the next crash-consistency
-tranche. The nftables adapter in this repository remains disposable-sandbox-only rather than
-a production host firewall connector.
+(events, assets, findings, and incidents) are durable; detector/correlation/graph windows are
+warm-restored after restart; and one event plus its derived durable state is committed as an
+atomic local analysis unit before the event becomes cloud-deliverable. The remaining local
+scale boundary is retained-history growth and linear warm-restore cost. The nftables adapter
+in this repository remains disposable-sandbox-only rather than a production host firewall
+connector.
 
 See:
 
