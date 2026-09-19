@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from mon.analysis_checkpoint import CHECKPOINT_SCHEMA_VERSION, AnalysisCheckpointPayload
 from mon.domain import Asset, Finding, Incident, SecurityEvent
 
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
+_SUPPORTED_CHECKPOINT_SCHEMA_VERSIONS = {CHECKPOINT_SCHEMA_VERSION}
 
 
 class SQLiteSiteAnalysisStore:
@@ -71,7 +76,7 @@ class SQLiteSiteAnalysisStore:
                 """
             ).fetchone()
             version = str(version_row["value"]) if version_row is not None else None
-            if version not in {None, "1", _SCHEMA_VERSION}:
+            if version not in {None, "1", "2", _SCHEMA_VERSION}:
                 raise ValueError(
                     f"unsupported site analysis schema version: {version}"
                 )
@@ -144,6 +149,36 @@ class SQLiteSiteAnalysisStore:
                 )
                 """
             )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_analysis_checkpoints (
+                    tenant_id TEXT NOT NULL,
+                    site_id TEXT NOT NULL,
+                    checkpoint_id TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL,
+                    boundary_observed_at TEXT NOT NULL,
+                    boundary_event_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    payload_sha256 TEXT NOT NULL,
+                    complete INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (tenant_id, site_id, checkpoint_id)
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_site_analysis_checkpoints_newest
+                ON site_analysis_checkpoints(
+                    tenant_id,
+                    site_id,
+                    complete,
+                    boundary_observed_at DESC,
+                    boundary_event_id DESC,
+                    created_at DESC
+                )
+                """
+            )
 
             if version == "1":
                 row = self._connection.execute(
@@ -154,6 +189,15 @@ class SQLiteSiteAnalysisStore:
                         "site analysis schema v1 contains events without atomic "
                         "processing receipts; explicit rebuild is required"
                     )
+                self._connection.execute(
+                    """
+                    UPDATE site_analysis_metadata
+                    SET value = ?
+                    WHERE key = 'schema_version'
+                    """,
+                    (_SCHEMA_VERSION,),
+                )
+            elif version == "2":
                 self._connection.execute(
                     """
                     UPDATE site_analysis_metadata
@@ -600,6 +644,7 @@ class SQLiteSiteAnalysisStore:
         counts["unprocessed_events"] = (
             counts["events"] - counts["processed_events"]
         )
+        counts["checkpoints"] = self._count_checkpoints()
         return {
             "tenant_id": self.tenant_id,
             "site_id": self.site_id,
@@ -607,3 +652,169 @@ class SQLiteSiteAnalysisStore:
             "durability": "WAL_FULL",
             **counts,
         }
+
+    @staticmethod
+    def _checkpoint_digest(payload: str) -> str:
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def save_analysis_checkpoint(self, checkpoint: AnalysisCheckpointPayload) -> None:
+        self._require_scope(checkpoint.tenant_id, checkpoint.site_id)
+        if checkpoint.schema_version not in _SUPPORTED_CHECKPOINT_SCHEMA_VERSIONS:
+            raise ValueError("unsupported analysis checkpoint schema version")
+        payload = checkpoint.model_dump_json()
+        digest = self._checkpoint_digest(payload)
+        with self._lock, self._connection:
+            self._connection.execute(
+                """
+                INSERT OR REPLACE INTO site_analysis_checkpoints(
+                    tenant_id,
+                    site_id,
+                    checkpoint_id,
+                    schema_version,
+                    boundary_observed_at,
+                    boundary_event_id,
+                    created_at,
+                    payload,
+                    payload_sha256,
+                    complete
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    checkpoint.tenant_id,
+                    checkpoint.site_id,
+                    checkpoint.checkpoint_id,
+                    checkpoint.schema_version,
+                    self._utc_iso(
+                        checkpoint.boundary_observed_at,
+                        field_name="checkpoint boundary_observed_at",
+                    ),
+                    checkpoint.boundary_event_id,
+                    self._utc_iso(
+                        checkpoint.created_at,
+                        field_name="checkpoint created_at",
+                    ),
+                    payload,
+                    digest,
+                ),
+            )
+            self._connection.execute(
+                """
+                UPDATE site_analysis_checkpoints
+                SET complete = 1
+                WHERE tenant_id = ?
+                  AND site_id = ?
+                  AND checkpoint_id = ?
+                  AND payload_sha256 = ?
+                """,
+                (
+                    checkpoint.tenant_id,
+                    checkpoint.site_id,
+                    checkpoint.checkpoint_id,
+                    digest,
+                ),
+            )
+
+    def iter_analysis_checkpoints(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[AnalysisCheckpointPayload]:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT payload, payload_sha256
+                FROM site_analysis_checkpoints
+                WHERE tenant_id = ?
+                  AND site_id = ?
+                  AND complete = 1
+                ORDER BY boundary_observed_at DESC,
+                         boundary_event_id DESC,
+                         created_at DESC,
+                         checkpoint_id DESC
+                """,
+                (tenant_id, site_id),
+            ).fetchall()
+        valid: list[AnalysisCheckpointPayload] = []
+        for row in rows:
+            payload = str(row["payload"])
+            if self._checkpoint_digest(payload) != str(row["payload_sha256"]):
+                continue
+            try:
+                checkpoint = AnalysisCheckpointPayload.model_validate_json(payload)
+            except (ValidationError, ValueError):
+                continue
+            if (
+                checkpoint.tenant_id == tenant_id
+                and checkpoint.site_id == site_id
+                and checkpoint.schema_version in _SUPPORTED_CHECKPOINT_SCHEMA_VERSIONS
+            ):
+                valid.append(checkpoint)
+        return valid
+
+    def compact_analysis_checkpoints(self, *, retain: int = 3) -> int:
+        if retain < 1:
+            raise ValueError("retain must be at least 1")
+        with self._lock, self._connection:
+            incomplete_cursor = self._connection.execute(
+                """
+                DELETE FROM site_analysis_checkpoints
+                WHERE tenant_id = ?
+                  AND site_id = ?
+                  AND complete = 0
+                """,
+                (self.tenant_id, self.site_id),
+            )
+            incomplete_deleted = max(incomplete_cursor.rowcount, 0)
+            keep_rows = self._connection.execute(
+                """
+                SELECT checkpoint_id
+                FROM site_analysis_checkpoints
+                WHERE tenant_id = ?
+                  AND site_id = ?
+                  AND complete = 1
+                ORDER BY boundary_observed_at DESC,
+                         boundary_event_id DESC,
+                         created_at DESC,
+                         checkpoint_id DESC
+                LIMIT ?
+                """,
+                (self.tenant_id, self.site_id, retain),
+            ).fetchall()
+            keep = {str(row["checkpoint_id"]) for row in keep_rows}
+            if keep:
+                placeholders = ",".join("?" for _ in keep)
+                complete_cursor = self._connection.execute(
+                    f"""
+                    DELETE FROM site_analysis_checkpoints
+                    WHERE tenant_id = ?
+                      AND site_id = ?
+                      AND complete = 1
+                      AND checkpoint_id NOT IN ({placeholders})
+                    """,
+                    (self.tenant_id, self.site_id, *sorted(keep)),
+                )
+                complete_deleted = max(complete_cursor.rowcount, 0)
+            else:
+                complete_cursor = self._connection.execute(
+                    """
+                    DELETE FROM site_analysis_checkpoints
+                    WHERE tenant_id = ?
+                      AND site_id = ?
+                      AND complete = 1
+                    """,
+                    (self.tenant_id, self.site_id),
+                )
+                complete_deleted = max(complete_cursor.rowcount, 0)
+        return int(incomplete_deleted + complete_deleted)
+
+    def _count_checkpoints(self) -> int:
+        row = self._connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM site_analysis_checkpoints
+            WHERE tenant_id = ? AND site_id = ? AND complete = 1
+            """,
+            (self.tenant_id, self.site_id),
+        ).fetchone()
+        return int(row["count"]) if row else 0

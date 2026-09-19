@@ -6,6 +6,13 @@ import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass
 
+from mon.analysis_checkpoint import (
+    DetectorBeaconCheckpoint,
+    DetectorEmitCheckpoint,
+    DetectorObservationCheckpoint,
+    DetectorStateCheckpoint,
+    DetectorWindowCheckpoint,
+)
 from mon.domain import EvidenceClass, EvidenceRef, Finding, SecurityEvent, Severity
 
 
@@ -56,6 +63,137 @@ class DetectionEngine:
             self._windows.clear()
             self._beacons.clear()
             self._last_emit.clear()
+
+    def export_checkpoint(self, tenant_id: str, site_id: str) -> DetectorStateCheckpoint:
+        with self._lock:
+            return DetectorStateCheckpoint(
+                thresholds={
+                    field: int(getattr(self.thresholds, field))
+                    for field in self.thresholds.__dataclass_fields__
+                },
+                windows=[
+                    DetectorWindowCheckpoint(
+                        rule=rule,
+                        tenant_id=scope_tenant,
+                        site_id=scope_site,
+                        source=source,
+                        observations=[
+                            DetectorObservationCheckpoint(
+                                observed_at=item.observed_at,
+                                dst_ip=item.dst_ip,
+                                dst_port=item.dst_port,
+                                value=item.value,
+                            )
+                            for item in window
+                        ],
+                    )
+                    for (
+                        rule,
+                        scope_tenant,
+                        scope_site,
+                        source,
+                    ), window in sorted(self._windows.items())
+                    if scope_tenant == tenant_id and scope_site == site_id
+                ],
+                beacons=[
+                    DetectorBeaconCheckpoint(
+                        tenant_id=scope_tenant,
+                        site_id=scope_site,
+                        source=source,
+                        destination=destination,
+                        protocol=protocol,
+                        port=port,
+                        observed_at=list(samples),
+                    )
+                    for (
+                        scope_tenant,
+                        scope_site,
+                        source,
+                        destination,
+                        protocol,
+                        port,
+                    ), samples in sorted(self._beacons.items())
+                    if scope_tenant == tenant_id and scope_site == site_id
+                ],
+                last_emit=[
+                    DetectorEmitCheckpoint(
+                        rule=rule,
+                        tenant_id=scope_tenant,
+                        site_id=scope_site,
+                        source=source,
+                        last_emitted_at=last_emitted_at,
+                    )
+                    for (
+                        rule,
+                        scope_tenant,
+                        scope_site,
+                        source,
+                    ), last_emitted_at in sorted(self._last_emit.items())
+                    if scope_tenant == tenant_id and scope_site == site_id
+                ],
+            )
+
+    def restore_checkpoint(
+        self,
+        tenant_id: str,
+        site_id: str,
+        state: DetectorStateCheckpoint,
+    ) -> None:
+        thresholds = DetectionThresholds(**state.thresholds)
+        with self._lock:
+            self.thresholds = thresholds
+            for key in [
+                key
+                for key in self._windows
+                if key[1] == tenant_id and key[2] == site_id
+            ]:
+                del self._windows[key]
+            for key in [
+                key
+                for key in self._beacons
+                if key[0] == tenant_id and key[1] == site_id
+            ]:
+                del self._beacons[key]
+            for key in [
+                key
+                for key in self._last_emit
+                if key[1] == tenant_id and key[2] == site_id
+            ]:
+                del self._last_emit[key]
+
+            for window in state.windows:
+                if window.tenant_id != tenant_id or window.site_id != site_id:
+                    raise ValueError("detector checkpoint scope mismatch")
+                self._windows[
+                    (window.rule, window.tenant_id, window.site_id, window.source)
+                ] = deque(
+                    _Observation(
+                        observed_at=item.observed_at,
+                        dst_ip=item.dst_ip,
+                        dst_port=item.dst_port,
+                        value=item.value,
+                    )
+                    for item in window.observations
+                )
+            for beacon in state.beacons:
+                if beacon.tenant_id != tenant_id or beacon.site_id != site_id:
+                    raise ValueError("detector checkpoint scope mismatch")
+                self._beacons[
+                    (
+                        beacon.tenant_id,
+                        beacon.site_id,
+                        beacon.source,
+                        beacon.destination,
+                        beacon.protocol,
+                        beacon.port,
+                    )
+                ] = deque(beacon.observed_at)
+            for item in state.last_emit:
+                if item.tenant_id != tenant_id or item.site_id != site_id:
+                    raise ValueError("detector checkpoint scope mismatch")
+                self._last_emit[
+                    (item.rule, item.tenant_id, item.site_id, item.source)
+                ] = item.last_emitted_at
 
     @staticmethod
     def _port(event: SecurityEvent, key: str = "dst_port") -> int | None:

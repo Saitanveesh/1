@@ -107,7 +107,8 @@ def test_detection_window_and_graph_restore_across_restart(tmp_path) -> None:
     )
     try:
         restored = second_pipeline.restore_scope("tenant-a", "site-a")
-        assert restored["events"] == 11
+        assert restored["checkpoint_used"] == 1
+        assert restored["events"] == 0
         assert restored["findings"] == 0
         graph_after = second_pipeline.graph.snapshot("tenant-a", "site-a")
         assert len(graph_after.edges) == 11
@@ -153,6 +154,7 @@ def test_active_incident_correlation_restores_across_restart(tmp_path) -> None:
     )
     try:
         restored = second_pipeline.restore_scope("tenant-a", "site-a")
+        assert restored["checkpoint_used"] == 1
         assert restored["correlation_pointers"] >= 1
 
         latest = None
@@ -301,3 +303,209 @@ def test_v1_analysis_database_with_events_requires_explicit_rebuild(tmp_path) ->
             tenant_id="tenant-a",
             site_id="site-a",
         )
+
+
+def test_checkpoint_restore_delta_matches_full_replay(tmp_path) -> None:
+    path = tmp_path / "analysis.db"
+    store = SQLiteSiteAnalysisStore(path, tenant_id="tenant-a", site_id="site-a")
+    try:
+        pipeline = SecurityPipeline(
+            store=store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        for index in range(12):
+            pipeline.process_event(event(index))
+        checkpoint = pipeline.create_analysis_checkpoint("tenant-a", "site-a")
+        assert checkpoint is not None
+        for index in range(12, 18):
+            pipeline.process_event(event(index, offset_seconds=31))
+    finally:
+        store.close()
+
+    checkpoint_store = SQLiteSiteAnalysisStore(
+        path,
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
+    full_store = SQLiteSiteAnalysisStore(path, tenant_id="tenant-a", site_id="site-a")
+    try:
+        checkpoint_pipeline = SecurityPipeline(
+            store=checkpoint_store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        checkpoint_restore = checkpoint_pipeline.restore_scope("tenant-a", "site-a")
+        assert checkpoint_restore["checkpoint_used"] == 1
+
+        full_store._connection.execute("DELETE FROM site_analysis_checkpoints")
+        full_store._connection.commit()
+        full_pipeline = SecurityPipeline(
+            store=full_store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        full_restore = full_pipeline.restore_scope("tenant-a", "site-a")
+        assert full_restore["checkpoint_used"] == 0
+
+        checkpoint_graph = checkpoint_pipeline.graph.snapshot("tenant-a", "site-a")
+        full_graph = full_pipeline.graph.snapshot("tenant-a", "site-a")
+        assert checkpoint_graph.nodes == full_graph.nodes
+        assert checkpoint_graph.edges == full_graph.edges
+        next_event = event(18, offset_seconds=31)
+        assert checkpoint_pipeline.process_event(next_event).findings == (
+            full_pipeline.process_event(next_event).findings
+        )
+    finally:
+        checkpoint_store.close()
+        full_store.close()
+
+
+def test_corrupted_newest_checkpoint_falls_back_to_older_valid(tmp_path) -> None:
+    path = tmp_path / "analysis.db"
+    store = SQLiteSiteAnalysisStore(path, tenant_id="tenant-a", site_id="site-a")
+    try:
+        pipeline = SecurityPipeline(
+            store=store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        for index in range(5):
+            pipeline.process_event(event(index))
+        checkpoints = store.iter_analysis_checkpoints("tenant-a", "site-a")
+        assert len(checkpoints) >= 2
+        newest = checkpoints[0]
+        fallback = checkpoints[1]
+        store._connection.execute(
+            """
+            UPDATE site_analysis_checkpoints
+            SET payload = ?
+            WHERE checkpoint_id = ?
+            """,
+            ("corrupted", newest.checkpoint_id),
+        )
+        store._connection.commit()
+    finally:
+        store.close()
+
+    reopened = SQLiteSiteAnalysisStore(path, tenant_id="tenant-a", site_id="site-a")
+    try:
+        pipeline = SecurityPipeline(
+            store=reopened,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        restored = pipeline.restore_scope("tenant-a", "site-a")
+        assert restored["checkpoint_used"] == 1
+        assert restored["checkpoint_boundary_event"] == fallback.boundary_event_id
+        assert restored["checkpoint_boundary_replayed_events"] == 1
+    finally:
+        reopened.close()
+
+
+def test_incompatible_checkpoint_schema_falls_back_to_full_replay(tmp_path) -> None:
+    path = tmp_path / "analysis.db"
+    store = SQLiteSiteAnalysisStore(path, tenant_id="tenant-a", site_id="site-a")
+    try:
+        pipeline = SecurityPipeline(
+            store=store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        for index in range(4):
+            pipeline.process_event(event(index))
+        checkpoint = pipeline.create_analysis_checkpoint("tenant-a", "site-a")
+        assert checkpoint is not None
+        payload = checkpoint.model_copy(update={"schema_version": 99}).model_dump_json()
+        digest = store._checkpoint_digest(payload)
+        store._connection.execute(
+            """
+            DELETE FROM site_analysis_checkpoints
+            WHERE checkpoint_id != ?
+            """,
+            (checkpoint.checkpoint_id,),
+        )
+        store._connection.execute(
+            """
+            UPDATE site_analysis_checkpoints
+            SET schema_version = 99, payload = ?, payload_sha256 = ?
+            WHERE checkpoint_id = ?
+            """,
+            (payload, digest, checkpoint.checkpoint_id),
+        )
+        store._connection.commit()
+
+        restored = pipeline.restore_scope("tenant-a", "site-a")
+        assert restored["checkpoint_used"] == 0
+        assert restored["events"] == 4
+    finally:
+        store.close()
+
+
+def test_interrupted_checkpoint_write_is_ignored(tmp_path) -> None:
+    path = tmp_path / "analysis.db"
+    store = SQLiteSiteAnalysisStore(path, tenant_id="tenant-a", site_id="site-a")
+    try:
+        pipeline = SecurityPipeline(
+            store=store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        for index in range(3):
+            pipeline.process_event(event(index))
+        checkpoint = pipeline.create_analysis_checkpoint("tenant-a", "site-a")
+        assert checkpoint is not None
+        store._connection.execute(
+            """
+            INSERT INTO site_analysis_checkpoints(
+                tenant_id,
+                site_id,
+                checkpoint_id,
+                schema_version,
+                boundary_observed_at,
+                boundary_event_id,
+                created_at,
+                payload,
+                payload_sha256,
+                complete
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (
+                "tenant-a",
+                "site-a",
+                "incomplete-newer",
+                1,
+                (BASE + dt.timedelta(days=1)).isoformat(),
+                "future",
+                (BASE + dt.timedelta(days=1)).isoformat(),
+                checkpoint.model_dump_json(),
+                "bad",
+            ),
+        )
+        store._connection.commit()
+
+        restored = pipeline.restore_scope("tenant-a", "site-a")
+        assert restored["checkpoint_used"] == 1
+        assert restored["checkpoint_boundary_event"] == checkpoint.boundary_event_id
+    finally:
+        store.close()
+
+
+def test_checkpoint_scope_and_retention_do_not_delete_evidence(tmp_path) -> None:
+    path = tmp_path / "analysis.db"
+    store = SQLiteSiteAnalysisStore(path, tenant_id="tenant-a", site_id="site-a")
+    try:
+        pipeline = SecurityPipeline(
+            store=store,
+            persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+        )
+        for index in range(6):
+            pipeline.process_event(event(index))
+        assert store.diagnostics()["checkpoints"] == 3
+        assert store.diagnostics()["events"] == 6
+        assert len(store.list_events("tenant-a", "site-a")) == 6
+
+        checkpoints = store.iter_analysis_checkpoints("tenant-a", "site-a")
+        other_scope = checkpoints[0].model_copy(
+            update={
+                "checkpoint_id": "wrong-scope",
+                "tenant_id": "tenant-b",
+            },
+        )
+        with pytest.raises(ValueError, match="scope"):
+            store.save_analysis_checkpoint(other_scope)
+    finally:
+        store.close()

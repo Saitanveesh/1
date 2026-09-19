@@ -45,6 +45,11 @@ class AttackGraphEngine:
         self._nodes.clear()
         self._edges.clear()
 
+    def restore_checkpoint(self, snapshot: AttackGraphSnapshot) -> None:
+        scope = (snapshot.tenant_id, snapshot.site_id)
+        self._nodes[scope] = {node.node_id: node for node in snapshot.nodes}
+        self._edges[scope] = {edge.edge_id: edge for edge in snapshot.edges}
+
     @staticmethod
     def _node_for_source(event: SecurityEvent) -> tuple[str, GraphNodeKind, str] | None:
         if event.asset_id:

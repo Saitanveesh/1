@@ -5,6 +5,10 @@ import threading
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 
+from mon.analysis_checkpoint import (
+    TelemetryObservationCheckpoint,
+    TelemetryStateCheckpoint,
+)
 from mon.domain import SecurityEvent, TelemetrySnapshot
 
 
@@ -47,6 +51,43 @@ class TelemetryEngine:
     def reset(self) -> None:
         with self._lock:
             self._windows.clear()
+
+    def export_checkpoint(self, tenant_id: str, site_id: str) -> TelemetryStateCheckpoint:
+        with self._lock:
+            return TelemetryStateCheckpoint(
+                window_seconds=self.window_seconds,
+                observations=[
+                    TelemetryObservationCheckpoint(
+                        observed_at=item.observed_at,
+                        src_ip=item.src_ip,
+                        dst_ip=item.dst_ip,
+                        protocol=item.protocol,
+                        measured_packets=item.measured_packets,
+                        measured_bytes=item.measured_bytes,
+                    )
+                    for item in self._windows[(tenant_id, site_id)]
+                ],
+            )
+
+    def restore_checkpoint(
+        self,
+        tenant_id: str,
+        site_id: str,
+        state: TelemetryStateCheckpoint,
+    ) -> None:
+        with self._lock:
+            self.window_seconds = state.window_seconds
+            self._windows[(tenant_id, site_id)] = deque(
+                _Observation(
+                    observed_at=item.observed_at,
+                    src_ip=item.src_ip,
+                    dst_ip=item.dst_ip,
+                    protocol=item.protocol,
+                    measured_packets=item.measured_packets,
+                    measured_bytes=item.measured_bytes,
+                )
+                for item in state.observations
+            )
 
     def observe(self, event: SecurityEvent) -> TelemetrySnapshot:
         observation = _Observation(
