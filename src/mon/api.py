@@ -64,6 +64,7 @@ from mon.sensor_fleet_models import (
     SensorHeartbeat,
     SensorIdentityRecord,
     SensorRenewalRequest,
+    SensorRenewalResult,
     SensorRevocationRequest,
     SensorTrustSnapshot,
 )
@@ -786,12 +787,12 @@ def complete_sensor_enrollment(
 
 @app.post(
     "/api/v1/site/sensors/renew",
-    response_model=SensorEnrollmentResult,
+    response_model=SensorRenewalResult,
 )
 def renew_sensor_certificate(
     request: SensorRenewalRequest,
     principal: CurrentPrincipal,
-) -> SensorEnrollmentResult:
+) -> SensorRenewalResult:
     require_scope(
         principal,
         request.tenant_id,
@@ -806,9 +807,17 @@ def renew_sensor_certificate(
             detail="sensor certificate authority is unavailable",
         ) from exc
     try:
-        return renew_sensor(store, certificate_authority, request)
+        certificate = renew_sensor(store, certificate_authority, request)
     except (SensorEnrollmentDenied, SensorFleetError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SensorRenewalResult(
+        certificate=certificate,
+        trust_snapshot=build_sensor_trust_snapshot(
+            store,
+            request.tenant_id,
+            request.site_id,
+        ),
+    )
 
 
 @app.post(
