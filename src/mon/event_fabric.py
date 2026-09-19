@@ -73,6 +73,37 @@ class FabricPublisher(Protocol):
     async def publish(self, envelope: FabricEnvelope) -> None: ...
 
 
+class FabricReceipt(BaseModel):
+    """Durable control-plane receipt for one exact fabric envelope."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str = Field(min_length=1, max_length=256)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    site_id: str = Field(min_length=1, max_length=128)
+    envelope_sha256: str = Field(min_length=64, max_length=64)
+    envelope_json: str = Field(min_length=2)
+    processed_at: dt.datetime
+
+    @model_validator(mode="after")
+    def validate_processed_at(self) -> FabricReceipt:
+        if (
+            self.processed_at.tzinfo is None
+            or self.processed_at.utcoffset() is None
+        ):
+            raise ValueError("fabric receipt processed_at must be timezone-aware")
+        return self
+
+
+class FabricIngestResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str = Field(min_length=1, max_length=256)
+    accepted: bool = True
+    duplicate: bool
+    envelope_sha256: str = Field(min_length=64, max_length=64)
+
+
 @dataclass(frozen=True, slots=True)
 class DeliveryResult:
     event_id: str
