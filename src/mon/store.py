@@ -16,7 +16,7 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
-from mon.event_fabric import FabricReceipt
+from mon.event_fabric import FabricReceipt, FabricReceiptStatus
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -220,8 +220,6 @@ class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
         *,
         processed_at: dt.datetime,
     ) -> FabricReceipt:
-        from mon.event_fabric import FabricReceiptStatus
-
         if processed_at.tzinfo is None or processed_at.utcoffset() is None:
             raise ValueError("fabric receipt processed_at must be timezone-aware")
         key = (tenant_id, site_id, event_id)
