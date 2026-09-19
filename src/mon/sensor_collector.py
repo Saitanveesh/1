@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import logging
 import os
 import signal
 import sqlite3
@@ -520,7 +521,7 @@ class ZeekFileCollector:
                         batch.checkpoint,
                         filtered_records=batch.skipped_records,
                     )
-            except SensorCollectorError as exc:
+            except (SensorCollectorError, OSError) as exc:
                 error = str(exc)[:1000]
                 self.cursor_store.record_failure(source_id, error)
                 errors[source_id] = error
@@ -587,7 +588,7 @@ class SuricataFileCollector:
                 "source_missing": False,
                 "filtered": batch.skipped_records,
             }
-        except SensorCollectorError as exc:
+        except (SensorCollectorError, OSError) as exc:
             error = str(exc)[:1000]
             self.cursor_store.record_failure(source_id, error)
             return {
@@ -616,8 +617,18 @@ async def run_collector(
         except NotImplementedError:
             pass
 
+    logger = logging.getLogger("mon.sensor_collector")
+    last_state: str | None = None
     while not stop_event.is_set():
-        await poll()
+        result = await poll()
+        state = str(result.get("state", "UNKNOWN"))
+        if state != last_state or state == "DEGRADED":
+            logger.info(
+                "sensor collector state=%s result=%s",
+                state,
+                json.dumps(result, sort_keys=True, default=str),
+            )
+        last_state = state
         try:
             await asyncio.wait_for(
                 stop_event.wait(),
@@ -711,6 +722,7 @@ def _positive_float_env(name: str, default: str) -> float:
 
 
 def zeek_main() -> None:
+    logging.basicConfig(level=logging.INFO)
     sensor_id, client = _collector_client_from_environment()
     log_dir = Path(
         os.environ.get("MON_ZEEK_LOG_DIR", "/opt/zeek/logs/current")
@@ -743,6 +755,7 @@ def zeek_main() -> None:
 
 
 def suricata_main() -> None:
+    logging.basicConfig(level=logging.INFO)
     sensor_id, client = _collector_client_from_environment()
     eve_path = Path(
         os.environ.get(
