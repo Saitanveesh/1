@@ -18,7 +18,6 @@ from mon.domain import (
 )
 from mon.site_response_models import SiteResponseUpdate, recovery_update_id
 
-
 client = TestClient(app)
 NOW = dt.datetime(2026, 9, 19, 4, 0, tzinfo=dt.UTC)
 
