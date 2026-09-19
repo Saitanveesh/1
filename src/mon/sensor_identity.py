@@ -16,10 +16,18 @@ class SensorEnrollmentDenied(ValueError):
     pass
 
 
+def _validate_identity_component(name: str, value: str) -> str:
+    if not value or len(value) > 128:
+        raise ValueError(f"{name} must contain between 1 and 128 characters")
+    if any(not character.isprintable() for character in value):
+        raise ValueError(f"{name} must contain only printable characters")
+    return value
+
+
 def sensor_spiffe_uri(tenant_id: str, site_id: str, sensor_id: str) -> str:
-    tenant = quote(tenant_id, safe="")
-    site = quote(site_id, safe="")
-    sensor = quote(sensor_id, safe="")
+    tenant = quote(_validate_identity_component("tenant_id", tenant_id), safe="")
+    site = quote(_validate_identity_component("site_id", site_id), safe="")
+    sensor = quote(_validate_identity_component("sensor_id", sensor_id), safe="")
     return (
         f"spiffe://mon.local/tenant/{tenant}/site/{site}/sensor/{sensor}"
     )
@@ -32,8 +40,9 @@ def generate_sensor_key_and_csr(
     *,
     password: str | None = None,
 ) -> tuple[str, str, str]:
-    if not tenant_id or not site_id or not sensor_id:
-        raise ValueError("tenant_id, site_id and sensor_id are required")
+    _validate_identity_component("tenant_id", tenant_id)
+    _validate_identity_component("site_id", site_id)
+    _validate_identity_component("sensor_id", sensor_id)
 
     private_key = ec.generate_private_key(ec.SECP256R1())
     encryption: serialization.KeySerializationEncryption
@@ -89,10 +98,12 @@ def issue_sensor_client_certificate(
     *,
     validity_days: int = 30,
 ) -> x509.Certificate:
-    if not tenant_id or not site_id or not sensor_id:
-        raise SensorEnrollmentDenied(
-            "tenant_id, site_id and sensor_id are required"
-        )
+    try:
+        _validate_identity_component("tenant_id", tenant_id)
+        _validate_identity_component("site_id", site_id)
+        _validate_identity_component("sensor_id", sensor_id)
+    except ValueError as exc:
+        raise SensorEnrollmentDenied(str(exc)) from exc
     if validity_days < 1 or validity_days > 90:
         raise SensorEnrollmentDenied(
             "sensor certificate validity must be between 1 and 90 days"
