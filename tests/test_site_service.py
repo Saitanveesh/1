@@ -47,12 +47,14 @@ def test_offline_site_service_builds_all_durable_state(tmp_path) -> None:
         assert resources.response_store.diagnostics()["tenant_id"] == "tenant-a"
         assert resources.command_result_outbox.diagnostics()["queued"] == 0
         assert resources.response_update_outbox.diagnostics()["queued"] == 0
+        assert resources.sensor_trust_store.diagnostics()["initialized"] is False
         for name in (
             "event-spool.db",
             "analysis-state.db",
             "response-state.db",
             "command-results.db",
             "response-updates.db",
+            "sensor-trust.db",
         ):
             assert (config.state_dir / name).is_file()
     finally:
