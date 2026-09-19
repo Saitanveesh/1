@@ -11,7 +11,13 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from mon.domain import ActionType, EnforcementResult, ResponsePlan
+from mon.domain import (
+    ActionType,
+    EnforcementResult,
+    EnforcementVerification,
+    EnforcementVerificationState,
+    ResponsePlan,
+)
 from mon.enforcement import EnforcementError
 
 
@@ -168,6 +174,56 @@ class DisposableNftablesAdapter:
             "inet",
             self.table_name,
             self.chain_name,
+        )
+
+    async def verify(
+        self,
+        plan: ResponsePlan,
+        execution_id: str,
+    ) -> EnforcementVerification:
+        _, address = self._address(plan)
+        comment = self._execution_comment(execution_id)
+        rules = await self._rules()
+        external_reference = (
+            f"nft:inet/{self.table_name}/{self.chain_name}:{comment}"
+        )
+        if rules.returncode != 0:
+            return EnforcementVerification(
+                state=EnforcementVerificationState.UNKNOWN,
+                message="unable to verify disposable nftables rule state",
+                external_reference=external_reference,
+                details={
+                    "namespace": self.namespace,
+                    "address": address,
+                    "stderr": rules.stderr[:500],
+                },
+            )
+
+        marker = f'comment "{comment}"'
+        matching = [line for line in rules.stdout.splitlines() if marker in line]
+        if not matching:
+            return EnforcementVerification(
+                state=EnforcementVerificationState.ABSENT,
+                message="disposable nftables rule is absent",
+                external_reference=external_reference,
+                details={"namespace": self.namespace, "address": address},
+            )
+        if len(matching) == 1:
+            return EnforcementVerification(
+                state=EnforcementVerificationState.PRESENT,
+                message="disposable nftables rule is present",
+                external_reference=external_reference,
+                details={"namespace": self.namespace, "address": address},
+            )
+        return EnforcementVerification(
+            state=EnforcementVerificationState.UNKNOWN,
+            message="multiple disposable nftables rules share the execution marker",
+            external_reference=external_reference,
+            details={
+                "namespace": self.namespace,
+                "address": address,
+                "matching_rules": len(matching),
+            },
         )
 
     async def execute(

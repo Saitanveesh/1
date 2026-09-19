@@ -181,6 +181,7 @@ class ProductionSiteController(SiteController):
         executed = 0
         replayed = 0
         failed = 0
+        deferred = 0
         for command in commands:
             if command.tenant_id != self.tenant_id or command.site_id != self.site_id:
                 raise ValueError("received command outside site-controller scope")
@@ -191,6 +192,15 @@ class ProductionSiteController(SiteController):
                 continue
 
             result = await self.response_executor.execute(command)
+            if (
+                result.execution is not None
+                and result.execution.status is ResponseExecutionStatus.EXECUTING
+            ):
+                # Do not persist or upload a terminal command receipt while an
+                # interrupted external action remains unverified. The control
+                # plane will redeliver the command and verification can retry.
+                deferred += 1
+                continue
             self.result_outbox.enqueue(result)
             executed += 1
             if not result.success:
@@ -201,10 +211,15 @@ class ProductionSiteController(SiteController):
         queued = int(self.result_outbox.diagnostics()["queued"])
         queued_updates = int(self.response_update_outbox.diagnostics()["queued"])
         return {
-            "state": "SYNCED" if queued == 0 and queued_updates == 0 else "DEGRADED",
+            "state": (
+                "SYNCED"
+                if queued == 0 and queued_updates == 0 and deferred == 0
+                else "DEGRADED"
+            ),
             "attempted": len(commands),
             "executed": executed,
             "replayed": replayed,
+            "deferred": deferred,
             "reported": delivery["reported"],
             "unreported": queued,
             "response_updates_reported": response_delivery["reported"],

@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import threading
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
-from mon.domain import EnforcementKind, EnforcementPoint, EnforcementResult, ResponsePlan
+from mon.domain import (
+    EnforcementKind,
+    EnforcementPoint,
+    EnforcementResult,
+    EnforcementVerification,
+    ResponsePlan,
+)
 
 
 class EnforcementError(RuntimeError):
@@ -49,6 +55,15 @@ class EnforcementAdapter(Protocol):
         plan: ResponsePlan,
         execution_id: str,
     ) -> EnforcementResult: ...
+
+
+@runtime_checkable
+class VerifiableEnforcementAdapter(Protocol):
+    async def verify(
+        self,
+        plan: ResponsePlan,
+        execution_id: str,
+    ) -> EnforcementVerification: ...
 
 
 class EnforcementRegistry:

@@ -9,7 +9,12 @@ from typing import Protocol
 
 import httpx
 
-from mon.domain import EventBatch, EventProcessingResult, SecurityEvent
+from mon.domain import (
+    EventBatch,
+    EventProcessingResult,
+    ResponseExecutionStatus,
+    SecurityEvent,
+)
 from mon.pipeline import SecurityPipeline
 from mon.recovery import RecoveryEngine
 from mon.site_command_client import SiteCommandClient
@@ -281,8 +286,18 @@ class SiteController:
         reported = 0
         unreported = 0
         failed = 0
+        deferred = 0
         for command in commands:
             result = await self.response_executor.execute(command)
+            if (
+                result.execution is not None
+                and result.execution.status is ResponseExecutionStatus.EXECUTING
+            ):
+                # An interrupted external action is still unverified. Do not
+                # turn uncertainty into a terminal command result; leaving the
+                # command pending allows safe redelivery and verification.
+                deferred += 1
+                continue
             if not result.success:
                 failed += 1
             try:
@@ -293,10 +308,15 @@ class SiteController:
             reported += 1
 
         return {
-            "state": "SYNCED" if unreported == 0 else "DEGRADED",
+            "state": (
+                "SYNCED"
+                if unreported == 0 and deferred == 0
+                else "DEGRADED"
+            ),
             "attempted": len(commands),
             "reported": reported,
             "unreported": unreported,
+            "deferred": deferred,
             "failed": failed,
         }
 
@@ -313,23 +333,53 @@ class SiteController:
                 "failed": 0,
             }
 
+        reconciliation = {
+            "attempted": 0,
+            "resolved": 0,
+            "present": 0,
+            "absent": 0,
+            "unresolved": 0,
+        }
+        if self.response_executor is not None:
+            reconciliation = (
+                await self.response_executor.reconcile_uncertain_executions()
+            )
+
         sweep = await self.recovery_engine.sweep_scope(
             self.tenant_id,
             self.site_id,
             now=now,
         )
         return {
-            "state": "RECOVERED" if not sweep.failed else "DEGRADED",
+            "state": (
+                "RECOVERED"
+                if not sweep.failed and reconciliation["unresolved"] == 0
+                else "DEGRADED"
+            ),
             "attempted": sweep.attempted,
             "rolled_back": len(sweep.rolled_back),
             "failed": len(sweep.failed),
             "rolled_back_execution_ids": list(sweep.rolled_back),
             "failed_execution_ids": list(sweep.failed),
             "errors": sweep.errors,
+            "execution_reconciliation": reconciliation,
         }
 
     def status(self) -> dict[str, object]:
         diagnostics = self.spool.diagnostics()
+        response_state: dict[str, object] | None = None
+        if self.response_executor is not None:
+            executions = self.response_executor.store.list_response_executions(
+                self.tenant_id,
+                self.site_id,
+            )
+            response_state = {
+                "executions": len(executions),
+                "executing_uncertain": sum(
+                    item.status is ResponseExecutionStatus.EXECUTING
+                    for item in executions
+                ),
+            }
         return {
             "state": "READY",
             "tenant_id": self.tenant_id,
@@ -340,6 +390,7 @@ class SiteController:
                 self.command_client is not None and self.response_executor is not None
             ),
             "spool": diagnostics,
+            "response_state": response_state,
             "local_incidents": len(
                 self.pipeline.store.list_incidents(self.tenant_id, self.site_id)
             ),
