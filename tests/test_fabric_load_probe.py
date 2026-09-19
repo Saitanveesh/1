@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 
-
-MODULE_PATH = Path(__file__).parents[1] / "tools" / "fabric_load_probe.py"
-SPEC = importlib.util.spec_from_file_location("fabric_load_probe", MODULE_PATH)
-assert SPEC is not None and SPEC.loader is not None
-probe = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(probe)
+from tools import fabric_load_probe as probe
 
 
 def test_load_envelopes_preserves_exact_nonempty_lines(tmp_path: Path) -> None:
