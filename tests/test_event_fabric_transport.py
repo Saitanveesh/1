@@ -6,7 +6,7 @@ import json
 import httpx
 import pytest
 
-from mon.event_fabric import FabricEnvelope
+from mon.event_fabric import FabricEnvelope, FabricIngestResult
 from mon.event_fabric_transport import HttpFabricPublisher
 
 
@@ -32,7 +32,14 @@ async def test_http_publisher_sends_exact_canonical_envelope() -> None:
 
     async def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return httpx.Response(202, json={"accepted": True})
+        return httpx.Response(
+            201,
+            json=FabricIngestResult(
+                event_id=envelope.event_id,
+                duplicate=False,
+                envelope_sha256=envelope.canonical_sha256,
+            ).model_dump(mode="json"),
+        )
 
     publisher = HttpFabricPublisher(
         "https://fabric.example.test",
@@ -78,3 +85,27 @@ def test_http_publisher_requires_authentication() -> None:
             "https://fabric.example.test",
             bearer_token="",
         )
+
+
+@pytest.mark.asyncio
+async def test_http_publisher_rejects_mismatched_acknowledgement() -> None:
+    envelope = _envelope()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            201,
+            json=FabricIngestResult(
+                event_id=envelope.event_id,
+                duplicate=False,
+                envelope_sha256="0" * 64,
+            ).model_dump(mode="json"),
+            request=request,
+        )
+
+    publisher = HttpFabricPublisher(
+        "https://fabric.example.test",
+        bearer_token="site-token",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(RuntimeError, match="digest"):
+        await publisher.publish(envelope)
