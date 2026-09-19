@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, String, create_engine, select
+from sqlalchemy import JSON, DateTime, Index, String, Text, create_engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -18,6 +21,7 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
+from mon.event_fabric import FabricReceipt
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -46,6 +50,52 @@ class EventRow(Base):
     __table_args__ = (
         Index("ix_security_events_scope", "tenant_id", "site_id"),
         Index("ix_security_events_event_id", "event_id"),
+    )
+
+
+class EventProcessingRow(Base):
+    __tablename__ = "event_processing_receipts"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    processed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_event_processing_scope",
+            "tenant_id",
+            "site_id",
+            "processed_at",
+        ),
+    )
+
+
+class FabricReceiptRow(Base):
+    __tablename__ = "fabric_receipts"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    envelope_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    envelope_json: Mapped[str] = mapped_column(Text, nullable=False)
+    processed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_fabric_receipts_scope",
+            "tenant_id",
+            "site_id",
+            "processed_at",
+        ),
     )
 
 
@@ -286,6 +336,7 @@ class DatabaseStore:
             expire_on_commit=False,
             class_=Session,
         )
+        self._transaction_state = threading.local()
         if create_schema:
             Base.metadata.create_all(self.engine)
 
