@@ -88,7 +88,12 @@ At startup the Site Controller warm-restores detector windows, telemetry windows
 graph state, and active correlation pointers from durable evidence. `/health` reports
 `local_pipeline_state_persistence: DURABLE_RESTORED` plus restore counts.
 
-The remaining crash boundary is inside processing of one event: the event and every derived
-asset/finding/incident mutation are not yet committed as one local transaction. ADR 0028
-documents this explicitly; a processing journal/transactional unit-of-work is the next
-required tranche.
+Local analysis uses an atomic processing receipt transaction: the normalized event,
+asset enrichment, findings, incident mutations, and processing receipt commit together.
+Events remain analysis-pending in the delivery spool until that transaction is known complete,
+so cloud delivery cannot outrun local evidence processing. ADR 0029 documents the staging and
+crash-recovery protocol.
+
+The remaining local scale boundary is retained analysis history and the resulting linear
+warm-restore cost. Retention/snapshotting must preserve evidence required by active
+investigations rather than silently discarding it.

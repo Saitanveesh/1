@@ -87,9 +87,9 @@ Because event IDs are idempotency keys, blindly replaying a partially persisted 
 either skip missing derived work or double-count mutable asset state if implemented
 naively.
 
-MON must not hide this boundary. A subsequent tranche must introduce an explicit local
-analysis-processing journal or transactional unit-of-work so interrupted event processing
-can be resumed exactly once with respect to local derived state.
+MON must not hide this boundary. ADR 0029 subsequently closes it with an atomic
+analysis transaction, durable processing receipt, and analysis-gated event spool. This ADR
+remains the decision record for durable evidence and deterministic warm restore.
 
 ## Failure model
 
@@ -112,5 +112,5 @@ can be resumed exactly once with respect to local derived state.
 - Local attack-graph and correlation continuity can be rebuilt from evidence.
 - The pipeline dependency is narrower than the full SaaS control-plane store.
 - Python internal data structures are not used as a persistence format.
-- Transactional processing of one event into all derived local state is the next required
-  crash-consistency tranche.
+- Transactional processing of one event into all derived local state is provided by ADR
+  0029; retained-history growth and restore cost remain separate scale concerns.

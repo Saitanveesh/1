@@ -3,7 +3,8 @@ from __future__ import annotations
 import datetime as dt
 import threading
 from collections import defaultdict
-from typing import Protocol
+from contextlib import AbstractContextManager
+from typing import Protocol, runtime_checkable
 
 from mon.domain import (
     Asset,
@@ -53,6 +54,28 @@ class PipelineStore(Protocol):
     ) -> Asset | None: ...
 
     def list_assets(self, tenant_id: str, site_id: str) -> list[Asset]: ...
+
+
+@runtime_checkable
+class TransactionalPipelineStore(PipelineStore, Protocol):
+    """Optional atomic processing contract for durable local pipeline stores."""
+
+    def transaction(self) -> AbstractContextManager[None]: ...
+
+    def event_processed(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> bool: ...
+
+    def mark_event_processed(self, event: SecurityEvent) -> None: ...
+
+    def list_unprocessed_events(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SecurityEvent]: ...
 
 
 class ResponseStateStore(Protocol):

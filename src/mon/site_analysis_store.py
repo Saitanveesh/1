@@ -3,11 +3,13 @@ from __future__ import annotations
 import datetime as dt
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from mon.domain import Asset, Finding, Incident, SecurityEvent
 
-_SCHEMA_VERSION = "1"
+_SCHEMA_VERSION = "2"
 
 
 class SQLiteSiteAnalysisStore:
@@ -31,6 +33,7 @@ class SQLiteSiteAnalysisStore:
         self.site_id = site_id
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._transaction_active = False
         self._connection = sqlite3.connect(
             self.path,
             check_same_thread=False,
@@ -61,6 +64,18 @@ class SQLiteSiteAnalysisStore:
                 )
                 """
             )
+            version_row = self._connection.execute(
+                """
+                SELECT value FROM site_analysis_metadata
+                WHERE key = 'schema_version'
+                """
+            ).fetchone()
+            version = str(version_row["value"]) if version_row is not None else None
+            if version not in {None, "1", _SCHEMA_VERSION}:
+                raise ValueError(
+                    f"unsupported site analysis schema version: {version}"
+                )
+
             self._connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS site_analysis_events (
@@ -115,7 +130,47 @@ class SQLiteSiteAnalysisStore:
                 )
                 """
             )
-            self._bind_metadata("schema_version", _SCHEMA_VERSION)
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_analysis_processing (
+                    tenant_id TEXT NOT NULL,
+                    site_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    processed_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, site_id, event_id),
+                    FOREIGN KEY (tenant_id, site_id, event_id)
+                        REFERENCES site_analysis_events(tenant_id, site_id, event_id)
+                        ON DELETE CASCADE
+                )
+                """
+            )
+
+            if version == "1":
+                row = self._connection.execute(
+                    "SELECT COUNT(*) AS count FROM site_analysis_events"
+                ).fetchone()
+                if row is not None and int(row["count"]) > 0:
+                    raise ValueError(
+                        "site analysis schema v1 contains events without atomic "
+                        "processing receipts; explicit rebuild is required"
+                    )
+                self._connection.execute(
+                    """
+                    UPDATE site_analysis_metadata
+                    SET value = ?
+                    WHERE key = 'schema_version'
+                    """,
+                    (_SCHEMA_VERSION,),
+                )
+            elif version is None:
+                self._connection.execute(
+                    """
+                    INSERT INTO site_analysis_metadata(key, value)
+                    VALUES ('schema_version', ?)
+                    """,
+                    (_SCHEMA_VERSION,),
+                )
+
             self._bind_metadata("tenant_id", self.tenant_id)
             self._bind_metadata("site_id", self.site_id)
 
@@ -139,6 +194,9 @@ class SQLiteSiteAnalysisStore:
 
     def close(self) -> None:
         with self._lock:
+            if self._transaction_active:
+                self._connection.rollback()
+                self._transaction_active = False
             self._connection.close()
 
     def _require_scope(self, tenant_id: str, site_id: str) -> None:
@@ -150,6 +208,28 @@ class SQLiteSiteAnalysisStore:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError(f"{field_name} must be timezone-aware")
         return value.astimezone(dt.UTC).isoformat()
+
+    def _commit_if_autonomous(self) -> None:
+        if not self._transaction_active:
+            self._connection.commit()
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Commit all local derived state for one event as one SQLite transaction."""
+        with self._lock:
+            if self._transaction_active:
+                raise RuntimeError("nested site analysis transactions are not supported")
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._transaction_active = True
+            try:
+                yield
+            except Exception:
+                self._connection.rollback()
+                raise
+            else:
+                self._connection.commit()
+            finally:
+                self._transaction_active = False
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
         self._require_scope(tenant_id, site_id)
@@ -163,6 +243,23 @@ class SQLiteSiteAnalysisStore:
             ).fetchone()
         return row is not None
 
+    def event_processed(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> bool:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT 1 FROM site_analysis_processing
+                WHERE tenant_id = ? AND site_id = ? AND event_id = ?
+                """,
+                (tenant_id, site_id, event_id),
+            ).fetchone()
+        return row is not None
+
     def add_event(self, event: SecurityEvent) -> SecurityEvent:
         self._require_scope(event.tenant_id, event.site_id)
         observed_at = self._utc_iso(
@@ -170,7 +267,7 @@ class SQLiteSiteAnalysisStore:
             field_name="event observed_at",
         )
         payload = event.model_dump_json()
-        with self._lock, self._connection:
+        with self._lock:
             row = self._connection.execute(
                 """
                 SELECT payload FROM site_analysis_events
@@ -200,7 +297,42 @@ class SQLiteSiteAnalysisStore:
                     payload,
                 ),
             )
+            self._commit_if_autonomous()
         return event
+
+    def mark_event_processed(self, event: SecurityEvent) -> None:
+        self._require_scope(event.tenant_id, event.site_id)
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT payload FROM site_analysis_events
+                WHERE tenant_id = ? AND site_id = ? AND event_id = ?
+                """,
+                (event.tenant_id, event.site_id, event.event_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError(
+                    "cannot mark an event processed before its durable event record"
+                )
+            current = SecurityEvent.model_validate_json(row["payload"])
+            if current != event:
+                raise ValueError(
+                    "processed event content does not match durable event record"
+                )
+            self._connection.execute(
+                """
+                INSERT OR IGNORE INTO site_analysis_processing(
+                    tenant_id, site_id, event_id, processed_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    event.tenant_id,
+                    event.site_id,
+                    event.event_id,
+                    dt.datetime.now(dt.UTC).isoformat(),
+                ),
+            )
+            self._commit_if_autonomous()
 
     def list_events(
         self,
@@ -231,6 +363,33 @@ class SQLiteSiteAnalysisStore:
             for row in rows
         ]
 
+    def list_unprocessed_events(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SecurityEvent]:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT events.payload
+                FROM site_analysis_events AS events
+                LEFT JOIN site_analysis_processing AS processing
+                  ON processing.tenant_id = events.tenant_id
+                 AND processing.site_id = events.site_id
+                 AND processing.event_id = events.event_id
+                WHERE events.tenant_id = ?
+                  AND events.site_id = ?
+                  AND processing.event_id IS NULL
+                ORDER BY events.observed_at ASC, events.event_id ASC
+                """,
+                (tenant_id, site_id),
+            ).fetchall()
+        return [
+            SecurityEvent.model_validate_json(row["payload"])
+            for row in rows
+        ]
+
     def add_finding(self, finding: Finding) -> Finding:
         self._require_scope(finding.tenant_id, finding.site_id)
         last_seen = self._utc_iso(
@@ -238,7 +397,7 @@ class SQLiteSiteAnalysisStore:
             field_name="finding last_seen",
         )
         payload = finding.model_dump_json()
-        with self._lock, self._connection:
+        with self._lock:
             row = self._connection.execute(
                 """
                 SELECT payload FROM site_analysis_findings
@@ -268,6 +427,7 @@ class SQLiteSiteAnalysisStore:
                     payload,
                 ),
             )
+            self._commit_if_autonomous()
         return finding
 
     def list_findings(self, tenant_id: str, site_id: str) -> list[Finding]:
@@ -289,7 +449,7 @@ class SQLiteSiteAnalysisStore:
             incident.last_seen,
             field_name="incident last_seen",
         )
-        with self._lock, self._connection:
+        with self._lock:
             self._connection.execute(
                 """
                 INSERT INTO site_analysis_incidents(
@@ -307,6 +467,7 @@ class SQLiteSiteAnalysisStore:
                     incident.model_dump_json(),
                 ),
             )
+            self._commit_if_autonomous()
         return incident
 
     def list_incidents(self, tenant_id: str, site_id: str) -> list[Incident]:
@@ -345,7 +506,7 @@ class SQLiteSiteAnalysisStore:
             asset.last_seen,
             field_name="asset last_seen",
         )
-        with self._lock, self._connection:
+        with self._lock:
             self._connection.execute(
                 """
                 INSERT INTO site_analysis_assets(
@@ -363,6 +524,7 @@ class SQLiteSiteAnalysisStore:
                     asset.model_dump_json(),
                 ),
             )
+            self._commit_if_autonomous()
         return asset
 
     def get_asset(
@@ -398,6 +560,7 @@ class SQLiteSiteAnalysisStore:
     def diagnostics(self) -> dict[str, object]:
         tables = {
             "events": "site_analysis_events",
+            "processed_events": "site_analysis_processing",
             "findings": "site_analysis_findings",
             "incidents": "site_analysis_incidents",
             "assets": "site_analysis_assets",
@@ -413,9 +576,13 @@ class SQLiteSiteAnalysisStore:
                     (self.tenant_id, self.site_id),
                 ).fetchone()
                 counts[name] = int(row["count"]) if row else 0
+        counts["unprocessed_events"] = (
+            counts["events"] - counts["processed_events"]
+        )
         return {
             "tenant_id": self.tenant_id,
             "site_id": self.site_id,
+            "schema_version": _SCHEMA_VERSION,
             "durability": "WAL_FULL",
             **counts,
         }

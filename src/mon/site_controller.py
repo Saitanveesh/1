@@ -30,9 +30,9 @@ class EventBatchSender(Protocol):
 
 
 class SQLiteEventSpool:
-    """Durable, site-scoped outbox for at-least-once cloud event delivery."""
+    """Durable, site-scoped staging queue for analysis and cloud delivery."""
 
-    _SCHEMA_VERSION = "1"
+    _SCHEMA_VERSION = "2"
 
     def __init__(
         self,
@@ -77,7 +77,10 @@ class SQLiteEventSpool:
                         payload TEXT NOT NULL,
                         attempts INTEGER NOT NULL DEFAULT 0,
                         last_error TEXT,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        analysis_ready INTEGER NOT NULL DEFAULT 0,
+                        analysis_attempts INTEGER NOT NULL DEFAULT 0,
+                        analysis_last_error TEXT
                     )
                     """
                 )
@@ -89,6 +92,7 @@ class SQLiteEventSpool:
                     )
                     """
                 )
+                self._migrate_schema()
                 self._connection.commit()
                 self._initialize_scope(tenant_id, site_id)
         except Exception:
@@ -98,6 +102,46 @@ class SQLiteEventSpool:
     def close(self) -> None:
         with self._lock:
             self._connection.close()
+
+    def _migrate_schema(self) -> None:
+        columns = {
+            str(row["name"])
+            for row in self._connection.execute(
+                "PRAGMA table_info(event_spool)"
+            ).fetchall()
+        }
+        additions = {
+            "analysis_ready": (
+                "ALTER TABLE event_spool "
+                "ADD COLUMN analysis_ready INTEGER NOT NULL DEFAULT 0"
+            ),
+            "analysis_attempts": (
+                "ALTER TABLE event_spool "
+                "ADD COLUMN analysis_attempts INTEGER NOT NULL DEFAULT 0"
+            ),
+            "analysis_last_error": (
+                "ALTER TABLE event_spool ADD COLUMN analysis_last_error TEXT"
+            ),
+        }
+        for name, statement in additions.items():
+            if name not in columns:
+                self._connection.execute(statement)
+
+        metadata = self._metadata()
+        version = metadata.get("schema_version")
+        if version == "1":
+            self._connection.execute(
+                """
+                UPDATE event_spool_metadata
+                SET value = ?
+                WHERE key = 'schema_version'
+                """,
+                (self._SCHEMA_VERSION,),
+            )
+        elif version is not None and version != self._SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported event spool schema version: {version}"
+            )
 
     def _metadata(self) -> dict[str, str]:
         rows = self._connection.execute(
@@ -206,11 +250,28 @@ class SQLiteEventSpool:
         payload = event.model_dump_json()
         created_at = dt.datetime.now(dt.UTC).isoformat()
         with self._lock:
-            cursor = self._connection.execute(
+            existing = self._connection.execute(
                 """
-                INSERT OR IGNORE INTO event_spool
-                    (event_id, tenant_id, site_id, observed_at, payload, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                SELECT payload FROM event_spool
+                WHERE event_id = ? AND tenant_id = ? AND site_id = ?
+                """,
+                (event.event_id, event.tenant_id, event.site_id),
+            ).fetchone()
+            if existing is not None:
+                current = SecurityEvent.model_validate_json(existing["payload"])
+                if current != event:
+                    raise ValueError(
+                        "event_id already exists with different content in site spool"
+                    )
+                return False
+
+            self._connection.execute(
+                """
+                INSERT INTO event_spool(
+                    event_id, tenant_id, site_id, observed_at, payload, created_at,
+                    analysis_ready
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0)
                 """,
                 (
                     event.event_id,
@@ -222,9 +283,10 @@ class SQLiteEventSpool:
                 ),
             )
             self._connection.commit()
-            return cursor.rowcount == 1
+            return True
 
     def pending(self, limit: int = 100) -> list[SecurityEvent]:
+        """Return only events whose local analysis transaction completed."""
         if limit < 1 or limit > 1000:
             raise ValueError("limit must be between 1 and 1000")
         if self.tenant_id is None or self.site_id is None:
@@ -234,7 +296,7 @@ class SQLiteEventSpool:
                 """
                 SELECT payload
                 FROM event_spool
-                WHERE tenant_id = ? AND site_id = ?
+                WHERE tenant_id = ? AND site_id = ? AND analysis_ready = 1
                 ORDER BY observed_at ASC, created_at ASC
                 LIMIT ?
                 """,
@@ -245,6 +307,59 @@ class SQLiteEventSpool:
             self._require_scope(event.tenant_id, event.site_id)
         return events
 
+    def pending_analysis(self, limit: int = 100) -> list[SecurityEvent]:
+        if limit < 1 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        if self.tenant_id is None or self.site_id is None:
+            return []
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT payload
+                FROM event_spool
+                WHERE tenant_id = ? AND site_id = ? AND analysis_ready = 0
+                ORDER BY observed_at ASC, created_at ASC
+                LIMIT ?
+                """,
+                (self.tenant_id, self.site_id, limit),
+            ).fetchall()
+        return [
+            SecurityEvent.model_validate_json(row["payload"])
+            for row in rows
+        ]
+
+    def mark_analysis_ready(self, event_id: str) -> bool:
+        if self.tenant_id is None or self.site_id is None:
+            return False
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE event_spool
+                SET analysis_ready = 1, analysis_last_error = NULL
+                WHERE event_id = ? AND tenant_id = ? AND site_id = ?
+                """,
+                (event_id, self.tenant_id, self.site_id),
+            )
+            self._connection.commit()
+            return cursor.rowcount == 1
+
+    def mark_analysis_failed(self, event_id: str, error: str) -> bool:
+        if self.tenant_id is None or self.site_id is None:
+            return False
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE event_spool
+                SET analysis_attempts = analysis_attempts + 1,
+                    analysis_last_error = ?
+                WHERE event_id = ? AND tenant_id = ? AND site_id = ?
+                  AND analysis_ready = 0
+                """,
+                (error[:1000], event_id, self.tenant_id, self.site_id),
+            )
+            self._connection.commit()
+            return cursor.rowcount == 1
+
     def mark_delivered(self, event_ids: set[str]) -> int:
         if not event_ids or self.tenant_id is None or self.site_id is None:
             return 0
@@ -253,7 +368,7 @@ class SQLiteEventSpool:
             cursor = self._connection.execute(
                 f"""
                 DELETE FROM event_spool
-                WHERE tenant_id = ? AND site_id = ?
+                WHERE tenant_id = ? AND site_id = ? AND analysis_ready = 1
                   AND event_id IN ({placeholders})
                 """,
                 (self.tenant_id, self.site_id, *sorted(event_ids)),
@@ -270,7 +385,7 @@ class SQLiteEventSpool:
                 f"""
                 UPDATE event_spool
                 SET attempts = attempts + 1, last_error = ?
-                WHERE tenant_id = ? AND site_id = ?
+                WHERE tenant_id = ? AND site_id = ? AND analysis_ready = 1
                   AND event_id IN ({placeholders})
                 """,
                 (
@@ -301,8 +416,12 @@ class SQLiteEventSpool:
         if self.tenant_id is None or self.site_id is None:
             return {
                 "queued": 0,
+                "delivery_ready": 0,
+                "analysis_pending": 0,
                 "max_attempts": 0,
                 "last_error": None,
+                "analysis_max_attempts": 0,
+                "analysis_last_error": None,
                 "durability": "WAL_FULL",
                 "scope_bound": False,
             }
@@ -311,8 +430,17 @@ class SQLiteEventSpool:
                 """
                 SELECT
                     COUNT(*) AS queued,
+                    SUM(CASE WHEN analysis_ready = 1 THEN 1 ELSE 0 END)
+                        AS delivery_ready,
+                    SUM(CASE WHEN analysis_ready = 0 THEN 1 ELSE 0 END)
+                        AS analysis_pending,
                     COALESCE(MAX(attempts), 0) AS max_attempts,
-                    MAX(last_error) AS last_error
+                    MAX(CASE WHEN analysis_ready = 1 THEN last_error END)
+                        AS last_error,
+                    COALESCE(MAX(analysis_attempts), 0)
+                        AS analysis_max_attempts,
+                    MAX(CASE WHEN analysis_ready = 0 THEN analysis_last_error END)
+                        AS analysis_last_error
                 FROM event_spool
                 WHERE tenant_id = ? AND site_id = ?
                 """,
@@ -320,8 +448,16 @@ class SQLiteEventSpool:
             ).fetchone()
         return {
             "queued": int(row["queued"]) if row else 0,
+            "delivery_ready": int(row["delivery_ready"] or 0) if row else 0,
+            "analysis_pending": int(row["analysis_pending"] or 0) if row else 0,
             "max_attempts": int(row["max_attempts"]) if row else 0,
             "last_error": row["last_error"] if row else None,
+            "analysis_max_attempts": (
+                int(row["analysis_max_attempts"]) if row else 0
+            ),
+            "analysis_last_error": (
+                row["analysis_last_error"] if row else None
+            ),
             "durability": "WAL_FULL",
             "scope_bound": True,
         }
@@ -406,18 +542,64 @@ class SiteController:
                 "event tenant/site does not match this site-controller identity"
             )
         self.spool.enqueue(event)
-        return self.pipeline.process_event(event)
+        try:
+            result = self.pipeline.process_event(event)
+        except Exception as exc:
+            self.spool.mark_analysis_failed(event.event_id, str(exc))
+            raise
+        self.spool.mark_analysis_ready(event.event_id)
+        return result
+
+    def recover_pending_analysis(self, limit: int = 100) -> dict[str, object]:
+        pending = self.spool.pending_analysis(limit=limit)
+        recovered = 0
+        failed = 0
+        errors: dict[str, str] = {}
+        for event in pending:
+            try:
+                self.pipeline.process_event(event)
+            except Exception as exc:
+                error = str(exc)[:1000]
+                self.spool.mark_analysis_failed(event.event_id, error)
+                errors[event.event_id] = error
+                failed += 1
+                continue
+            self.spool.mark_analysis_ready(event.event_id)
+            recovered += 1
+
+        diagnostics = self.spool.diagnostics()
+        return {
+            "state": "RECOVERED" if failed == 0 else "DEGRADED",
+            "attempted": len(pending),
+            "recovered": recovered,
+            "failed": failed,
+            "analysis_pending": diagnostics["analysis_pending"],
+            "errors": errors,
+        }
 
     async def flush(self, limit: int = 100) -> dict[str, object]:
+        analysis = self.recover_pending_analysis(limit=limit)
         events = self.spool.pending(limit=limit)
+        diagnostics = self.spool.diagnostics()
         if not events:
-            return {"state": "SYNCED", "attempted": 0, "delivered": 0, "queued": 0}
+            return {
+                "state": (
+                    "DEGRADED"
+                    if analysis["failed"]
+                    else "SYNCED"
+                ),
+                "attempted": 0,
+                "delivered": 0,
+                "queued": diagnostics["queued"],
+                "analysis": analysis,
+            }
         if self.sender is None:
             return {
                 "state": "OFFLINE",
                 "attempted": 0,
                 "delivered": 0,
-                "queued": self.spool.count(),
+                "queued": diagnostics["queued"],
+                "analysis": analysis,
             }
 
         event_ids = {event.event_id for event in events}
@@ -430,6 +612,7 @@ class SiteController:
                 "attempted": len(events),
                 "delivered": 0,
                 "queued": self.spool.count(),
+                "analysis": analysis,
                 "error": str(exc)[:1000],
             }
 
@@ -440,11 +623,16 @@ class SiteController:
             self.spool.mark_failed(missing_ids, "control plane did not acknowledge event")
 
         return {
-            "state": "SYNCED" if not missing_ids else "DEGRADED",
+            "state": (
+                "SYNCED"
+                if not missing_ids and analysis["failed"] == 0
+                else "DEGRADED"
+            ),
             "attempted": len(events),
             "delivered": len(delivered_ids),
             "queued": self.spool.count(),
             "unacknowledged": len(missing_ids),
+            "analysis": analysis,
         }
 
     async def poll_commands(self, limit: int = 20) -> dict[str, object]:
@@ -564,7 +752,11 @@ class SiteController:
                     for item in executions
                 ),
             }
-        degraded = bool(diagnostics["last_error"])
+        degraded = bool(
+            diagnostics["last_error"]
+            or diagnostics["analysis_last_error"]
+            or diagnostics["analysis_pending"]
+        )
         if response_state is not None and response_state["executing_uncertain"]:
             degraded = True
         return {

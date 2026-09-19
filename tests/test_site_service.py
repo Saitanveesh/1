@@ -1,8 +1,10 @@
+import datetime as dt
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from mon.domain import SecurityEvent
 from mon.site_service import (
     SiteServiceConfig,
     SiteServiceConfigurationError,
@@ -166,3 +168,39 @@ def test_environment_loader_rejects_invalid_numeric_configuration(tmp_path) -> N
                 "MON_SITE_FLUSH_INTERVAL_SECONDS": "bad",
             }
         )
+
+
+def test_site_service_recovers_staged_event_before_cloud_delivery(tmp_path) -> None:
+    config = offline_config(tmp_path)
+    first = build_site_service_resources(config)
+    staged = SecurityEvent(
+        event_id="staged-1",
+        tenant_id="tenant-a",
+        site_id="site-a",
+        sensor_id="sensor-1",
+        observed_at=dt.datetime(2026, 9, 19, 4, 30, tzinfo=dt.UTC),
+        category="network.connection",
+        src_ip="10.0.0.10",
+        dst_ip="10.0.0.20",
+        protocol="tcp",
+        attributes={"direction": "east-west", "dst_port": 445},
+    )
+    try:
+        assert first.event_spool.enqueue(staged)
+        assert first.event_spool.diagnostics()["analysis_pending"] == 1
+        assert first.analysis_store.diagnostics()["events"] == 0
+    finally:
+        first.close()
+
+    second = build_site_service_resources(config)
+    try:
+        spool = second.event_spool.diagnostics()
+        analysis = second.analysis_store.diagnostics()
+        assert spool["analysis_pending"] == 0
+        assert spool["delivery_ready"] == 1
+        assert analysis["events"] == 1
+        assert analysis["processed_events"] == 1
+        assert analysis["unprocessed_events"] == 0
+        assert second.controller.status()["state"] == "READY"
+    finally:
+        second.close()
