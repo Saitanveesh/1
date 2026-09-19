@@ -4,6 +4,7 @@ import datetime as dt
 
 import httpx
 
+from mon.domain import AuditRecord, ResponseExecutionStatus
 from mon.site_command_outbox import SQLiteCommandResultOutbox
 from mon.site_controller import SiteController
 from mon.site_response_models import SiteResponseUpdate, recovery_update_id
@@ -97,7 +98,7 @@ class ProductionSiteController(SiteController):
 
         store = self.recovery_engine.orchestrator.store
         audits = store.list_audit_records(self.tenant_id, self.site_id)
-        recovery_audits: dict[str, list[object]] = {}
+        recovery_audits: dict[str, list[AuditRecord]] = {}
         for record in audits:
             if (
                 record.object_type == "response_execution"
@@ -111,7 +112,10 @@ class ProductionSiteController(SiteController):
             related_recovery = recovery_audits.get(execution.execution_id, [])
             if not related_recovery:
                 continue
-            if execution.status.value not in {"ROLLED_BACK", "ROLLBACK_FAILED"}:
+            if execution.status not in {
+                ResponseExecutionStatus.ROLLED_BACK,
+                ResponseExecutionStatus.ROLLBACK_FAILED,
+            }:
                 continue
 
             related_audits = [
