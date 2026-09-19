@@ -21,7 +21,6 @@ from mon.site_command_models import (
 from mon.site_command_queue import SiteCommandQueue
 from mon.store import InMemoryStore
 
-
 NOW = dt.datetime(2026, 9, 19, 0, 0, tzinfo=dt.UTC)
 
 
