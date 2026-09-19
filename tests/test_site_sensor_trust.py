@@ -7,7 +7,7 @@ from mon.sensor_fleet_models import (
     SensorTrustIdentity,
     SensorTrustSnapshot,
 )
-from mon.site_sensor_trust import SQLiteSensorTrustStore, SensorTrustStoreError
+from mon.site_sensor_trust import SensorTrustStoreError, SQLiteSensorTrustStore
 
 
 def snapshot(
