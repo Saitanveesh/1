@@ -113,6 +113,22 @@ jobs:
       - name: Build console
         run: npm run build
 
+  windows-endpoint-collector:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Windows collector tests
+        run: pytest -q tests/test_windows_endpoint_collector.py
+      - name: Collector CLI smoke
+        run: mon-windows-endpoint-collector --help
+
   linux-enforcement-sandbox:
     runs-on: ubuntu-latest
     steps:
