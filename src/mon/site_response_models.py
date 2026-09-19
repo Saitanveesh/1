@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -17,7 +18,7 @@ class SiteResponseUpdate(BaseModel):
     site_id: str = Field(min_length=1, max_length=128)
     execution: ResponseExecution
     audit_records: list[AuditRecord] = Field(default_factory=list)
-    observed_at: object = Field(default_factory=utcnow)
+    observed_at: dt.datetime = Field(default_factory=utcnow)
 
     @model_validator(mode="after")
     def validate_update(self) -> SiteResponseUpdate:
