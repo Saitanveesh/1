@@ -31,6 +31,7 @@ class SensorEnrollmentTokenRecord(BaseModel):
     created_at: dt.datetime
     expires_at: dt.datetime
     used_at: dt.datetime | None = None
+    used_identity_id: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def validate_times(self) -> SensorEnrollmentTokenRecord:
@@ -44,6 +45,10 @@ class SensorEnrollmentTokenRecord(BaseModel):
             self.used_at.tzinfo is None or self.used_at.utcoffset() is None
         ):
             raise ValueError("sensor enrollment used_at must be timezone-aware")
+        if (self.used_at is None) != (self.used_identity_id is None):
+            raise ValueError(
+                "sensor enrollment used_at and used_identity_id must be set together"
+            )
         return self
 
 
