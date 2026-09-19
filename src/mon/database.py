@@ -22,6 +22,7 @@ from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
     SensorIdentityRecord,
+    SensorIdentityStatus,
     SensorRecord,
 )
 from mon.site_command_models import SiteCommandRecord
@@ -938,7 +939,7 @@ class DatabaseStore:
                 identity = SensorIdentityRecord.model_validate(row.payload)
                 revoked = identity.model_copy(
                     update={
-                        "status": "REVOKED",
+                        "status": SensorIdentityStatus.REVOKED,
                         "accept_until": None,
                         "revoked_at": now,
                         "revoked_by": actor_id,
