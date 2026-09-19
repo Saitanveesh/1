@@ -43,6 +43,24 @@ def make_ca() -> tuple[CertificateAuthority, str]:
             x509.BasicConstraints(ca=True, path_length=0),
             critical=True,
         )
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=None,
+                decipher_only=None,
+            ),
+            critical=True,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+            critical=False,
+        )
         .sign(key, hashes.SHA256())
     )
     certificate_pem = certificate.public_bytes(
@@ -89,6 +107,16 @@ def make_server_certificate(
         )
         .add_extension(
             x509.SubjectAlternativeName([x509.DNSName("localhost")]),
+            critical=False,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                ca.certificate.public_key()
+            ),
             critical=False,
         )
         .sign(ca.private_key, hashes.SHA256())
