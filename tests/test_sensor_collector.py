@@ -79,7 +79,12 @@ def test_cursor_store_is_bound_to_sensor_identity(tmp_path) -> None:
     )
     first.close()
 
-    reopened = SQLiteSensorCursorStore(path, sensor_id="sensor-a")
+    reopened = SQLiteSensorCursorStore(
+        path,
+        tenant_id="tenant-a",
+        site_id="site-a",
+        sensor_id="sensor-a",
+    )
     reopened.close()
 
     with pytest.raises(ValueError, match="sensor_id mismatch"):
@@ -88,6 +93,13 @@ def test_cursor_store_is_bound_to_sensor_identity(tmp_path) -> None:
             tenant_id="tenant-a",
             site_id="site-a",
             sensor_id="sensor-b",
+        )
+    with pytest.raises(ValueError, match="site_id mismatch"):
+        SQLiteSensorCursorStore(
+            path,
+            tenant_id="tenant-a",
+            site_id="site-b",
+            sensor_id="sensor-a",
         )
 
 
