@@ -130,11 +130,14 @@ class SensorIdentityRecord(BaseModel):
                 )
             if self.revoked_at is not None:
                 raise ValueError("retiring sensor identity cannot have revoked_at")
-        elif self.status is SensorIdentityStatus.REVOKED:
-            if self.revoked_at is None or not self.revoked_by or not self.revocation_reason:
-                raise ValueError(
-                    "revoked sensor identity requires actor, time and reason"
-                )
+        elif self.status is SensorIdentityStatus.REVOKED and (
+            self.revoked_at is None
+            or not self.revoked_by
+            or not self.revocation_reason
+        ):
+            raise ValueError(
+                "revoked sensor identity requires actor, time and reason"
+            )
         return self
 
 
