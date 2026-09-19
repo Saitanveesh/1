@@ -119,3 +119,40 @@ async def test_adapter_execute_and_rollback_are_idempotent(monkeypatch) -> None:
         for call in runner.calls
     )
     assert not os.environ.get("MON_TEST_NETNS")
+
+
+@pytest.mark.asyncio
+async def test_verify_refuses_to_guess_on_ambiguous_or_failed_inspection(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MON_ENABLE_DISPOSABLE_NETNS_ENFORCEMENT", "1")
+    runner = FakeRunner()
+    adapter = DisposableNftablesAdapter(
+        "mon-ci-unit",
+        runner=runner,
+        ip_binary="/usr/sbin/ip",
+        nft_binary="/usr/sbin/nft",
+    )
+    marker = 'comment "mon:exec-1"'
+    runner.rules = (
+        f'ip saddr 198.51.100.7 drop {marker} # handle 7\n'
+        f'ip saddr 198.51.100.7 drop {marker} # handle 8\n'
+    )
+    ambiguous = await adapter.verify(plan(), "exec-1")
+    assert ambiguous.state is EnforcementVerificationState.UNKNOWN
+    assert ambiguous.details["matching_rules"] == 2
+
+    async def failed_runner(command, stdin_text, timeout_seconds):
+        if command[-6:] == ["-a", "list", "chain", "inet", "mon_ci", "input"]:
+            return CommandResult(1, "", "permission denied")
+        return CommandResult(0, "", "")
+
+    failing = DisposableNftablesAdapter(
+        "mon-ci-unit",
+        runner=failed_runner,
+        ip_binary="/usr/sbin/ip",
+        nft_binary="/usr/sbin/nft",
+    )
+    unknown = await failing.verify(plan(), "exec-1")
+    assert unknown.state is EnforcementVerificationState.UNKNOWN
+    assert unknown.details["stderr"] == "permission denied"
