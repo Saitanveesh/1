@@ -334,39 +334,17 @@ def revoke_sensor(
     if not text:
         raise SensorFleetError("sensor revocation reason is required")
     revoked_at = (now or _utcnow()).astimezone(dt.UTC)
-    sensor = store.get_sensor_record(tenant_id, site_id, sensor_id)
-    if sensor is None:
-        raise SensorFleetError("sensor is not enrolled")
-    if sensor.revoked_at is not None:
-        return sensor
-
-    updated_sensor = sensor.model_copy(
-        update={
-            "updated_at": revoked_at,
-            "revoked_at": revoked_at,
-            "revoked_by": actor_id,
-            "revocation_reason": text,
-        }
-    )
-    identities = []
-    for identity in store.list_sensor_identities(
+    updated = store.revoke_sensor_lifecycle(
         tenant_id,
         site_id,
         sensor_id,
-    ):
-        identities.append(
-            identity.model_copy(
-                update={
-                    "status": SensorIdentityStatus.REVOKED,
-                    "accept_until": None,
-                    "revoked_at": revoked_at,
-                    "revoked_by": actor_id,
-                    "revocation_reason": text,
-                }
-            )
-        )
-    store.save_sensor_lifecycle(updated_sensor, identities)
-    return updated_sensor
+        actor_id=actor_id,
+        reason=text,
+        now=revoked_at,
+    )
+    if updated is None:
+        raise SensorFleetError("sensor is not enrolled")
+    return updated
 
 
 def _identity_is_accepted(
