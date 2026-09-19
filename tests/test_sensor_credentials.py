@@ -171,6 +171,11 @@ class FakeCredentialClient:
         self.renew_calls: list[str] = []
         self.probe_calls = 0
         self.replace_calls = 0
+        self._credential_fingerprint_sha256: str | None = None
+
+    @property
+    def credential_fingerprint_sha256(self) -> str | None:
+        return self._credential_fingerprint_sha256
 
     async def renew_certificate(self, csr_pem: str) -> SensorRenewalResult:
         self.renew_calls.append(csr_pem)
@@ -194,8 +199,14 @@ class FakeCredentialClient:
             self.probe_failures -= 1
             raise SensorCredentialTransportError("simulated probe failure")
 
-    async def replace_ssl_context(self, ssl_context) -> None:
+    async def replace_ssl_context(
+        self,
+        ssl_context,
+        *,
+        fingerprint_sha256: str,
+    ) -> None:
         self.replace_calls += 1
+        self._credential_fingerprint_sha256 = fingerprint_sha256
 
 
 def test_bootstrap_import_is_scope_bound_and_key_is_private(tmp_path) -> None:
