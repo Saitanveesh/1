@@ -15,6 +15,10 @@ from mon.pipeline import SecurityPipeline
 from mon.store import Store, TransactionalPipelineStore
 
 
+class FabricEnvelopeInvalid(ValueError):
+    pass
+
+
 class FabricEnvelopeCollision(ValueError):
     pass
 
@@ -44,7 +48,10 @@ def ingest_fabric_envelope(
     processing receipt proves whether a crash completed the domain mutation.
     """
 
-    event = security_event_from_envelope(envelope)
+    try:
+        event = security_event_from_envelope(envelope)
+    except ValueError as exc:
+        raise FabricEnvelopeInvalid(str(exc)) from exc
     canonical = envelope.canonical_json()
     digest = envelope.canonical_sha256
     accepted_at = received_at or dt.datetime.now(dt.UTC)
