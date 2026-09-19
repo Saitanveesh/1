@@ -30,12 +30,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_event_processing_scope",
         "event_processing_receipts",
-        ["tenant_id", "site_id", "received_at"],
-    )
-    op.create_index(
-        "ix_fabric_receipts_status",
-        "fabric_receipts",
-        ["tenant_id", "site_id", "status", "received_at"],
+        ["tenant_id", "site_id", "processed_at"],
     )
 
     op.create_table(
@@ -53,7 +48,12 @@ def upgrade() -> None:
     op.create_index(
         "ix_fabric_receipts_scope",
         "fabric_receipts",
-        ["tenant_id", "site_id", "processed_at"],
+        ["tenant_id", "site_id", "received_at"],
+    )
+    op.create_index(
+        "ix_fabric_receipts_status",
+        "fabric_receipts",
+        ["tenant_id", "site_id", "status", "received_at"],
     )
 
 
