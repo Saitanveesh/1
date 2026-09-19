@@ -354,3 +354,67 @@ def test_postgres_fabric_receipt_survives_restart_and_deduplicates() -> None:
         assert duplicate.processing_result is None
     finally:
         second.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_audit_records_reject_update_and_delete() -> None:
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from mon.domain import AuditRecord
+
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    audit_id = f"ci-audit-{uuid.uuid4()}"
+    record = AuditRecord(
+        audit_id=audit_id,
+        tenant_id="ci-tenant",
+        site_id="ci-site",
+        actor_id="ci",
+        category="RESPONSE",
+        object_type="response_execution",
+        object_id=f"ci-response-{uuid.uuid4()}",
+        action="EXECUTE",
+        outcome="APPLIED",
+        details={"source": "postgres-integration"},
+    )
+    store = DatabaseStore(url)
+    try:
+        store.add_audit_record(record)
+        assert store.add_audit_record(record) == record
+
+        with pytest.raises(DBAPIError):
+            with store.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE audit_records SET occurred_at = occurred_at "
+                        "WHERE tenant_id = :tenant_id "
+                        "AND site_id = :site_id AND audit_id = :audit_id"
+                    ),
+                    {
+                        "tenant_id": record.tenant_id,
+                        "site_id": record.site_id,
+                        "audit_id": record.audit_id,
+                    },
+                )
+
+        with pytest.raises(DBAPIError):
+            with store.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "DELETE FROM audit_records "
+                        "WHERE tenant_id = :tenant_id "
+                        "AND site_id = :site_id AND audit_id = :audit_id"
+                    ),
+                    {
+                        "tenant_id": record.tenant_id,
+                        "site_id": record.site_id,
+                        "audit_id": record.audit_id,
+                    },
+                )
+
+        assert store.list_audit_records("ci-tenant", "ci-site")[-1] == record
+    finally:
+        store.close()

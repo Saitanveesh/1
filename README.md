@@ -37,6 +37,7 @@ Implemented foundations include:
 - mTLS site ingress;
 - durable at-least-once site command delivery and result receipts;
 - durable site response state, audit, TTL recovery, and autonomous recovery reporting;
+- append-only SHA-256-sealed audit records with PostgreSQL mutation guards;
 - execution-plane dispatch between site-local and control-plane enforcement;
 - evidence-based reconciliation of crash-interrupted enforcement;
 - late response-state convergence after site command expiry;

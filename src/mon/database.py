@@ -11,6 +11,7 @@ from sqlalchemy import JSON, DateTime, Index, String, Text, create_engine, selec
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from mon.audit_integrity import AuditIntegrityError, audit_record_sha256
 from mon.domain import (
     Asset,
     AuditRecord,
@@ -199,6 +200,7 @@ class AuditRecordRow(Base):
     site_id: Mapped[str] = mapped_column(String(128), nullable=False)
     audit_id: Mapped[str] = mapped_column(String(256), nullable=False)
     occurred_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    record_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
     __table_args__ = (
@@ -686,17 +688,65 @@ class DatabaseStore:
         rows = self._list_scope(ResponseExecutionRow, tenant_id, site_id)
         return [ResponseExecution.model_validate(row.payload) for row in rows]
 
-    def add_audit_record(self, record: AuditRecord) -> AuditRecord:
-        self._merge(
-            AuditRecordRow(
-                pk=_key(record.tenant_id, record.site_id, record.audit_id),
-                tenant_id=record.tenant_id,
-                site_id=record.site_id,
-                audit_id=record.audit_id,
-                occurred_at=record.occurred_at,
-                payload=record.model_dump(mode="json"),
+    @staticmethod
+    def _verified_audit_record(row: AuditRecordRow) -> AuditRecord:
+        record = AuditRecord.model_validate(row.payload)
+        expected = audit_record_sha256(record)
+        if row.record_sha256 != expected:
+            raise AuditIntegrityError(
+                f"audit record {record.audit_id} failed SHA-256 verification"
             )
+        return record
+
+    def add_audit_record(self, record: AuditRecord) -> AuditRecord:
+        existing_row = self._get(
+            AuditRecordRow,
+            record.tenant_id,
+            record.site_id,
+            record.audit_id,
         )
+        if existing_row is not None:
+            existing = self._verified_audit_record(existing_row)
+            if existing != record:
+                raise AuditIntegrityError(
+                    "audit_id already exists with different immutable content"
+                )
+            return existing
+
+        row = AuditRecordRow(
+            pk=_key(record.tenant_id, record.site_id, record.audit_id),
+            tenant_id=record.tenant_id,
+            site_id=record.site_id,
+            audit_id=record.audit_id,
+            occurred_at=record.occurred_at,
+            record_sha256=audit_record_sha256(record),
+            payload=record.model_dump(mode="json"),
+        )
+        active = self._active_session()
+        if active is not None:
+            active.add(row)
+            active.flush()
+            return record
+
+        try:
+            with self._session_factory.begin() as session:
+                session.add(row)
+                session.flush()
+        except IntegrityError:
+            existing_row = self._get(
+                AuditRecordRow,
+                record.tenant_id,
+                record.site_id,
+                record.audit_id,
+            )
+            if existing_row is None:
+                raise
+            existing = self._verified_audit_record(existing_row)
+            if existing != record:
+                raise AuditIntegrityError(
+                    "audit_id already exists with different immutable content"
+                ) from None
+            return existing
         return record
 
     def list_audit_records(
@@ -712,9 +762,13 @@ class DatabaseStore:
             )
             .order_by(AuditRecordRow.occurred_at, AuditRecordRow.audit_id)
         )
-        with self._session_factory() as session:
-            rows = session.scalars(statement).all()
-        return [AuditRecord.model_validate(row.payload) for row in rows]
+        active = self._active_session()
+        if active is not None:
+            rows = active.scalars(statement).all()
+        else:
+            with self._session_factory() as session:
+                rows = session.scalars(statement).all()
+        return [self._verified_audit_record(row) for row in rows]
 
     def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord:
         command = record.command

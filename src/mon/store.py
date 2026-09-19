@@ -6,6 +6,7 @@ from collections import defaultdict
 from contextlib import AbstractContextManager
 from typing import Protocol, runtime_checkable
 
+from mon.audit_integrity import AuditIntegrityError
 from mon.domain import (
     Asset,
     AuditRecord,
@@ -844,6 +845,13 @@ class InMemoryStore:
 
     def add_audit_record(self, record: AuditRecord) -> AuditRecord:
         key = (record.tenant_id, record.site_id, record.audit_id)
+        existing = self.audit_records.get(key)
+        if existing is not None:
+            if existing != record:
+                raise AuditIntegrityError(
+                    "audit_id already exists with different immutable content"
+                )
+            return existing
         self.audit_records[key] = record
         return record
 
