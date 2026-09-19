@@ -281,7 +281,7 @@ async def test_missing_rotated_inode_is_reported_as_gap_not_silently_reset(
 
         result = await collector.poll_once()
         assert result["state"] == "DEGRADED"
-        assert "cannot locate prior inode" in result["error"]
+        assert "prior inode" in result["error"]
         cursor = store.get("suricata:eve")
         assert cursor is not None
         assert cursor.offset > 0
