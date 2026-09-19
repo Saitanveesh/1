@@ -34,6 +34,7 @@ from mon.sensor_fleet_models import (
 from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.store import InMemoryStore, Store
+from mon.taxii import TaxiiFeedRecord, TaxiiFeedState
 from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
 
 
@@ -195,6 +196,31 @@ class ThreatIndicatorRow(Base):
             "tenant_id",
             "site_id",
             "source_id",
+        ),
+    )
+
+
+class TaxiiFeedRow(Base):
+    __tablename__ = "taxii_feeds"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    feed_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    enabled: Mapped[str] = mapped_column(String(5), nullable=False)
+    health: Mapped[str] = mapped_column(String(64), nullable=False)
+    next_attempt_after: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    last_successful_sync: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_taxii_feeds_scope", "tenant_id", "site_id"),
+        Index(
+            "ix_taxii_feeds_due",
+            "tenant_id",
+            "site_id",
+            "enabled",
+            "next_attempt_after",
         ),
     )
 
@@ -759,7 +785,7 @@ class DatabaseStore:
                 existing.stix_id == indicator.stix_id
                 and existing_modified is not None
                 and incoming_modified is not None
-                and incoming_modified < existing_modified
+                and incoming_modified <= existing_modified
             ):
                 return "unchanged"
 
@@ -823,6 +849,76 @@ class DatabaseStore:
             for indicator in indicators
             if indicator.active_at(check_at)
         ]
+
+    @staticmethod
+    def _taxii_feed_row(record: TaxiiFeedRecord) -> TaxiiFeedRow:
+        return TaxiiFeedRow(
+            pk=_key(record.config.tenant_id, record.config.site_id, record.config.feed_id),
+            tenant_id=record.config.tenant_id,
+            site_id=record.config.site_id,
+            feed_id=record.config.feed_id,
+            enabled=str(record.config.enabled).lower(),
+            health=record.state.health.value,
+            next_attempt_after=record.state.next_attempt_after,
+            last_successful_sync=record.state.last_successful_sync,
+            payload=record.model_dump(mode="json"),
+        )
+
+    def add_taxii_feed(self, record: TaxiiFeedRecord) -> TaxiiFeedRecord:
+        self._merge(self._taxii_feed_row(record))
+        self.add_audit_record(
+            AuditRecord(
+                tenant_id=record.config.tenant_id,
+                site_id=record.config.site_id,
+                actor_id="mon-taxii-config",
+                category="THREAT_INTEL",
+                object_type="taxii_feed",
+                object_id=record.config.feed_id,
+                action="UPSERT",
+                outcome="STORED",
+                occurred_at=record.config.updated_at,
+                details={
+                    "source_id": record.config.source_id,
+                    "collection_id": record.config.collection_id,
+                    "auth_mode": record.config.auth_mode.value,
+                    "credential_ref": record.config.credential_ref is not None,
+                    "enabled": record.config.enabled,
+                },
+            )
+        )
+        return record
+
+    def get_taxii_feed(
+        self,
+        tenant_id: str,
+        site_id: str,
+        feed_id: str,
+    ) -> TaxiiFeedRecord | None:
+        row = self._get(TaxiiFeedRow, tenant_id, site_id, feed_id)
+        return TaxiiFeedRecord.model_validate(row.payload) if row else None
+
+    def list_taxii_feeds(
+        self,
+        tenant_id: str | None = None,
+        site_id: str | None = None,
+    ) -> list[TaxiiFeedRecord]:
+        statement = select(TaxiiFeedRow)
+        if tenant_id is not None and site_id is not None:
+            rows = self._list_scope(TaxiiFeedRow, tenant_id, site_id)
+            return [TaxiiFeedRecord.model_validate(row.payload) for row in rows]
+        if tenant_id is not None or site_id is not None:
+            raise ValueError("tenant_id and site_id must be supplied together")
+        with self._session_factory() as session:
+            rows = session.scalars(statement).all()
+        return [TaxiiFeedRecord.model_validate(row.payload) for row in rows]
+
+    def update_taxii_feed_state(self, state: TaxiiFeedState) -> TaxiiFeedState:
+        record = self.get_taxii_feed(state.tenant_id, state.site_id, state.feed_id)
+        if record is None:
+            raise ValueError("TAXII feed was not found")
+        updated = record.model_copy(update={"state": state})
+        self._merge(self._taxii_feed_row(updated))
+        return state
 
     def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint:
         self._merge(

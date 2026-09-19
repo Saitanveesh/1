@@ -17,6 +17,12 @@ from mon.sensor_fleet_models import (
     SensorRecord,
 )
 from mon.site_identity_models import EnrollmentTokenRecord
+from mon.taxii import (
+    TaxiiFeedConfig,
+    TaxiiFeedHealth,
+    TaxiiFeedRecord,
+    TaxiiFeedState,
+)
 from mon.threat_intel import ingest_stix_bundle
 
 
@@ -739,6 +745,94 @@ def test_postgres_threat_intel_persists_and_rls_scopes() -> None:
                     "indicator_id": f"denied-{suffix}",
                     "source_id": f"source-{suffix}",
                     "stix_id": f"indicator--{uuid.uuid4()}",
+                    "payload": "{}",
+                },
+            )
+    finally:
+        store.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_taxii_feed_state_persists_and_rls_scopes() -> None:
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    feed_id = f"taxii-feed-{suffix}"
+    now = dt.datetime.now(dt.UTC)
+    store = DatabaseStore(url)
+    try:
+        record = TaxiiFeedRecord(
+            config=TaxiiFeedConfig(
+                feed_id=feed_id,
+                tenant_id="taxii-tenant-a",
+                site_id="taxii-site-a",
+                source_id=f"source-{suffix}",
+                source_name="CI TAXII Feed",
+                api_root_url="https://taxii.example/api-root/",
+                collection_id=f"collection-{suffix}",
+                reject_private_addresses=False,
+                created_at=now,
+                updated_at=now,
+            ),
+            state=TaxiiFeedState(
+                feed_id=feed_id,
+                tenant_id="taxii-tenant-a",
+                site_id="taxii-site-a",
+                health=TaxiiFeedHealth.NEVER_SYNCED,
+            ),
+        )
+        store.add_taxii_feed(record)
+        updated_state = record.state.model_copy(
+            update={
+                "last_successful_sync": now,
+                "health": TaxiiFeedHealth.HEALTHY,
+                "updated_at": now,
+            }
+        )
+        store.update_taxii_feed_state(updated_state)
+
+        restored = store.get_taxii_feed("taxii-tenant-a", "taxii-site-a", feed_id)
+        assert restored is not None
+        assert restored.state.health is TaxiiFeedHealth.HEALTHY
+        assert store.get_taxii_feed("taxii-tenant-b", "taxii-site-a", feed_id) is None
+
+        with store.engine.connect() as connection:
+            assert connection.execute(
+                text(
+                    "SELECT feed_id FROM taxii_feeds "
+                    "WHERE feed_id = :feed_id"
+                ),
+                {"feed_id": feed_id},
+            ).scalars().all() == []
+
+        with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {"tenant_id": "taxii-tenant-a", "site_id": "taxii-site-a"},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO taxii_feeds("
+                    "pk, tenant_id, site_id, feed_id, enabled, health, payload"
+                    ") VALUES ("
+                    ":pk, :tenant_id, :site_id, :feed_id, 'true', "
+                    "'NEVER_SYNCED', CAST(:payload AS JSON)"
+                    ")"
+                ),
+                {
+                    "pk": f"taxii-tenant-b\x1ftaxii-site-a\x1fdenied-{suffix}",
+                    "tenant_id": "taxii-tenant-b",
+                    "site_id": "taxii-site-a",
+                    "feed_id": f"denied-{suffix}",
                     "payload": "{}",
                 },
             )
