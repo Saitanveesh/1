@@ -5,6 +5,7 @@ import pytest
 from mon.database import DatabaseStore
 from mon.domain import SecurityEvent
 from mon.event_fabric import (
+    FabricReceipt,
     FabricReceiptStatus,
     security_event_envelope,
 )
@@ -231,7 +232,7 @@ def test_processed_event_recovers_pending_fabric_receipt_after_restart(
     first.add_fabric_receipt(
         # Simulate crash after event transaction committed but before the
         # fabric receipt was completed.
-        __import__("mon.event_fabric", fromlist=["FabricReceipt"]).FabricReceipt(
+        FabricReceipt(
             event_id=envelope.event_id,
             tenant_id=envelope.tenant_id,
             site_id=envelope.site_id,
