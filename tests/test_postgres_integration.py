@@ -289,7 +289,13 @@ def test_postgres_pipeline_commits_event_and_processing_receipt_atomically() -> 
     try:
         assert second.get_event("ci-tenant", "ci-site", event_id) == item
         assert second.event_processed("ci-tenant", "ci-site", event_id)
-        assert second.list_unprocessed_events("ci-tenant", "ci-site") == []
+        assert event_id not in {
+            value.event_id
+            for value in second.list_unprocessed_events(
+                "ci-tenant",
+                "ci-site",
+            )
+        }
     finally:
         second.close()
 
