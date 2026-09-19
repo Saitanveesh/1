@@ -20,6 +20,7 @@ from mon.domain import (
 )
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
+    SensorHeartbeat,
     SensorIdentityRecord,
     SensorRecord,
 )
@@ -947,6 +948,79 @@ class DatabaseStore:
                 row.status = revoked.status.value
                 row.accept_until = None
                 row.payload = revoked.model_dump(mode="json")
+            return updated
+
+    def record_sensor_heartbeat(
+        self,
+        heartbeat: SensorHeartbeat,
+        received_at: dt.datetime,
+    ) -> SensorRecord | None:
+        sensor_pk = _key(
+            heartbeat.tenant_id,
+            heartbeat.site_id,
+            heartbeat.sensor_id,
+        )
+        sensor_statement = (
+            select(SensorRecordRow)
+            .where(SensorRecordRow.pk == sensor_pk)
+            .with_for_update()
+        )
+        identity_statement = (
+            select(SensorIdentityRow)
+            .where(
+                SensorIdentityRow.tenant_id == heartbeat.tenant_id,
+                SensorIdentityRow.site_id == heartbeat.site_id,
+                SensorIdentityRow.sensor_id == heartbeat.sensor_id,
+                SensorIdentityRow.fingerprint_sha256
+                == heartbeat.fingerprint_sha256,
+            )
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            sensor_row = session.scalar(sensor_statement)
+            if sensor_row is None:
+                return None
+            sensor = SensorRecord.model_validate(sensor_row.payload)
+            if sensor.revoked_at is not None:
+                return None
+
+            identity_row = session.scalar(identity_statement)
+            if identity_row is None:
+                return None
+            identity = SensorIdentityRecord.model_validate(
+                identity_row.payload
+            )
+            if identity.expires_at <= received_at:
+                return None
+            accepted = identity.status.value == "ACTIVE" or (
+                identity.status.value == "RETIRING"
+                and identity.accept_until is not None
+                and identity.accept_until > received_at
+            )
+            if not accepted:
+                return None
+
+            updates: dict[str, object] = {
+                "updated_at": received_at,
+                "last_seen_at": received_at,
+            }
+            if (
+                sensor.last_heartbeat_observed_at is None
+                or heartbeat.observed_at >= sensor.last_heartbeat_observed_at
+            ):
+                updates.update(
+                    {
+                        "last_heartbeat_observed_at": heartbeat.observed_at,
+                        "last_health_state": heartbeat.state,
+                        "collector_kind": heartbeat.collector_kind,
+                        "version": heartbeat.version,
+                        "last_error": heartbeat.last_error,
+                    }
+                )
+            updated = sensor.model_copy(update=updates)
+            sensor_row.last_seen_at = updated.last_seen_at
+            sensor_row.revoked_at = updated.revoked_at
+            sensor_row.payload = updated.model_dump(mode="json")
             return updated
 
     def _merge(self, row: Any) -> None:
