@@ -170,3 +170,26 @@ def test_trust_snapshot_scope_mismatch_fails_closed(tmp_path) -> None:
         assert store.snapshot() is None
     finally:
         store.close()
+
+
+def test_same_trust_generation_cannot_equivocate(tmp_path) -> None:
+    now = dt.datetime(2026, 9, 19, 5, 0, tzinfo=dt.UTC)
+    store = SQLiteSensorTrustStore(
+        tmp_path / "sensor-trust.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
+    try:
+        first = snapshot(generated_at=now)
+        assert store.replace(first) is True
+        assert store.replace(first) is False
+
+        with pytest.raises(SensorTrustStoreError, match="different content"):
+            store.replace(
+                snapshot(
+                    generated_at=now,
+                    fingerprints=("c" * 64,),
+                )
+            )
+    finally:
+        store.close()
