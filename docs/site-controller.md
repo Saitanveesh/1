@@ -18,8 +18,9 @@ SQLite databases for event buffering, response execution/audit state, command-re
 and response updates. These files are bound to the configured tenant/site and must not be
 copied between site identities.
 
-The local API listens on `127.0.0.1:8090` by default. Use `MON_SITE_HOST` and
-`MON_SITE_PORT` to change the listener.
+The local API listens on `127.0.0.1:8090` by default. `MON_SITE_PORT` may change the
+port. `MON_SITE_HOST` must remain a loopback address (`localhost`, `127.0.0.0/8`, or
+`::1`); non-loopback bindings are rejected.
 
 ## Offline operation
 
@@ -77,10 +78,13 @@ Supported Zeek inputs are `conn`, `dns`, `http`, `ssl`, `notice`, and `weird`.
 Supported Suricata EVE inputs are `alert`, `flow`, `dns`, `http`, and `tls`.
 Unsupported types fail closed rather than becoming generic evidence.
 
-The Site Controller supplies tenant/site scope. The request supplies a `sensor_id`, which
-is currently a local collector assertion rather than cryptographic proof of remote sensor
-identity. Do not expose these raw ingestion endpoints beyond a trusted local collector
-boundary until an authenticated sensor-enrollment/transport layer is added.
+The Site Controller supplies tenant/site scope. These raw endpoints remain an internal
+loopback boundary. Remote sensors must use the dedicated `mon-sensor-ingress` mTLS service,
+which derives sensor identity from a verified client certificate and injects that identity
+before loopback forwarding. See `docs/sensor-collectors.md`.
+
+The production `mon-site` configuration now rejects non-loopback listener addresses so the
+unauthenticated internal API cannot be exposed remotely through configuration.
 
 The runtime endpoint reports the last state/error for cloud flush, local recovery, and command
 poll loops.

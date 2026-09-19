@@ -204,3 +204,24 @@ def test_site_service_recovers_staged_event_before_cloud_delivery(tmp_path) -> N
         assert second.controller.status()["state"] == "READY"
     finally:
         second.close()
+
+
+def test_site_service_rejects_non_loopback_listener(tmp_path) -> None:
+    with pytest.raises(
+        SiteServiceConfigurationError,
+        match="loopback",
+    ):
+        SiteServiceConfig(
+            tenant_id="tenant-a",
+            site_id="site-a",
+            state_dir=tmp_path,
+            listen_host="0.0.0.0",
+        ).validate()
+
+    config = SiteServiceConfig(
+        tenant_id="tenant-a",
+        site_id="site-a",
+        state_dir=tmp_path,
+        listen_host="::1",
+    ).validate()
+    assert config.listen_host == "::1"
