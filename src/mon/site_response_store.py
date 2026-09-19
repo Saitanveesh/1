@@ -7,7 +7,6 @@ from pathlib import Path
 
 from mon.domain import AuditRecord, ResponseExecution
 
-
 _SCHEMA_VERSION = "1"
 
 
