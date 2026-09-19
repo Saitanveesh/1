@@ -16,6 +16,11 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
+from mon.sensor_fleet_models import (
+    SensorEnrollmentTokenRecord,
+    SensorIdentityRecord,
+    SensorRecord,
+)
 from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 
@@ -159,6 +164,57 @@ class Store(PipelineStore, ResponseStateStore, Protocol):
         self, tenant_id: str, site_id: str
     ) -> list[SiteIdentityRecord]: ...
 
+    def add_sensor_enrollment_token(
+        self, record: SensorEnrollmentTokenRecord
+    ) -> SensorEnrollmentTokenRecord: ...
+
+    def get_sensor_enrollment_token(
+        self, token_hash: str
+    ) -> SensorEnrollmentTokenRecord | None: ...
+
+    def complete_sensor_enrollment(
+        self,
+        token_hash: str,
+        now: dt.datetime,
+        sensor: SensorRecord,
+        identity: SensorIdentityRecord,
+    ) -> bool: ...
+
+    def get_sensor_record(
+        self, tenant_id: str, site_id: str, sensor_id: str
+    ) -> SensorRecord | None: ...
+
+    def list_sensor_records(
+        self, tenant_id: str, site_id: str
+    ) -> list[SensorRecord]: ...
+
+    def get_sensor_identity(
+        self,
+        tenant_id: str,
+        site_id: str,
+        identity_id: str,
+    ) -> SensorIdentityRecord | None: ...
+
+    def get_sensor_identity_by_fingerprint(
+        self,
+        tenant_id: str,
+        site_id: str,
+        fingerprint_sha256: str,
+    ) -> SensorIdentityRecord | None: ...
+
+    def list_sensor_identities(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str | None = None,
+    ) -> list[SensorIdentityRecord]: ...
+
+    def save_sensor_lifecycle(
+        self,
+        sensor: SensorRecord,
+        identities: list[SensorIdentityRecord],
+    ) -> None: ...
+
     def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord: ...
 
     def get_site_command(
@@ -183,6 +239,9 @@ class InMemoryStore:
         self.enforcement_bindings: dict[str, EnforcementBinding] = {}
         self.enrollment_tokens: dict[str, EnrollmentTokenRecord] = {}
         self.site_identities: dict[str, SiteIdentityRecord] = {}
+        self.sensor_enrollment_tokens: dict[str, SensorEnrollmentTokenRecord] = {}
+        self.sensor_records: dict[tuple[str, str, str], SensorRecord] = {}
+        self.sensor_identities: dict[str, SensorIdentityRecord] = {}
         self.response_executions: dict[tuple[str, str, str], ResponseExecution] = {}
         self.audit_records: dict[tuple[str, str, str], AuditRecord] = {}
         self.site_commands: dict[tuple[str, str, str], SiteCommandRecord] = {}
@@ -337,6 +396,147 @@ class InMemoryStore:
                 if value.tenant_id == tenant_id and value.site_id == site_id
             ]
 
+
+    def add_sensor_enrollment_token(
+        self,
+        record: SensorEnrollmentTokenRecord,
+    ) -> SensorEnrollmentTokenRecord:
+        with self._identity_lock:
+            self.sensor_enrollment_tokens[record.token_hash] = record
+        return record
+
+    def get_sensor_enrollment_token(
+        self,
+        token_hash: str,
+    ) -> SensorEnrollmentTokenRecord | None:
+        with self._identity_lock:
+            return self.sensor_enrollment_tokens.get(token_hash)
+
+    def complete_sensor_enrollment(
+        self,
+        token_hash: str,
+        now: dt.datetime,
+        sensor: SensorRecord,
+        identity: SensorIdentityRecord,
+    ) -> bool:
+        with self._identity_lock:
+            token = self.sensor_enrollment_tokens.get(token_hash)
+            if (
+                token is None
+                or token.used_at is not None
+                or token.expires_at <= now
+                or token.tenant_id != sensor.tenant_id
+                or token.site_id != sensor.site_id
+                or token.sensor_id != sensor.sensor_id
+                or identity.tenant_id != sensor.tenant_id
+                or identity.site_id != sensor.site_id
+                or identity.sensor_id != sensor.sensor_id
+            ):
+                return False
+            consumed = token.model_copy(
+                update={
+                    "used_at": now,
+                    "used_identity_id": identity.identity_id,
+                }
+            )
+            self.sensor_enrollment_tokens[token_hash] = consumed
+            self.sensor_records[
+                (sensor.tenant_id, sensor.site_id, sensor.sensor_id)
+            ] = sensor
+            self.sensor_identities[identity.identity_id] = identity
+            return True
+
+    def get_sensor_record(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str,
+    ) -> SensorRecord | None:
+        with self._identity_lock:
+            return self.sensor_records.get((tenant_id, site_id, sensor_id))
+
+    def list_sensor_records(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SensorRecord]:
+        with self._identity_lock:
+            return sorted(
+                [
+                    record
+                    for (scope_tenant, scope_site, _), record
+                    in self.sensor_records.items()
+                    if scope_tenant == tenant_id and scope_site == site_id
+                ],
+                key=lambda item: item.sensor_id,
+            )
+
+    def get_sensor_identity(
+        self,
+        tenant_id: str,
+        site_id: str,
+        identity_id: str,
+    ) -> SensorIdentityRecord | None:
+        with self._identity_lock:
+            identity = self.sensor_identities.get(identity_id)
+            if (
+                identity is not None
+                and identity.tenant_id == tenant_id
+                and identity.site_id == site_id
+            ):
+                return identity
+            return None
+
+    def get_sensor_identity_by_fingerprint(
+        self,
+        tenant_id: str,
+        site_id: str,
+        fingerprint_sha256: str,
+    ) -> SensorIdentityRecord | None:
+        with self._identity_lock:
+            for identity in self.sensor_identities.values():
+                if (
+                    identity.tenant_id == tenant_id
+                    and identity.site_id == site_id
+                    and identity.fingerprint_sha256 == fingerprint_sha256
+                ):
+                    return identity
+        return None
+
+    def list_sensor_identities(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str | None = None,
+    ) -> list[SensorIdentityRecord]:
+        with self._identity_lock:
+            values = [
+                identity
+                for identity in self.sensor_identities.values()
+                if identity.tenant_id == tenant_id
+                and identity.site_id == site_id
+                and (sensor_id is None or identity.sensor_id == sensor_id)
+            ]
+        return sorted(values, key=lambda item: (item.issued_at, item.identity_id))
+
+    def save_sensor_lifecycle(
+        self,
+        sensor: SensorRecord,
+        identities: list[SensorIdentityRecord],
+    ) -> None:
+        with self._identity_lock:
+            for identity in identities:
+                if (
+                    identity.tenant_id != sensor.tenant_id
+                    or identity.site_id != sensor.site_id
+                    or identity.sensor_id != sensor.sensor_id
+                ):
+                    raise ValueError("sensor lifecycle identity scope mismatch")
+            self.sensor_records[
+                (sensor.tenant_id, sensor.site_id, sensor.sensor_id)
+            ] = sensor
+            for identity in identities:
+                self.sensor_identities[identity.identity_id] = identity
 
     def add_response_execution(
         self,
