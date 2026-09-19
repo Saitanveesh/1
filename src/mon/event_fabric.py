@@ -73,8 +73,13 @@ class FabricPublisher(Protocol):
     async def publish(self, envelope: FabricEnvelope) -> None: ...
 
 
+class FabricReceiptStatus(StrEnum):
+    PENDING = "PENDING"
+    PROCESSED = "PROCESSED"
+
+
 class FabricReceipt(BaseModel):
-    """Durable control-plane receipt for one exact fabric envelope."""
+    """Durable control-plane claim for one exact fabric envelope."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -83,15 +88,31 @@ class FabricReceipt(BaseModel):
     site_id: str = Field(min_length=1, max_length=128)
     envelope_sha256: str = Field(min_length=64, max_length=64)
     envelope_json: str = Field(min_length=2)
-    processed_at: dt.datetime
+    status: FabricReceiptStatus = FabricReceiptStatus.PENDING
+    received_at: dt.datetime
+    processed_at: dt.datetime | None = None
 
     @model_validator(mode="after")
-    def validate_processed_at(self) -> FabricReceipt:
+    def validate_times(self) -> FabricReceipt:
         if (
+            self.received_at.tzinfo is None
+            or self.received_at.utcoffset() is None
+        ):
+            raise ValueError("fabric receipt received_at must be timezone-aware")
+        if self.processed_at is not None and (
             self.processed_at.tzinfo is None
             or self.processed_at.utcoffset() is None
         ):
             raise ValueError("fabric receipt processed_at must be timezone-aware")
+        if self.status is FabricReceiptStatus.PENDING:
+            if self.processed_at is not None:
+                raise ValueError(
+                    "pending fabric receipt cannot have processed_at"
+                )
+        elif self.processed_at is None:
+            raise ValueError(
+                "processed fabric receipt requires processed_at"
+            )
         return self
 
 
