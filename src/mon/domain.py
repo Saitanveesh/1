@@ -76,6 +76,12 @@ class EnforcementHealth(StrEnum):
     UNAVAILABLE = "UNAVAILABLE"
 
 
+class EnforcementVerificationState(StrEnum):
+    PRESENT = "PRESENT"
+    ABSENT = "ABSENT"
+    UNKNOWN = "UNKNOWN"
+
+
 class ActorType(StrEnum):
     AUTOMATION = "AUTOMATION"
     OPERATOR = "OPERATOR"
@@ -399,6 +405,15 @@ class EnforcementResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     success: bool
+    message: str = Field(min_length=1, max_length=1000)
+    external_reference: str | None = Field(default=None, max_length=500)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class EnforcementVerification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: EnforcementVerificationState
     message: str = Field(min_length=1, max_length=1000)
     external_reference: str | None = Field(default=None, max_length=500)
     details: dict[str, Any] = Field(default_factory=dict)
