@@ -877,6 +877,93 @@ class SensorCredentialStore:
         }
 
 
+async def _rotate_sensor_credentials_locked(
+    store: SensorCredentialStore,
+    client: SensorCredentialClient,
+    *,
+    renew_before: dt.timedelta,
+    check_at: dt.datetime,
+) -> dict[str, object]:
+    active = store.active_generation()
+    if (
+        client.credential_fingerprint_sha256 is not None
+        and client.credential_fingerprint_sha256
+        != active.fingerprint_sha256
+    ):
+        store.discard_stale_pending()
+        active = store.active_generation()
+        active_context = store.ssl_context_for(active)
+        await client.probe_ssl_context(
+            active_context,
+            tenant_id=store.tenant_id,
+            site_id=store.site_id,
+            sensor_id=store.sensor_id,
+        )
+        await client.replace_ssl_context(
+            active_context,
+            fingerprint_sha256=active.fingerprint_sha256,
+        )
+
+    if not store.renewal_due(now=check_at, renew_before=renew_before):
+        active = store.active_generation()
+        return {
+            "state": "CURRENT",
+            "fingerprint_sha256": active.fingerprint_sha256,
+            "expires_at": active.expires_at.isoformat(),
+        }
+
+    pending = store.begin_renewal(now=check_at)
+    candidate = store.pending_generation()
+    if candidate is not None:
+        candidate_context = store.ssl_context_for(candidate)
+        try:
+            await client.probe_ssl_context(
+                candidate_context,
+                tenant_id=store.tenant_id,
+                site_id=store.site_id,
+                sensor_id=store.sensor_id,
+            )
+        except SensorCredentialTransportError:
+            pass
+        else:
+            activated = store.activate_pending()
+            await client.replace_ssl_context(
+                candidate_context,
+                fingerprint_sha256=activated.fingerprint_sha256,
+            )
+            store.prune_generations()
+            return {
+                "state": "ROTATED",
+                "generation_id": activated.generation_id,
+                "fingerprint_sha256": activated.fingerprint_sha256,
+                "expires_at": activated.expires_at.isoformat(),
+                "recovered_pending": True,
+            }
+
+    result = await client.renew_certificate(pending.csr_pem)
+    candidate = store.install_renewal_result(result)
+    candidate_context = store.ssl_context_for(candidate)
+    await client.probe_ssl_context(
+        candidate_context,
+        tenant_id=store.tenant_id,
+        site_id=store.site_id,
+        sensor_id=store.sensor_id,
+    )
+    activated = store.activate_pending()
+    await client.replace_ssl_context(
+        candidate_context,
+        fingerprint_sha256=activated.fingerprint_sha256,
+    )
+    store.prune_generations()
+    return {
+        "state": "ROTATED",
+        "generation_id": activated.generation_id,
+        "fingerprint_sha256": activated.fingerprint_sha256,
+        "expires_at": activated.expires_at.isoformat(),
+        "recovered_pending": False,
+    }
+
+
 async def rotate_sensor_credentials_if_due(
     store: SensorCredentialStore,
     client: SensorCredentialClient,
@@ -886,89 +973,12 @@ async def rotate_sensor_credentials_if_due(
 ) -> dict[str, object]:
     check_at = (now or dt.datetime.now(dt.UTC)).astimezone(dt.UTC)
     try:
-        lease = store.rotation_lease()
-        lease.__enter__()
+        with store.rotation_lease():
+            return await _rotate_sensor_credentials_locked(
+                store,
+                client,
+                renew_before=renew_before,
+                check_at=check_at,
+            )
     except SensorCredentialBusyError:
         return {"state": "BUSY"}
-
-    try:
-        active = store.active_generation()
-        if (
-            client.credential_fingerprint_sha256 is not None
-            and client.credential_fingerprint_sha256
-            != active.fingerprint_sha256
-        ):
-            store.discard_stale_pending()
-            active = store.active_generation()
-            active_context = store.ssl_context_for(active)
-            await client.probe_ssl_context(
-                active_context,
-                tenant_id=store.tenant_id,
-                site_id=store.site_id,
-                sensor_id=store.sensor_id,
-            )
-            await client.replace_ssl_context(
-                active_context,
-                fingerprint_sha256=active.fingerprint_sha256,
-            )
-
-        if not store.renewal_due(now=check_at, renew_before=renew_before):
-            active = store.active_generation()
-            return {
-                "state": "CURRENT",
-                "fingerprint_sha256": active.fingerprint_sha256,
-                "expires_at": active.expires_at.isoformat(),
-            }
-
-        pending = store.begin_renewal(now=check_at)
-        candidate = store.pending_generation()
-        if candidate is not None:
-            candidate_context = store.ssl_context_for(candidate)
-            try:
-                await client.probe_ssl_context(
-                    candidate_context,
-                    tenant_id=store.tenant_id,
-                    site_id=store.site_id,
-                    sensor_id=store.sensor_id,
-                )
-            except SensorCredentialTransportError:
-                pass
-            else:
-                activated = store.activate_pending()
-                await client.replace_ssl_context(
-                    candidate_context,
-                    fingerprint_sha256=activated.fingerprint_sha256,
-                )
-                store.prune_generations()
-                return {
-                    "state": "ROTATED",
-                    "generation_id": activated.generation_id,
-                    "fingerprint_sha256": activated.fingerprint_sha256,
-                    "expires_at": activated.expires_at.isoformat(),
-                    "recovered_pending": True,
-                }
-
-        result = await client.renew_certificate(pending.csr_pem)
-        candidate = store.install_renewal_result(result)
-        candidate_context = store.ssl_context_for(candidate)
-        await client.probe_ssl_context(
-            candidate_context,
-            tenant_id=store.tenant_id,
-            site_id=store.site_id,
-            sensor_id=store.sensor_id,
-        )
-        activated = store.activate_pending()
-        await client.replace_ssl_context(
-            candidate_context,
-            fingerprint_sha256=activated.fingerprint_sha256,
-        )
-        store.prune_generations()
-        return {
-            "state": "ROTATED",
-            "generation_id": activated.generation_id,
-            "fingerprint_sha256": activated.fingerprint_sha256,
-            "expires_at": activated.expires_at.isoformat(),
-            "recovered_pending": False,
-        }
-    finally:
-        lease.__exit__(None, None, None)
