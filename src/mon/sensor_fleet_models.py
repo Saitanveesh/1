@@ -185,8 +185,8 @@ class SensorHeartbeat(BaseModel):
     def validate_heartbeat(self) -> SensorHeartbeat:
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("sensor heartbeat observed_at must be timezone-aware")
-        if self.state is SensorFleetState.REVOKED:
-            raise ValueError("sensor heartbeat state cannot be REVOKED")
+        if self.state in {SensorFleetState.STALE, SensorFleetState.REVOKED}:
+            raise ValueError("sensor heartbeat state must be READY or DEGRADED")
         if self.state is SensorFleetState.DEGRADED and not self.last_error:
             raise ValueError("degraded sensor heartbeat requires last_error")
         return self
