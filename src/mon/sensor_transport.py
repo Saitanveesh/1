@@ -85,10 +85,19 @@ def _parse_sensor_spiffe_uri(uri: str) -> tuple[str, str, str]:
     tenant_id = unquote(segments[1])
     site_id = unquote(segments[3])
     sensor_id = unquote(segments[5])
-    if not tenant_id or not site_id or not sensor_id:
-        raise SensorCertificateError(
-            "client certificate SPIFFE tenant/site/sensor cannot be empty"
-        )
+    for name, value in (
+        ("tenant", tenant_id),
+        ("site", site_id),
+        ("sensor", sensor_id),
+    ):
+        if not value or len(value) > 128:
+            raise SensorCertificateError(
+                f"client certificate SPIFFE {name} must contain 1-128 characters"
+            )
+        if any(not character.isprintable() for character in value):
+            raise SensorCertificateError(
+                f"client certificate SPIFFE {name} contains non-printable characters"
+            )
     return tenant_id, site_id, sensor_id
 
 
