@@ -13,7 +13,7 @@ def test_load_envelopes_preserves_exact_nonempty_lines(tmp_path: Path) -> None:
 
     assert probe.load_envelopes(path) == [
         b'{"event_id":"a"}',
-        b'{"event_id":"b"}',
+        b' {"event_id":"b"} ',
     ]
 
 
