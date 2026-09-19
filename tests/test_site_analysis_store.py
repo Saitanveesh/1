@@ -6,7 +6,6 @@ from mon.domain import SecurityEvent
 from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
 from mon.site_analysis_store import SQLiteSiteAnalysisStore
 
-
 BASE = dt.datetime(2026, 9, 19, 4, 0, tzinfo=dt.UTC)
 
 
