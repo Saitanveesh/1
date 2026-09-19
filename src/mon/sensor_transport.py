@@ -16,7 +16,6 @@ from cryptography.x509.oid import ExtendedKeyUsageOID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mon.mtls_ingress import create_mtls_server_ssl_context
-from mon.sensors.common import SensorNormalizationError
 
 
 class SensorCertificateError(ValueError):
