@@ -13,6 +13,8 @@ from mon.store import InMemoryStore
 class FakeExecutor:
     def __init__(self) -> None:
         self.calls = 0
+        self.tenant_id = "tenant-a"
+        self.site_id = "site-a"
         # SiteController derives its local recovery engine from the response
         # executor's orchestrator. Keep the fake aligned with that contract.
         self.orchestrator = type("FakeOrchestrator", (), {"store": InMemoryStore()})()

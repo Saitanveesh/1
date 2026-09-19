@@ -1,4 +1,4 @@
-# ADR 0022: SaaS scale foundation
+# ADR 0026: SaaS scale foundation
 
 Status: Accepted
 

@@ -364,6 +364,13 @@ class ProductionSiteController(SiteController):
 
     def status(self) -> dict[str, object]:
         status = super().status()
-        status["command_result_outbox"] = self.result_outbox.diagnostics()
-        status["response_update_outbox"] = self.response_update_outbox.diagnostics()
+        command_result_outbox = self.result_outbox.diagnostics()
+        response_update_outbox = self.response_update_outbox.diagnostics()
+        status["command_result_outbox"] = command_result_outbox
+        status["response_update_outbox"] = response_update_outbox
+        if (
+            command_result_outbox["last_error"] is not None
+            or response_update_outbox["last_error"] is not None
+        ):
+            status["state"] = "DEGRADED"
         return status

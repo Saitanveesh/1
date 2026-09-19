@@ -96,3 +96,60 @@ def test_local_detection_continues_without_cloud_sender(tmp_path) -> None:
     assert spool.count() == 12
     assert controller.status()["local_incidents"] == 1
     spool.close()
+
+
+def test_spool_persists_exact_site_scope_across_restart(tmp_path) -> None:
+    path = tmp_path / "spool.db"
+    spool = SQLiteEventSpool(path, tenant_id="t1", site_id="s1")
+    try:
+        assert spool.enqueue(event(1))
+        diagnostics = spool.diagnostics()
+        assert diagnostics["durability"] == "WAL_FULL"
+        assert diagnostics["scope_bound"] is True
+    finally:
+        spool.close()
+
+    reopened = SQLiteEventSpool(path, tenant_id="t1", site_id="s1")
+    try:
+        assert [item.event_id for item in reopened.pending()] == ["event-1"]
+    finally:
+        reopened.close()
+
+    with pytest.raises(ValueError, match="tenant_id mismatch"):
+        SQLiteEventSpool(path, tenant_id="other", site_id="s1")
+    with pytest.raises(ValueError, match="site_id mismatch"):
+        SQLiteEventSpool(path, tenant_id="t1", site_id="other")
+
+
+def test_spool_rejects_foreign_event_after_scope_binding(tmp_path) -> None:
+    spool = SQLiteEventSpool(
+        tmp_path / "spool.db",
+        tenant_id="t1",
+        site_id="s1",
+    )
+    try:
+        with pytest.raises(ValueError, match="scope"):
+            spool.enqueue(event(1, tenant="other"))
+        assert spool.count() == 0
+    finally:
+        spool.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_sync_marks_site_health_degraded(tmp_path) -> None:
+    spool = SQLiteEventSpool(
+        tmp_path / "spool.db",
+        tenant_id="t1",
+        site_id="s1",
+    )
+    controller = SiteController("t1", "s1", spool, sender=FailingSender())
+    try:
+        controller.ingest(event(1))
+        result = await controller.flush()
+        assert result["state"] == "DEGRADED"
+        status = controller.status()
+        assert status["state"] == "DEGRADED"
+        assert status["spool"]["last_error"] == "cloud unavailable"
+        assert status["local_pipeline_state_persistence"] == "MEMORY_ONLY"
+    finally:
+        spool.close()
