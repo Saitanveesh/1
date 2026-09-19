@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
+from mon.sensor_transport import extract_sensor_identity_from_verified_certificate
 from mon.site_identity import create_mtls_client_ssl_context
 
 _SUPPORTED_ZEEK_LOGS = ("conn", "dns", "http", "ssl", "notice", "weird")
@@ -625,9 +628,13 @@ async def run_collector(
 
 
 def _collector_client_from_environment() -> tuple[str, SensorBatchClient]:
+    tenant_id = os.environ.get("MON_TENANT_ID", "").strip()
+    site_id = os.environ.get("MON_SITE_ID", "").strip()
     sensor_id = os.environ.get("MON_SENSOR_ID", "").strip()
-    if not sensor_id:
-        raise RuntimeError("MON_SENSOR_ID must be configured")
+    if not tenant_id or not site_id or not sensor_id:
+        raise RuntimeError(
+            "MON_TENANT_ID, MON_SITE_ID and MON_SENSOR_ID must be configured"
+        )
     ingress_url = os.environ.get("MON_SENSOR_INGRESS_URL", "").strip()
     ca_file = os.environ.get("MON_SENSOR_SERVER_CA_CERT_FILE", "").strip()
     cert_file = os.environ.get("MON_SENSOR_CLIENT_CERT_FILE", "").strip()
@@ -643,6 +650,27 @@ def _collector_client_from_environment() -> tuple[str, SensorBatchClient]:
             raise RuntimeError(
                 f"sensor collector certificate file does not exist: {value}"
             )
+    try:
+        certificate = x509.load_pem_x509_certificate(
+            Path(cert_file).read_bytes()
+        )
+        identity = extract_sensor_identity_from_verified_certificate(
+            certificate.public_bytes(serialization.Encoding.DER)
+        )
+    except (ValueError, OSError) as exc:
+        raise RuntimeError(
+            "MON_SENSOR_CLIENT_CERT_FILE is not a valid sensor certificate"
+        ) from exc
+    if (
+        identity.tenant_id != tenant_id
+        or identity.site_id != site_id
+        or identity.sensor_id != sensor_id
+    ):
+        raise RuntimeError(
+            "configured tenant/site/sensor identity does not match "
+            "MON_SENSOR_CLIENT_CERT_FILE"
+        )
+
     try:
         timeout = float(os.environ.get("MON_SENSOR_TIMEOUT_SECONDS", "10"))
     except ValueError as exc:
