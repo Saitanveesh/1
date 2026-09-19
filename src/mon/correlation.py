@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -42,6 +43,36 @@ class CorrelationEngine:
 
     def reset(self) -> None:
         self._active.clear()
+
+    def restore(
+        self,
+        findings: Iterable[Finding],
+        incidents: Iterable[Incident],
+    ) -> int:
+        """Rebuild active correlation pointers from durable findings/incidents."""
+        self._active.clear()
+        findings_by_id = {finding.finding_id: finding for finding in findings}
+        restored = 0
+        for incident in incidents:
+            if incident.status not in {
+                IncidentStatus.OPEN,
+                IncidentStatus.INVESTIGATING,
+            }:
+                continue
+            for finding_id in incident.finding_ids:
+                finding = findings_by_id.get(finding_id)
+                if finding is None:
+                    continue
+                actor = self._actor(finding)
+                key = (finding.tenant_id, finding.site_id, actor)
+                current = self._active.get(key)
+                if current is None or finding.last_seen > current.last_seen:
+                    self._active[key] = _ActiveIncident(
+                        incident_id=incident.incident_id,
+                        last_seen=finding.last_seen,
+                    )
+                    restored += 1
+        return restored
 
     @staticmethod
     def _actor(finding: Finding) -> str:
