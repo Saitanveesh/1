@@ -12,13 +12,16 @@ class SiteRuntimeStatus:
     last_flush_at: dt.datetime | None
     last_recovery_at: dt.datetime | None
     last_command_poll_at: dt.datetime | None
+    last_flush_state: str | None
+    last_recovery_state: str | None
+    last_command_state: str | None
     last_flush_error: str | None
     last_recovery_error: str | None
     last_command_error: str | None
 
 
 class SiteControllerRuntime:
-    """Independent local loops for cloud sync and TTL recovery."""
+    """Independent local loops for cloud sync, command delivery, and TTL recovery."""
 
     def __init__(
         self,
@@ -41,6 +44,9 @@ class SiteControllerRuntime:
         self._last_flush_at: dt.datetime | None = None
         self._last_recovery_at: dt.datetime | None = None
         self._last_command_poll_at: dt.datetime | None = None
+        self._last_flush_state: str | None = None
+        self._last_recovery_state: str | None = None
+        self._last_command_state: str | None = None
         self._last_flush_error: str | None = None
         self._last_recovery_error: str | None = None
         self._last_command_error: str | None = None
@@ -53,12 +59,27 @@ class SiteControllerRuntime:
             return False
         return True
 
+    @staticmethod
+    def _result_state(result: dict[str, object]) -> str:
+        state = result.get("state")
+        return str(state) if state is not None else "UNKNOWN"
+
+    @staticmethod
+    def _result_error(result: dict[str, object]) -> str | None:
+        error = result.get("error")
+        if error is None:
+            return None
+        text = str(error).strip()
+        return text[:1000] if text else None
+
     async def _flush_loop(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
             try:
-                await self.controller.flush()
-                self._last_flush_error = None
+                result = await self.controller.flush()
+                self._last_flush_state = self._result_state(result)
+                self._last_flush_error = self._result_error(result)
             except Exception as exc:
+                self._last_flush_state = "ERROR"
                 self._last_flush_error = str(exc)[:1000]
             self._last_flush_at = dt.datetime.now(dt.UTC)
             if await self._wait_or_stop(stop_event, self.flush_interval_seconds):
@@ -67,9 +88,11 @@ class SiteControllerRuntime:
     async def _recovery_loop(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
             try:
-                await self.controller.recover_expired_responses()
-                self._last_recovery_error = None
+                result = await self.controller.recover_expired_responses()
+                self._last_recovery_state = self._result_state(result)
+                self._last_recovery_error = self._result_error(result)
             except Exception as exc:
+                self._last_recovery_state = "ERROR"
                 self._last_recovery_error = str(exc)[:1000]
             self._last_recovery_at = dt.datetime.now(dt.UTC)
             if await self._wait_or_stop(stop_event, self.recovery_interval_seconds):
@@ -78,9 +101,11 @@ class SiteControllerRuntime:
     async def _command_loop(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
             try:
-                await self.controller.poll_commands()
-                self._last_command_error = None
+                result = await self.controller.poll_commands()
+                self._last_command_state = self._result_state(result)
+                self._last_command_error = self._result_error(result)
             except Exception as exc:
+                self._last_command_state = "ERROR"
                 self._last_command_error = str(exc)[:1000]
             self._last_command_poll_at = dt.datetime.now(dt.UTC)
             if await self._wait_or_stop(stop_event, self.command_interval_seconds):
@@ -97,6 +122,9 @@ class SiteControllerRuntime:
             last_flush_at=self._last_flush_at,
             last_recovery_at=self._last_recovery_at,
             last_command_poll_at=self._last_command_poll_at,
+            last_flush_state=self._last_flush_state,
+            last_recovery_state=self._last_recovery_state,
+            last_command_state=self._last_command_state,
             last_flush_error=self._last_flush_error,
             last_recovery_error=self._last_recovery_error,
             last_command_error=self._last_command_error,
