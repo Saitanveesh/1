@@ -68,15 +68,19 @@ class SQLiteSensorCursorStore:
         self,
         path: str | Path,
         *,
+        tenant_id: str,
+        site_id: str,
         sensor_id: str,
         busy_timeout_seconds: float = 5.0,
     ) -> None:
-        if not sensor_id:
-            raise ValueError("sensor_id is required")
+        if not tenant_id or not site_id or not sensor_id:
+            raise ValueError("tenant_id, site_id and sensor_id are required")
         if busy_timeout_seconds <= 0 or busy_timeout_seconds > 60:
             raise ValueError("busy_timeout_seconds must be between 0 and 60")
 
         self.path = Path(path)
+        self.tenant_id = tenant_id
+        self.site_id = site_id
         self.sensor_id = sensor_id
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -118,6 +122,8 @@ class SQLiteSensorCursorStore:
                     """
                 )
                 self._bind_metadata("schema_version", self._SCHEMA_VERSION)
+                self._bind_metadata("tenant_id", tenant_id)
+                self._bind_metadata("site_id", site_id)
                 self._bind_metadata("sensor_id", sensor_id)
         except Exception:
             self._connection.close()
@@ -239,6 +245,8 @@ class SQLiteSensorCursorStore:
                 """
             ).fetchall()
         return {
+            "tenant_id": self.tenant_id,
+            "site_id": self.site_id,
             "sensor_id": self.sensor_id,
             "durability": "WAL_FULL",
             "sources": [
@@ -657,7 +665,12 @@ async def run_collector(
             pass
 
 
-def _collector_client_from_environment() -> tuple[str, SensorBatchClient]:
+def _collector_client_from_environment() -> tuple[
+    str,
+    str,
+    str,
+    SensorBatchClient,
+]:
     tenant_id = os.environ.get("MON_TENANT_ID", "").strip()
     site_id = os.environ.get("MON_SITE_ID", "").strip()
     sensor_id = os.environ.get("MON_SENSOR_ID", "").strip()
@@ -713,7 +726,7 @@ def _collector_client_from_environment() -> tuple[str, SensorBatchClient]:
         key_file,
         private_key_password=os.environ.get("MON_SENSOR_CLIENT_KEY_PASSWORD"),
     )
-    return sensor_id, SensorBatchClient(
+    return tenant_id, site_id, sensor_id, SensorBatchClient(
         ingress_url,
         context,
         timeout_seconds=timeout,
@@ -757,7 +770,7 @@ async def _run_collector_process(
 
 def zeek_main() -> None:
     logging.basicConfig(level=logging.INFO)
-    sensor_id, client = _collector_client_from_environment()
+    tenant_id, site_id, sensor_id, client = _collector_client_from_environment()
     log_dir = Path(
         os.environ.get("MON_ZEEK_LOG_DIR", "/opt/zeek/logs/current")
     )
@@ -766,6 +779,8 @@ def zeek_main() -> None:
     )
     store = SQLiteSensorCursorStore(
         state_dir / "zeek-cursors.db",
+        tenant_id=tenant_id,
+        site_id=site_id,
         sensor_id=sensor_id,
     )
     collector = ZeekFileCollector(
@@ -791,7 +806,7 @@ def zeek_main() -> None:
 
 def suricata_main() -> None:
     logging.basicConfig(level=logging.INFO)
-    sensor_id, client = _collector_client_from_environment()
+    tenant_id, site_id, sensor_id, client = _collector_client_from_environment()
     eve_path = Path(
         os.environ.get(
             "MON_SURICATA_EVE_FILE",
@@ -803,6 +818,8 @@ def suricata_main() -> None:
     )
     store = SQLiteSensorCursorStore(
         state_dir / "suricata-cursors.db",
+        tenant_id=tenant_id,
+        site_id=site_id,
         sensor_id=sensor_id,
     )
     collector = SuricataFileCollector(
