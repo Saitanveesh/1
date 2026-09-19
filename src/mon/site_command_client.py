@@ -6,12 +6,15 @@ from typing import Protocol
 import httpx
 
 from mon.site_command_models import SiteCommand, SiteCommandResult
+from mon.site_response_models import SiteResponseUpdate
 
 
 class SiteCommandClient(Protocol):
     async def pull_commands(self, limit: int = 20) -> list[SiteCommand]: ...
 
     async def submit_result(self, result: SiteCommandResult) -> None: ...
+
+    async def submit_response_update(self, update: SiteResponseUpdate) -> None: ...
 
 
 class HttpSiteCommandClient:
@@ -57,5 +60,18 @@ class HttpSiteCommandClient:
             response = await http.post(
                 "/api/v1/site/commands/results",
                 json=result.model_dump(mode="json"),
+            )
+            response.raise_for_status()
+
+    async def submit_response_update(self, update: SiteResponseUpdate) -> None:
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            timeout=self.timeout_seconds,
+            headers={"Authorization": f"Bearer {self.bearer_token}"},
+            verify=self.ssl_context if self.ssl_context is not None else True,
+        ) as http:
+            response = await http.post(
+                "/api/v1/site/responses/updates",
+                json=update.model_dump(mode="json"),
             )
             response.raise_for_status()
