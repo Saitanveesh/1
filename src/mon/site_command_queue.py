@@ -268,9 +268,7 @@ class SiteCommandQueue:
                     "successful rollback command result must be ROLLED_BACK"
                 )
             return True
-        if execution.status is ResponseExecutionStatus.ROLLBACK_FAILED:
-            return True
-        return False
+        return execution.status is ResponseExecutionStatus.ROLLBACK_FAILED
 
     def complete(self, result: SiteCommandResult) -> SiteCommandRecord:
         record = self.store.get_site_command(
