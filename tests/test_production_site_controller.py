@@ -6,6 +6,8 @@ from mon.production_site_controller import ProductionSiteController
 from mon.site_command_models import SiteCommand, SiteCommandKind, SiteCommandResult
 from mon.site_command_outbox import SQLiteCommandResultOutbox
 from mon.site_controller import SQLiteEventSpool
+from mon.site_response_outbox import SQLiteResponseUpdateOutbox
+from mon.store import InMemoryStore
 
 
 class FakeExecutor:
@@ -13,7 +15,7 @@ class FakeExecutor:
         self.calls = 0
         # SiteController derives its local recovery engine from the response
         # executor's orchestrator. Keep the fake aligned with that contract.
-        self.orchestrator = object()
+        self.orchestrator = type("FakeOrchestrator", (), {"store": InMemoryStore()})()
 
     async def execute(self, command: SiteCommand) -> SiteCommandResult:
         self.calls += 1
@@ -145,6 +147,11 @@ async def test_command_result_survives_upload_failure_without_reexecution(tmp_pa
         tenant_id="tenant-a",
         site_id="site-a",
     )
+    response_update_outbox = SQLiteResponseUpdateOutbox(
+        tmp_path / "response-updates.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
     controller = ProductionSiteController(
         "tenant-a",
         "site-a",
@@ -152,6 +159,7 @@ async def test_command_result_survives_upload_failure_without_reexecution(tmp_pa
         command_client=client,
         response_executor=executor,
         result_outbox=result_outbox,
+        response_update_outbox=response_update_outbox,
     )
     try:
         first = await controller.poll_commands()
@@ -159,6 +167,7 @@ async def test_command_result_survives_upload_failure_without_reexecution(tmp_pa
     finally:
         event_spool.close()
         result_outbox.close()
+        response_update_outbox.close()
 
     assert first["state"] == "DEGRADED"
     assert first["unreported"] == 1
