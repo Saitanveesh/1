@@ -32,9 +32,9 @@ The repository provides certificate-generation/issuance primitives in
 revocation, site trust synchronization, and fleet-health APIs. Initial private-key generation
 still happens on the sensor side.
 
-The current collectors do not yet replace their active certificate/key files automatically.
-Use the renewal protocol with a new CSR and activate the returned credentials through a
-crash-safe deployment mechanism.
+Collectors now maintain managed credential generations under `MON_SENSOR_STATE_DIR` and
+rotate them automatically before expiry. The active generation is selected by an atomic
+pointer rather than by overwriting the live certificate and key in place.
 
 ## Sensor ingress configuration
 
@@ -88,10 +88,19 @@ MON_SENSOR_STATE_DIR=/var/lib/mon-sensor
 MON_SENSOR_BATCH_SIZE=100
 MON_SENSOR_POLL_INTERVAL_SECONDS=1
 MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS=30
+MON_SENSOR_RENEW_CHECK_INTERVAL_SECONDS=300
+MON_SENSOR_RENEW_BEFORE_SECONDS=604800
 MON_SENSOR_TIMEOUT_SECONDS=10
 ```
 
-The collector refuses to start if the tenant/site/sensor values do not match its certificate.
+On the first managed start, `MON_SENSOR_CLIENT_CERT_FILE` and
+`MON_SENSOR_CLIENT_KEY_FILE` bootstrap the credential store. After a durable active generation
+exists, later starts can use the managed state even if those bootstrap files are no longer
+present. `MON_SENSOR_SERVER_CA_CERT_FILE` remains required because it authenticates the
+sensor-ingress server.
+
+The collector refuses to start if the managed credential identity does not match the
+configured tenant/site/sensor scope.
 
 Collectors report `READY`/`DEGRADED` fleet heartbeat state through the authenticated
 sensor ingress. The control plane uses server receipt time for last-seen calculations and
@@ -152,6 +161,36 @@ not reset automatically.
 Rotation policies should retain the previous uncompressed file long enough for the collector
 to drain it.
 
+## Managed credential rotation
+
+Managed client credentials are stored under:
+
+```text
+MON_SENSOR_STATE_DIR/credentials/<scope-digest>/
+```
+
+A renewal writes a new private key and CSR into a new durable generation before contacting
+the server. If the renewal response is lost, the exact same CSR is replayed. The returned
+certificate is validated against that private key and the configured sensor identity.
+
+Before switching the active pointer, the collector proves the new certificate against the
+sensor-ingress health endpoint. A failed probe leaves the prior active generation unchanged
+and keeps the pending generation for retry.
+
+The default renewal lead time is seven days. Credential state is checked every five minutes;
+the check interval may be configured up to 15 minutes. A renewal lead time greater than or
+equal to the certificate's actual lifetime is rejected to prevent continuous rotation.
+
+On POSIX/Linux, private keys are written mode 0600, credential directories mode 0700, and
+file/directory fsync plus atomic replace is used around the active pointer. This crash
+durability claim is not yet extended to Windows-native collectors.
+
+If more than one collector process shares the same sensor identity and managed state,
+rotation is serialized with an OS file lock. Peers detect an advanced active fingerprint and
+load the new generation before continuing.
+
+The store retains at most the active and one previous generation after successful rotation.
+
 ## Managed enrollment and revocation
 
 Create a one-time sensor enrollment token through the control-plane
@@ -182,5 +221,11 @@ the durable local fingerprint allow set. The raw Site Controller sensor API rema
 internal loopback boundary.
 
 Revocation is application-layer authorization backed by the local trust snapshot; this is not
-a CRL/OCSP implementation. Automatic crash-safe replacement of the collectors' on-disk
-certificate/key pair remains a follow-up item.
+a CRL/OCSP implementation.
+
+There is one bounded recovery gap: if the control plane accepts a renewal, the collector
+crashes before the returned certificate is durably stored, and it stays down beyond the old
+certificate overlap window, automatic recovery cannot reconstruct that private credential.
+That case requires operator recovery or reenrollment. If the renewed certificate had already
+reached durable local storage, restart can probe and activate it even after the old overlap
+expires.
