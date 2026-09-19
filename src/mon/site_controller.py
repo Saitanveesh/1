@@ -15,6 +15,8 @@ from mon.domain import (
     ResponseExecutionStatus,
     SecurityEvent,
 )
+from mon.event_fabric import FabricPublisher
+from mon.event_fabric_outbox import DurableFabricOutbox
 from mon.pipeline import SecurityPipeline
 from mon.recovery import RecoveryEngine
 from mon.sensor_fleet_client import SensorFleetClient
@@ -406,6 +408,20 @@ class SQLiteEventSpool:
             self._connection.commit()
             return cursor.rowcount
 
+    def has_event(self, event_id: str) -> bool:
+        if self.tenant_id is None or self.site_id is None:
+            return False
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT 1
+                FROM event_spool
+                WHERE tenant_id = ? AND site_id = ? AND event_id = ?
+                """,
+                (self.tenant_id, self.site_id, event_id),
+            ).fetchone()
+        return row is not None
+
     def count(self) -> int:
         if self.tenant_id is None or self.site_id is None:
             return 0
@@ -524,6 +540,8 @@ class SiteController:
         response_executor: SiteResponseExecutor | None = None,
         sensor_fleet_client: SensorFleetClient | None = None,
         sensor_trust_store: SQLiteSensorTrustStore | None = None,
+        fabric_outbox: DurableFabricOutbox | None = None,
+        fabric_publisher: FabricPublisher | None = None,
     ) -> None:
         self.tenant_id = tenant_id
         self.site_id = site_id
@@ -534,6 +552,19 @@ class SiteController:
         self.command_client = command_client
         self.sensor_fleet_client = sensor_fleet_client
         self.sensor_trust_store = sensor_trust_store
+        self.fabric_outbox = fabric_outbox
+        self.fabric_publisher = fabric_publisher
+        if fabric_publisher is not None and fabric_outbox is None:
+            raise ValueError(
+                "fabric publisher requires a durable fabric outbox"
+            )
+        if fabric_outbox is not None and (
+            fabric_outbox.tenant_id != tenant_id
+            or fabric_outbox.site_id != site_id
+        ):
+            raise ValueError(
+                "fabric outbox scope does not match site-controller identity"
+            )
         if sensor_trust_store is not None and (
             sensor_trust_store.tenant_id != tenant_id
             or sensor_trust_store.site_id != site_id
@@ -691,8 +722,110 @@ class SiteController:
             "errors": errors,
         }
 
+    async def _flush_fabric(
+        self,
+        *,
+        limit: int,
+        analysis: dict[str, object],
+    ) -> dict[str, object]:
+        assert self.fabric_outbox is not None
+
+        reconciled = 0
+        for envelope in self.fabric_outbox.delivered_unreconciled(limit=limit):
+            self.spool.mark_delivered({envelope.event_id})
+            self.fabric_outbox.mark_source_reconciled(envelope.event_id)
+            reconciled += 1
+
+        staged = 0
+        for event in self.spool.pending(limit=limit):
+            existing = self.fabric_outbox.get(event.event_id)
+            self.fabric_outbox.enqueue_security_event(event)
+            if existing is None:
+                staged += 1
+            if self.fabric_outbox.is_delivered(event.event_id):
+                self.spool.mark_delivered({event.event_id})
+                self.fabric_outbox.mark_source_reconciled(event.event_id)
+                reconciled += 1
+
+        diagnostics = self.fabric_outbox.diagnostics()
+        pending = self.fabric_outbox.pending(limit=limit)
+        if not pending:
+            return {
+                "state": (
+                    "DEGRADED"
+                    if analysis["failed"]
+                    else "SYNCED"
+                ),
+                "attempted": 0,
+                "delivered": 0,
+                "queued": self.spool.count(),
+                "fabric_pending": diagnostics["pending"],
+                "fabric_staged": staged,
+                "fabric_reconciled": reconciled,
+                "analysis": analysis,
+            }
+
+        if self.fabric_publisher is None:
+            return {
+                "state": "OFFLINE",
+                "attempted": 0,
+                "delivered": 0,
+                "queued": self.spool.count(),
+                "fabric_pending": diagnostics["pending"],
+                "fabric_staged": staged,
+                "fabric_reconciled": reconciled,
+                "analysis": analysis,
+            }
+
+        attempted = 0
+        delivered = 0
+        error: str | None = None
+        for envelope in pending:
+            attempted += 1
+            try:
+                await self.fabric_publisher.publish(envelope)
+            except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+                error = str(exc)[:1000]
+                self.fabric_outbox.mark_failed(envelope.event_id, error)
+                # Preserve one logical ordering domain per tenant/site. Later
+                # envelopes are not allowed to overtake a failed predecessor.
+                break
+            self.fabric_outbox.mark_delivered(envelope.event_id)
+            self.spool.mark_delivered({envelope.event_id})
+            self.fabric_outbox.mark_source_reconciled(envelope.event_id)
+            delivered += 1
+            reconciled += 1
+
+        diagnostics = self.fabric_outbox.diagnostics()
+        state = (
+            "SYNCED"
+            if diagnostics["pending"] == 0
+            and error is None
+            and analysis["failed"] == 0
+            else "DEGRADED"
+        )
+        result: dict[str, object] = {
+            "state": state,
+            "attempted": attempted,
+            "delivered": delivered,
+            "queued": self.spool.count(),
+            "fabric_pending": diagnostics["pending"],
+            "fabric_staged": staged,
+            "fabric_reconciled": reconciled,
+            "analysis": analysis,
+        }
+        if error is not None:
+            result["error"] = error
+        return result
+
     async def flush(self, limit: int = 100) -> dict[str, object]:
         analysis = self.recover_pending_analysis(limit=limit)
+        if self.fabric_outbox is not None:
+            return await self._flush_fabric(
+                limit=limit,
+                analysis=analysis,
+            )
+
         events = self.spool.pending(limit=limit)
         diagnostics = self.spool.diagnostics()
         if not events:
@@ -871,10 +1004,19 @@ class SiteController:
             if self.sensor_trust_store is not None
             else None
         )
+        fabric_state = (
+            self.fabric_outbox.diagnostics()
+            if self.fabric_outbox is not None
+            else None
+        )
         degraded = bool(
             diagnostics["last_error"]
             or diagnostics["analysis_last_error"]
             or diagnostics["analysis_pending"]
+            or (
+                fabric_state is not None
+                and fabric_state["last_error"]
+            )
         )
         if (
             sensor_trust is not None
@@ -888,7 +1030,10 @@ class SiteController:
             "state": "DEGRADED" if degraded else "READY",
             "tenant_id": self.tenant_id,
             "site_id": self.site_id,
-            "cloud_sender_configured": self.sender is not None,
+            "cloud_sender_configured": (
+                self.sender is not None or self.fabric_publisher is not None
+            ),
+            "fabric_outbox": fabric_state,
             "local_recovery_configured": self.recovery_engine is not None,
             "command_channel_configured": (
                 self.command_client is not None and self.response_executor is not None
