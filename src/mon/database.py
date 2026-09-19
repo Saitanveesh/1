@@ -1207,6 +1207,93 @@ class DatabaseStore:
             sensor_row.payload = updated.model_dump(mode="json")
             return updated
 
+    def get_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> FabricReceipt | None:
+        row = self._get(
+            FabricReceiptRow,
+            tenant_id,
+            site_id,
+            event_id,
+        )
+        if row is None:
+            return None
+        return FabricReceipt(
+            event_id=row.event_id,
+            tenant_id=row.tenant_id,
+            site_id=row.site_id,
+            envelope_sha256=row.envelope_sha256,
+            envelope_json=row.envelope_json,
+            processed_at=row.processed_at,
+        )
+
+    @staticmethod
+    def _receipt_matches(
+        existing: FabricReceipt,
+        receipt: FabricReceipt,
+    ) -> bool:
+        return (
+            existing.event_id == receipt.event_id
+            and existing.tenant_id == receipt.tenant_id
+            and existing.site_id == receipt.site_id
+            and existing.envelope_sha256 == receipt.envelope_sha256
+            and existing.envelope_json == receipt.envelope_json
+        )
+
+    def add_fabric_receipt(
+        self,
+        receipt: FabricReceipt,
+    ) -> FabricReceipt:
+        existing = self.get_fabric_receipt(
+            receipt.tenant_id,
+            receipt.site_id,
+            receipt.event_id,
+        )
+        if existing is not None:
+            if not self._receipt_matches(existing, receipt):
+                raise ValueError(
+                    "fabric receipt already exists with different envelope"
+                )
+            return existing
+
+        row = FabricReceiptRow(
+            pk=_key(receipt.tenant_id, receipt.site_id, receipt.event_id),
+            tenant_id=receipt.tenant_id,
+            site_id=receipt.site_id,
+            event_id=receipt.event_id,
+            envelope_sha256=receipt.envelope_sha256,
+            envelope_json=receipt.envelope_json,
+            processed_at=receipt.processed_at,
+        )
+        active = self._active_session()
+        if active is not None:
+            active.add(row)
+            active.flush()
+            return receipt
+
+        try:
+            with self._session_factory.begin() as session:
+                session.add(row)
+                session.flush()
+        except IntegrityError:
+            existing = self.get_fabric_receipt(
+                receipt.tenant_id,
+                receipt.site_id,
+                receipt.event_id,
+            )
+            if (
+                existing is None
+                or not self._receipt_matches(existing, receipt)
+            ):
+                raise ValueError(
+                    "fabric receipt already exists with different envelope"
+                ) from None
+            return existing
+        return receipt
+
     def _merge(self, row: Any) -> None:
         active = self._active_session()
         if active is not None:
