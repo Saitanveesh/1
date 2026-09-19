@@ -409,7 +409,7 @@ async def test_sensor_ingress_rejects_connection_without_client_certificate(
             timeout=5,
             trust_env=False,
         ) as client:
-            with pytest.raises(httpx.ConnectError):
+            with pytest.raises(httpx.TransportError):
                 await client.get(f"https://localhost:{port}/health")
     finally:
         await runner.cleanup()
