@@ -37,6 +37,21 @@ class SiteResponseUpdateReconciler:
                     f"response update cannot mutate {field_name}"
                 )
 
+    def _validate_audit_records(self, update: SiteResponseUpdate) -> None:
+        existing = {
+            record.audit_id: record
+            for record in self.store.list_audit_records(
+                update.tenant_id,
+                update.site_id,
+            )
+        }
+        for record in update.audit_records:
+            prior = existing.get(record.audit_id)
+            if prior is not None and prior != record:
+                raise SiteResponseUpdateError(
+                    "response update cannot overwrite an existing audit record"
+                )
+
     @staticmethod
     def _is_idempotent(
         current: ResponseExecution,
@@ -73,6 +88,7 @@ class SiteResponseUpdateReconciler:
             raise SiteResponseUpdateError("response update references an unknown execution")
 
         self._validate_immutable_state(current, reported)
+        self._validate_audit_records(update)
 
         if self._is_idempotent(current, reported):
             for record in update.audit_records:
@@ -99,11 +115,11 @@ class SiteResponseUpdateReconciler:
                 object_id=reported.execution_id,
                 action="SITE_RECOVERY_REPORT",
                 outcome="ACCEPTED",
-                occurred_at=update.observed_at,
                 details={
                     "update_id": update.update_id,
                     "previous_status": current.status.value,
                     "reported_status": reported.status.value,
+                    "site_observed_at": update.observed_at.isoformat(),
                 },
             )
         )
