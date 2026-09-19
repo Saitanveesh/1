@@ -19,7 +19,29 @@ from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 
 
-class Store(Protocol):
+class ResponseStateStore(Protocol):
+    """Persistence contract required by local response execution and recovery."""
+
+    def add_response_execution(
+        self, execution: ResponseExecution
+    ) -> ResponseExecution: ...
+
+    def get_response_execution(
+        self, tenant_id: str, site_id: str, execution_id: str
+    ) -> ResponseExecution | None: ...
+
+    def list_response_executions(
+        self, tenant_id: str, site_id: str
+    ) -> list[ResponseExecution]: ...
+
+    def add_audit_record(self, record: AuditRecord) -> AuditRecord: ...
+
+    def list_audit_records(
+        self, tenant_id: str, site_id: str
+    ) -> list[AuditRecord]: ...
+
+
+class Store(ResponseStateStore, Protocol):
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
 
     def add_event(self, event: SecurityEvent) -> SecurityEvent: ...
@@ -77,24 +99,6 @@ class Store(Protocol):
     def list_site_identities(
         self, tenant_id: str, site_id: str
     ) -> list[SiteIdentityRecord]: ...
-
-    def add_response_execution(
-        self, execution: ResponseExecution
-    ) -> ResponseExecution: ...
-
-    def get_response_execution(
-        self, tenant_id: str, site_id: str, execution_id: str
-    ) -> ResponseExecution | None: ...
-
-    def list_response_executions(
-        self, tenant_id: str, site_id: str
-    ) -> list[ResponseExecution]: ...
-
-    def add_audit_record(self, record: AuditRecord) -> AuditRecord: ...
-
-    def list_audit_records(
-        self, tenant_id: str, site_id: str
-    ) -> list[AuditRecord]: ...
 
     def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord: ...
 
