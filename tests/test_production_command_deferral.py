@@ -81,6 +81,8 @@ class DeferredExecutor:
     def __init__(self, command: SiteCommand) -> None:
         assert command.response_plan is not None
         self.calls = 0
+        self.tenant_id = command.tenant_id
+        self.site_id = command.site_id
         self.execution = ResponseExecution(
             execution_id=command.response_plan.request.request_id,
             tenant_id=command.tenant_id,
