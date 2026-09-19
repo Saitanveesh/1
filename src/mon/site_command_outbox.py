@@ -141,7 +141,7 @@ class SQLiteCommandResultOutbox:
                 UPDATE command_result_outbox
                 SET attempts = attempts + 1, last_error = ?
                 WHERE command_id = ? AND tenant_id = ? AND site_id = ?
-                  AND reported_at IS NULL
+                  AND reported_at IS NULL AND superseded_at IS NULL
                 """,
                 (error[:1000], command_id, self.tenant_id, self.site_id),
             )
