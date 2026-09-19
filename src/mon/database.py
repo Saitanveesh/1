@@ -832,7 +832,7 @@ class DatabaseStore:
         previous: SensorIdentityRecord,
         successor: SensorIdentityRecord,
     ) -> bool:
-        statement = (
+        identity_statement = (
             select(SensorIdentityRow)
             .where(SensorIdentityRow.identity_id == previous_identity_id)
             .with_for_update()
@@ -844,8 +844,8 @@ class DatabaseStore:
             .with_for_update()
         )
         with self._session_factory.begin() as session:
-            previous_row = session.scalar(statement)
             sensor_row = session.scalar(sensor_statement)
+            previous_row = session.scalar(identity_statement)
             if previous_row is None or sensor_row is None:
                 return False
             stored_previous = SensorIdentityRecord.model_validate(
@@ -887,6 +887,67 @@ class DatabaseStore:
             sensor_row.revoked_at = sensor.revoked_at
             sensor_row.payload = sensor.model_dump(mode="json")
         return True
+
+    def revoke_sensor_lifecycle(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str,
+        *,
+        actor_id: str,
+        reason: str,
+        now: dt.datetime,
+    ) -> SensorRecord | None:
+        sensor_pk = _key(tenant_id, site_id, sensor_id)
+        sensor_statement = (
+            select(SensorRecordRow)
+            .where(SensorRecordRow.pk == sensor_pk)
+            .with_for_update()
+        )
+        identities_statement = (
+            select(SensorIdentityRow)
+            .where(
+                SensorIdentityRow.tenant_id == tenant_id,
+                SensorIdentityRow.site_id == site_id,
+                SensorIdentityRow.sensor_id == sensor_id,
+            )
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            sensor_row = session.scalar(sensor_statement)
+            if sensor_row is None:
+                return None
+            stored = SensorRecord.model_validate(sensor_row.payload)
+            if stored.revoked_at is not None:
+                return stored
+
+            updated = stored.model_copy(
+                update={
+                    "updated_at": now,
+                    "revoked_at": now,
+                    "revoked_by": actor_id,
+                    "revocation_reason": reason,
+                }
+            )
+            sensor_row.revoked_at = now
+            sensor_row.payload = updated.model_dump(mode="json")
+
+            identity_rows = session.scalars(identities_statement).all()
+            for row in identity_rows:
+                identity = SensorIdentityRecord.model_validate(row.payload)
+                revoked = identity.model_copy(
+                    update={
+                        "status": "REVOKED",
+                        "accept_until": None,
+                        "revoked_at": now,
+                        "revoked_by": actor_id,
+                        "revocation_reason": reason,
+                    }
+                )
+                row.status = revoked.status.value
+                row.accept_until = None
+                row.payload = revoked.model_dump(mode="json")
+            return updated
 
     def _merge(self, row: Any) -> None:
         with self._session_factory.begin() as session:
