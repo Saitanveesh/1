@@ -11,8 +11,8 @@ from mon.connector_secrets import (
     ConnectorSecretCipher,
     ConnectorSecretError,
     ConnectorSecretIntegrityError,
-    ConnectorSecretKeyUnavailable,
     ConnectorSecretKeyring,
+    ConnectorSecretKeyUnavailable,
     ConnectorSecretNotFound,
     ConnectorSecretVault,
 )
