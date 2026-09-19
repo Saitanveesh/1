@@ -64,4 +64,4 @@ New infrastructure is justified by measurements rather than projected vanity sca
 - PostgreSQL remains authoritative for control state while telemetry can scale independently.
 - Push delivery remains immediate but gains an explicit backpressure/resync contract.
 - Redpanda/Kafka and ClickHouse are architectural candidates, not mandatory dependencies in small deployments.
-- The next implementation slices are a typed event-fabric envelope/adapter, durable consumer idempotency tests, then measured broker/load integration. PostgreSQL RLS follows as a separate defense-in-depth change with dedicated integration coverage.
+- The next implementation slices are a typed event-fabric envelope/adapter, durable consumer idempotency tests, then measured broker/load integration. PostgreSQL RLS is implemented by ADR 0040 with transaction-scoped tenant/site context and dedicated non-bypass integration coverage.
