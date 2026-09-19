@@ -6,6 +6,7 @@ from collections import defaultdict
 from contextlib import AbstractContextManager
 from typing import Protocol, runtime_checkable
 
+from mon.analysis_checkpoint import AnalysisCheckpointPayload
 from mon.audit_integrity import AuditIntegrityError
 from mon.domain import (
     Asset,
@@ -92,6 +93,24 @@ class TransactionalPipelineStore(PipelineStore, Protocol):
         tenant_id: str,
         site_id: str,
     ) -> list[SecurityEvent]: ...
+
+
+@runtime_checkable
+class AnalysisCheckpointStore(TransactionalPipelineStore, Protocol):
+    """Optional durable checkpoint contract for local analysis restore."""
+
+    def save_analysis_checkpoint(
+        self,
+        checkpoint: AnalysisCheckpointPayload,
+    ) -> None: ...
+
+    def iter_analysis_checkpoints(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[AnalysisCheckpointPayload]: ...
+
+    def compact_analysis_checkpoints(self, *, retain: int = 3) -> int: ...
 
 
 class FabricReceiptStore(Protocol):

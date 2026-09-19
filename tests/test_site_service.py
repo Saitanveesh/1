@@ -45,6 +45,7 @@ def test_offline_site_service_builds_all_durable_state(tmp_path) -> None:
             "incidents": 0,
             "graph_finding_attachments": 0,
             "correlation_pointers": 0,
+            "checkpoint_used": 0,
         }
         assert resources.analysis_store.diagnostics()["tenant_id"] == "tenant-a"
         assert resources.response_store.diagnostics()["tenant_id"] == "tenant-a"

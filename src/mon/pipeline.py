@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import datetime as dt
 import threading
+import uuid
 from enum import StrEnum
 
+from mon.analysis_checkpoint import AnalysisCheckpointPayload
 from mon.asset_engine import AssetEngine
 from mon.attack_graph import AttackGraphEngine
 from mon.correlation import CorrelationEngine
 from mon.detection import DetectionEngine
 from mon.domain import EventProcessingResult, SecurityEvent
 from mon.store import (
+    AnalysisCheckpointStore,
     InMemoryStore,
     PipelineStore,
     TransactionalPipelineStore,
@@ -19,6 +23,7 @@ from mon.telemetry import TelemetryEngine
 class PipelinePersistenceMode(StrEnum):
     MEMORY_ONLY = "MEMORY_ONLY"
     DURABLE_RESTORED = "DURABLE_RESTORED"
+    DURABLE_CHECKPOINT_RESTORED = "DURABLE_CHECKPOINT_RESTORED"
 
 
 class PipelineStateError(RuntimeError):
@@ -45,7 +50,7 @@ class SecurityPipeline:
         self.asset_engine = AssetEngine(self.store)
         self.telemetry = telemetry or TelemetryEngine()
         self.persistence_mode = persistence_mode
-        self.last_restore: dict[str, int] | None = None
+        self.last_restore: dict[str, object] | None = None
         self._lock = threading.RLock()
 
     def reset(self) -> None:
@@ -58,7 +63,7 @@ class SecurityPipeline:
             self.telemetry.reset()
             self.last_restore = None
 
-    def restore_scope(self, tenant_id: str, site_id: str) -> dict[str, int]:
+    def restore_scope(self, tenant_id: str, site_id: str) -> dict[str, object]:
         """Rebuild bounded in-memory engines from durable local evidence state."""
         with self._lock:
             if isinstance(self.store, TransactionalPipelineStore):
@@ -69,12 +74,45 @@ class SecurityPipeline:
                         "processing receipts"
                     )
 
+            checkpoint = None
+            if isinstance(self.store, AnalysisCheckpointStore):
+                checkpoints = self.store.iter_analysis_checkpoints(tenant_id, site_id)
+                checkpoint = checkpoints[0] if checkpoints else None
+
             self.detector.reset()
             self.graph.reset()
             self.correlator.reset()
             self.telemetry.reset()
 
-            events = self.store.list_events(tenant_id, site_id)
+            if checkpoint is not None:
+                self.detector.restore_checkpoint(tenant_id, site_id, checkpoint.detector)
+                self.telemetry.restore_checkpoint(tenant_id, site_id, checkpoint.telemetry)
+                self.graph.restore_checkpoint(checkpoint.attack_graph)
+                self.correlator.restore_checkpoint(
+                    tenant_id,
+                    site_id,
+                    checkpoint.correlation,
+                )
+                replay_source = self.store.list_events(
+                    tenant_id,
+                    site_id,
+                    since=checkpoint.boundary_observed_at,
+                )
+                events = [
+                    event
+                    for event in replay_source
+                    if (
+                        event.observed_at,
+                        event.event_id,
+                    )
+                    > (
+                        checkpoint.boundary_observed_at,
+                        checkpoint.boundary_event_id,
+                    )
+                ]
+            else:
+                events = self.store.list_events(tenant_id, site_id)
+
             for event in events:
                 self.telemetry.observe(event)
                 self.graph.observe_event(event)
@@ -96,9 +134,45 @@ class SecurityPipeline:
                 "incidents": len(incidents),
                 "graph_finding_attachments": attached,
                 "correlation_pointers": correlation_pointers,
+                "checkpoint_used": 1 if checkpoint is not None else 0,
             }
+            if checkpoint is not None:
+                restored["checkpoint_boundary_replayed_events"] = len(events)
+                restored["checkpoint_boundary_event"] = checkpoint.boundary_event_id
+                self.persistence_mode = (
+                    PipelinePersistenceMode.DURABLE_CHECKPOINT_RESTORED
+                )
             self.last_restore = restored
             return restored
+
+    def create_analysis_checkpoint(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> AnalysisCheckpointPayload | None:
+        if not isinstance(self.store, AnalysisCheckpointStore):
+            return None
+        with self._lock:
+            events = self.store.list_events(tenant_id, site_id)
+            if not events:
+                return None
+            boundary = events[-1]
+            checkpoint = AnalysisCheckpointPayload(
+                tenant_id=tenant_id,
+                site_id=site_id,
+                checkpoint_id=str(uuid.uuid4()),
+                created_at=dt.datetime.now(dt.UTC),
+                boundary_event_id=boundary.event_id,
+                boundary_observed_at=boundary.observed_at,
+                detector=self.detector.export_checkpoint(tenant_id, site_id),
+                telemetry=self.telemetry.export_checkpoint(tenant_id, site_id),
+                correlation=self.correlator.export_checkpoint(tenant_id, site_id),
+                attack_graph=self.graph.snapshot(tenant_id, site_id),
+                asset_analysis={"source": "durable-assets-authoritative"},
+            )
+            self.store.save_analysis_checkpoint(checkpoint)
+            self.store.compact_analysis_checkpoints(retain=3)
+            return checkpoint
 
     def _process_new_event(self, event: SecurityEvent) -> EventProcessingResult:
         stored = self.store.add_event(event)
@@ -144,6 +218,7 @@ class SecurityPipeline:
                 with self.store.transaction():
                     result = self._process_new_event(event)
                     self.store.mark_event_processed(event)
+                self.create_analysis_checkpoint(event.tenant_id, event.site_id)
                 return result
             except Exception:
                 # Engine memory may have advanced before the durable transaction

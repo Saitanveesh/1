@@ -5,6 +5,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol
 
+from mon.analysis_checkpoint import (
+    ActiveCorrelationCheckpoint,
+    CorrelationStateCheckpoint,
+)
 from mon.domain import Finding, Incident, IncidentStatus, Severity, utcnow
 
 
@@ -43,6 +47,44 @@ class CorrelationEngine:
 
     def reset(self) -> None:
         self._active.clear()
+
+    def export_checkpoint(self, tenant_id: str, site_id: str) -> CorrelationStateCheckpoint:
+        return CorrelationStateCheckpoint(
+            window_seconds=self.window_seconds,
+            active=[
+                ActiveCorrelationCheckpoint(
+                    tenant_id=scope_tenant,
+                    site_id=scope_site,
+                    actor=actor,
+                    incident_id=active.incident_id,
+                    last_seen=active.last_seen,
+                )
+                for (scope_tenant, scope_site, actor), active
+                in sorted(self._active.items())
+                if scope_tenant == tenant_id and scope_site == site_id
+            ],
+        )
+
+    def restore_checkpoint(
+        self,
+        tenant_id: str,
+        site_id: str,
+        state: CorrelationStateCheckpoint,
+    ) -> None:
+        self.window_seconds = state.window_seconds
+        for key in [
+            key
+            for key in self._active
+            if key[0] == tenant_id and key[1] == site_id
+        ]:
+            del self._active[key]
+        for item in state.active:
+            if item.tenant_id != tenant_id or item.site_id != site_id:
+                raise ValueError("correlation checkpoint scope mismatch")
+            self._active[(item.tenant_id, item.site_id, item.actor)] = _ActiveIncident(
+                incident_id=item.incident_id,
+                last_seen=item.last_seen,
+            )
 
     def restore(
         self,

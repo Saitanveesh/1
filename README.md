@@ -52,17 +52,19 @@ Implemented foundations include:
 - typed tenant/site event-fabric envelopes with durable local consumer idempotency;
 - durable exact-envelope producer outbox with ordered retry and crash reconciliation;
 - verified site-mTLS fabric ingress with durable control-plane processing receipts;
+- tenant/site-scoped durable local analysis checkpoints for bounded warm restore without
+  deleting forensic evidence;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
 
 Known boundaries are reported explicitly rather than hidden. Local evidence objects
 (events, assets, findings, and incidents) are durable; detector/correlation/graph windows are
-warm-restored after restart; and one event plus its derived durable state is committed as an
-atomic local analysis unit before the event becomes cloud-deliverable. The remaining local
-scale boundary is retained-history growth and linear warm-restore cost. The nftables adapter
-in this repository remains disposable-sandbox-only rather than a production host firewall
-connector.
+warm-restored after restart from integrity-checked analysis checkpoints plus post-boundary
+event replay; and one event plus its derived durable state is committed as an atomic local
+analysis unit before the event becomes cloud-deliverable. Local forensic history is not
+silently pruned by checkpoint maintenance. The nftables adapter in this repository remains
+disposable-sandbox-only rather than a production host firewall connector.
 
 See:
 
