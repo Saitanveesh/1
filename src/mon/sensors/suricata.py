@@ -382,8 +382,14 @@ class SuricataEveNormalizer:
             evidence_class = EvidenceClass.NETWORK_FLOW
             confidence = 0.95
         elif event_type == "dns":
-            category = "dns.query"
             attributes = self._dns_attributes(record)
+            dns_type = str(attributes.get("dns_type") or "").casefold()
+            if dns_type in {"request", "query"}:
+                category = "dns.query"
+            elif dns_type in {"response", "answer"}:
+                category = "dns.response"
+            else:
+                category = "dns.transaction"
             query = attributes.get("dns_query")
             summary = (
                 f"Suricata DNS telemetry for {query}"
