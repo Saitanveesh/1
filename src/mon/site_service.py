@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from mon.enforcement import EnforcementRegistry
 from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
 from mon.production_site_controller import ProductionSiteController
+from mon.sensor_fleet_client import HttpSensorFleetClient
 from mon.site_analysis_store import SQLiteSiteAnalysisStore
 from mon.site_api import create_site_app
 from mon.site_command_client import HttpSiteCommandClient
@@ -23,6 +24,7 @@ from mon.site_identity import create_mtls_client_ssl_context
 from mon.site_response import SiteResponseExecutor
 from mon.site_response_outbox import SQLiteResponseUpdateOutbox
 from mon.site_response_store import SQLiteSiteResponseStore
+from mon.site_sensor_trust import SQLiteSensorTrustStore
 from mon.site_runtime import SiteControllerRuntime
 
 
@@ -46,6 +48,7 @@ class SiteServiceConfig:
     flush_interval_seconds: float = 5.0
     recovery_interval_seconds: float = 5.0
     command_interval_seconds: float = 2.0
+    sensor_trust_interval_seconds: float = 15.0
     request_timeout_seconds: float = 10.0
 
     def validate(self) -> SiteServiceConfig:
@@ -73,6 +76,7 @@ class SiteServiceConfig:
             "flush_interval_seconds": self.flush_interval_seconds,
             "recovery_interval_seconds": self.recovery_interval_seconds,
             "command_interval_seconds": self.command_interval_seconds,
+            "sensor_trust_interval_seconds": self.sensor_trust_interval_seconds,
             "request_timeout_seconds": self.request_timeout_seconds,
         }
         for name, value in intervals.items():
@@ -202,6 +206,10 @@ class SiteServiceConfig:
                 "MON_SITE_COMMAND_INTERVAL_SECONDS",
                 "2",
             ),
+            sensor_trust_interval_seconds=positive_float(
+                "MON_SITE_SENSOR_TRUST_INTERVAL_SECONDS",
+                "15",
+            ),
             request_timeout_seconds=positive_float(
                 "MON_SITE_REQUEST_TIMEOUT_SECONDS",
                 "10",
@@ -220,8 +228,10 @@ class SiteServiceResources:
     response_store: SQLiteSiteResponseStore
     command_result_outbox: SQLiteCommandResultOutbox
     response_update_outbox: SQLiteResponseUpdateOutbox
+    sensor_trust_store: SQLiteSensorTrustStore
 
     def close(self) -> None:
+        self.sensor_trust_store.close()
         self.response_update_outbox.close()
         self.command_result_outbox.close()
         self.response_store.close()
@@ -262,6 +272,11 @@ def build_site_service_resources(
         tenant_id=config.tenant_id,
         site_id=config.site_id,
     )
+    sensor_trust_store = SQLiteSensorTrustStore(
+        config.state_dir / "sensor-trust.db",
+        tenant_id=config.tenant_id,
+        site_id=config.site_id,
+    )
 
     try:
         pipeline = SecurityPipeline(
@@ -280,6 +295,7 @@ def build_site_service_resources(
 
         sender = None
         command_client = None
+        sensor_fleet_client = None
         if config.ingress_url is not None:
             assert config.bearer_token is not None
             assert config.ca_certificate_file is not None
@@ -303,6 +319,12 @@ def build_site_service_resources(
                 ssl_context=ssl_context,
                 timeout_seconds=config.request_timeout_seconds,
             )
+            sensor_fleet_client = HttpSensorFleetClient(
+                config.ingress_url,
+                bearer_token=config.bearer_token,
+                ssl_context=ssl_context,
+                timeout_seconds=config.request_timeout_seconds,
+            )
 
         controller = ProductionSiteController(
             config.tenant_id,
@@ -312,8 +334,11 @@ def build_site_service_resources(
             pipeline=pipeline,
             command_client=command_client,
             response_executor=response_executor,
+            sensor_fleet_client=sensor_fleet_client,
+            sensor_trust_store=sensor_trust_store,
             result_outbox=command_result_outbox,
             response_update_outbox=response_update_outbox,
+            sensor_trust_store=sensor_trust_store,
         )
         controller.recover_pending_analysis(limit=1000)
         runtime = SiteControllerRuntime(
@@ -321,6 +346,7 @@ def build_site_service_resources(
             flush_interval_seconds=config.flush_interval_seconds,
             recovery_interval_seconds=config.recovery_interval_seconds,
             command_interval_seconds=config.command_interval_seconds,
+            sensor_trust_interval_seconds=config.sensor_trust_interval_seconds,
         )
         return SiteServiceResources(
             config=config,
@@ -333,6 +359,7 @@ def build_site_service_resources(
             response_update_outbox=response_update_outbox,
         )
     except Exception:
+        sensor_trust_store.close()
         response_update_outbox.close()
         command_result_outbox.close()
         response_store.close()
