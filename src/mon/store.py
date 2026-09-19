@@ -223,6 +223,17 @@ class Store(PipelineStore, ResponseStateStore, Protocol):
         successor: SensorIdentityRecord,
     ) -> bool: ...
 
+    def revoke_sensor_lifecycle(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str,
+        *,
+        actor_id: str,
+        reason: str,
+        now: dt.datetime,
+    ) -> SensorRecord | None: ...
+
     def add_site_command(self, record: SiteCommandRecord) -> SiteCommandRecord: ...
 
     def get_site_command(
@@ -579,6 +590,49 @@ class InMemoryStore:
                 (sensor.tenant_id, sensor.site_id, sensor.sensor_id)
             ] = sensor
             return True
+
+    def revoke_sensor_lifecycle(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str,
+        *,
+        actor_id: str,
+        reason: str,
+        now: dt.datetime,
+    ) -> SensorRecord | None:
+        with self._identity_lock:
+            key = (tenant_id, site_id, sensor_id)
+            sensor = self.sensor_records.get(key)
+            if sensor is None:
+                return None
+            if sensor.revoked_at is not None:
+                return sensor
+            updated = sensor.model_copy(
+                update={
+                    "updated_at": now,
+                    "revoked_at": now,
+                    "revoked_by": actor_id,
+                    "revocation_reason": reason,
+                }
+            )
+            self.sensor_records[key] = updated
+            for identity_id, identity in list(self.sensor_identities.items()):
+                if (
+                    identity.tenant_id == tenant_id
+                    and identity.site_id == site_id
+                    and identity.sensor_id == sensor_id
+                ):
+                    self.sensor_identities[identity_id] = identity.model_copy(
+                        update={
+                            "status": "REVOKED",
+                            "accept_until": None,
+                            "revoked_at": now,
+                            "revoked_by": actor_id,
+                            "revocation_reason": reason,
+                        }
+                    )
+            return updated
 
     def add_response_execution(
         self,
