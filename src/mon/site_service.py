@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import os
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -56,6 +57,18 @@ class SiteServiceConfig:
             raise SiteServiceConfigurationError(
                 "listen_port must be between 1 and 65535"
             )
+        host = self.listen_host.strip()
+        if host != "localhost":
+            try:
+                address = ipaddress.ip_address(host)
+            except ValueError as exc:
+                raise SiteServiceConfigurationError(
+                    "production Site Controller host must be a loopback address"
+                ) from exc
+            if not address.is_loopback:
+                raise SiteServiceConfigurationError(
+                    "production Site Controller host must be a loopback address"
+                )
         intervals = {
             "flush_interval_seconds": self.flush_interval_seconds,
             "recovery_interval_seconds": self.recovery_interval_seconds,
