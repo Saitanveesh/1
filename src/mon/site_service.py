@@ -302,6 +302,7 @@ def build_site_service_resources(
             result_outbox=command_result_outbox,
             response_update_outbox=response_update_outbox,
         )
+        controller.recover_pending_analysis(limit=1000)
         runtime = SiteControllerRuntime(
             controller,
             flush_interval_seconds=config.flush_interval_seconds,
