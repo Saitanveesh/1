@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from mon.domain import (
     ActionType,
+    EnforcementBinding,
     EnforcementKind,
     EnforcementPoint,
     ResponseRequest,
@@ -60,3 +61,16 @@ def test_enforcement_point_accepts_credential_reference() -> None:
         attributes={"endpoint": "https://firewall.example.test"},
     )
     assert point.credential_ref == "edge-firewall-production"
+
+
+
+def test_enforcement_binding_rejects_inline_connector_credentials() -> None:
+    with pytest.raises(ValidationError, match="inline connector credential"):
+        EnforcementBinding(
+            binding_id="binding-1",
+            tenant_id="tenant-a",
+            site_id="site-1",
+            asset_id="asset-1",
+            enforcement_point_id="edge-fw",
+            attributes={"password": "must-not-be-stored-here"},
+        )
