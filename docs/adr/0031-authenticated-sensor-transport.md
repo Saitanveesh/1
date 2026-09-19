@@ -128,6 +128,7 @@ A source checkpoint contains:
 - device id;
 - inode;
 - byte offset;
+- SHA-256 anchor over the bytes immediately preceding the committed offset;
 - update time;
 - failure diagnostics;
 - filtered-record count.
@@ -146,9 +147,11 @@ A committed cursor is tied to device/inode, not only a filename.
 If the configured filename points to a new inode, the collector scans sibling files for the
 previous inode and drains it before transitioning to byte zero of the replacement file.
 
-If the previous inode cannot be located, or the same inode has been truncated below the
-committed offset, MON reports a rotation/truncation gap and does not silently reset the
-cursor. This prefers visible telemetry uncertainty over hidden data loss.
+If the previous inode cannot be located, the same inode has been truncated below the
+committed offset, or the committed content anchor no longer matches, MON reports a
+rotation/truncation gap and does not silently reset the cursor. The content anchor prevents
+filesystem inode reuse from being mistaken for continuity. This prefers visible telemetry
+uncertainty over hidden data loss.
 
 This design cannot recover data if an external rotation/compression policy destroys the old
 inode before the collector drains it. Operators must configure retention/rotation so the
