@@ -1208,6 +1208,11 @@ class DatabaseStore:
             return updated
 
     def _merge(self, row: Any) -> None:
+        active = self._active_session()
+        if active is not None:
+            active.merge(row)
+            active.flush()
+            return
         with self._session_factory.begin() as session:
             session.merge(row)
 
@@ -1218,8 +1223,12 @@ class DatabaseStore:
         site_id: str,
         object_id: str,
     ) -> Any | None:
+        key = _key(tenant_id, site_id, object_id)
+        active = self._active_session()
+        if active is not None:
+            return active.get(row_type, key)
         with self._session_factory() as session:
-            return session.get(row_type, _key(tenant_id, site_id, object_id))
+            return session.get(row_type, key)
 
     def _list_scope(
         self,
@@ -1231,6 +1240,9 @@ class DatabaseStore:
             row_type.tenant_id == tenant_id,
             row_type.site_id == site_id,
         )
+        active = self._active_session()
+        if active is not None:
+            return list(active.scalars(statement).all())
         with self._session_factory() as session:
             return list(session.scalars(statement).all())
 
