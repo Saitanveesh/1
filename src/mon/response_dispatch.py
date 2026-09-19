@@ -26,7 +26,6 @@ from mon.site_command_models import (
 from mon.site_command_queue import SiteCommandQueue
 from mon.store import Store
 
-
 _COMMAND_NAMESPACE = uuid.UUID("fb2afb63-d8b1-4a68-98d6-a65b131f635f")
 
 
