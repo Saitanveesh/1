@@ -317,6 +317,7 @@ class SiteResponseExecutor:
             actor_id,
             {
                 "command_id": command.command_id,
+                "command_not_after": command.not_after.isoformat(),
                 "enforcement_point_id": plan.enforcement_point.enforcement_point_id,
             },
         )
