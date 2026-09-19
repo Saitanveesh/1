@@ -300,7 +300,8 @@ async def test_failed_renewal_keeps_old_active_and_persists_retry_state(
         await rotate_sensor_credentials_if_due(
             store,
             client,
-            renew_before=dt.timedelta(days=90),
+            renew_before=dt.timedelta(days=7),
+            now=original.expires_at - dt.timedelta(days=1),
         )
 
     pending = store.pending_renewal()
@@ -338,7 +339,8 @@ async def test_persisted_candidate_recovers_without_old_credential_reissue(
         await rotate_sensor_credentials_if_due(
             store,
             first_client,
-            renew_before=dt.timedelta(days=90),
+            renew_before=dt.timedelta(days=7),
+            now=original.expires_at - dt.timedelta(days=1),
         )
 
     candidate = store.pending_generation()
@@ -362,7 +364,7 @@ async def test_persisted_candidate_recovers_without_old_credential_reissue(
     recovered = await rotate_sensor_credentials_if_due(
         reopened,
         second_client,
-        renew_before=dt.timedelta(days=90),
+        renew_before=dt.timedelta(days=7),
         now=original.expires_at + dt.timedelta(days=1),
     )
 
@@ -388,7 +390,8 @@ async def test_successful_rotation_switches_only_after_probe(tmp_path) -> None:
     result = await rotate_sensor_credentials_if_due(
         store,
         client,
-        renew_before=dt.timedelta(days=90),
+        renew_before=dt.timedelta(days=7),
+        now=old.expires_at - dt.timedelta(days=1),
     )
 
     active = store.active_generation()
@@ -447,7 +450,8 @@ async def test_peer_rotation_is_loaded_before_old_overlap_expires(tmp_path) -> N
     rotated = await rotate_sensor_credentials_if_due(
         first_store,
         first_client,
-        renew_before=dt.timedelta(days=90),
+        renew_before=dt.timedelta(days=7),
+        now=original.expires_at - dt.timedelta(days=1),
     )
     assert rotated["state"] == "ROTATED"
     new_active = first_store.active_generation()
@@ -495,9 +499,24 @@ async def test_busy_rotation_lease_does_not_start_second_renewal(tmp_path) -> No
         result = await rotate_sensor_credentials_if_due(
             store,
             client,
-            renew_before=dt.timedelta(days=90),
+            renew_before=dt.timedelta(days=7),
+            now=active.expires_at - dt.timedelta(days=1),
         )
 
     assert result == {"state": "BUSY"}
     assert client.renew_calls == []
     assert store.pending_renewal() is None
+
+
+def test_renewal_lead_time_must_be_shorter_than_certificate_lifetime(
+    tmp_path,
+) -> None:
+    ca = make_ca()
+    store = make_store(tmp_path, ca)
+    active = store.active_generation()
+
+    with pytest.raises(SensorCredentialError, match="lead time"):
+        store.renewal_due(
+            now=active.not_before,
+            renew_before=active.expires_at - active.not_before,
+        )
