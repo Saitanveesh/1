@@ -20,6 +20,8 @@ import httpx
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
+from mon import __version__
+from mon.sensor_fleet_models import SensorFleetState
 from mon.sensor_transport import extract_sensor_identity_from_verified_certificate
 from mon.site_identity import create_mtls_client_ssl_context
 
@@ -525,6 +527,24 @@ class SensorBatchClient:
             {"records": [{"record": record} for record in records]},
         )
 
+    async def send_heartbeat(
+        self,
+        *,
+        state: SensorFleetState,
+        collector_kind: str,
+        last_error: str | None,
+    ) -> None:
+        await self._post(
+            "/api/v1/sensors/heartbeat",
+            {
+                "observed_at": dt.datetime.now(dt.UTC).isoformat(),
+                "state": state.value,
+                "collector_kind": collector_kind,
+                "version": __version__,
+                "last_error": last_error,
+            },
+        )
+
 
 class ZeekFileCollector:
     def __init__(
@@ -787,11 +807,59 @@ async def _run_collector_process(
     poll: Callable[[], Any],
     client: SensorBatchClient,
     *,
+    collector_kind: str,
     poll_interval_seconds: float,
+    heartbeat_interval_seconds: float,
 ) -> None:
+    if heartbeat_interval_seconds <= 0 or heartbeat_interval_seconds > 3600:
+        raise ValueError(
+            "heartbeat_interval_seconds must be greater than 0 and at most 3600"
+        )
+    loop = asyncio.get_running_loop()
+    next_heartbeat_at = 0.0
+    logger = logging.getLogger("mon.sensor_collector")
+
+    async def managed_poll() -> dict[str, object]:
+        nonlocal next_heartbeat_at
+        result = await poll()
+        now = loop.time()
+        if now >= next_heartbeat_at:
+            state = (
+                SensorFleetState.READY
+                if str(result.get("state")) == "READY"
+                else SensorFleetState.DEGRADED
+            )
+            error: str | None = None
+            raw_error = result.get("error")
+            if raw_error is not None:
+                error = str(raw_error)[:1000]
+            elif state is SensorFleetState.DEGRADED:
+                raw_errors = result.get("errors")
+                if raw_errors:
+                    error = json.dumps(
+                        raw_errors,
+                        sort_keys=True,
+                        default=str,
+                    )[:1000]
+                else:
+                    error = "collector reported degraded state"
+            try:
+                await client.send_heartbeat(
+                    state=state,
+                    collector_kind=collector_kind,
+                    last_error=error,
+                )
+            except SensorDeliveryError as exc:
+                logger.warning(
+                    "sensor fleet heartbeat delivery failed: %s",
+                    str(exc)[:1000],
+                )
+            next_heartbeat_at = now + heartbeat_interval_seconds
+        return result
+
     try:
         await run_collector(
-            poll,
+            managed_poll,
             poll_interval_seconds=poll_interval_seconds,
         )
     finally:
@@ -824,9 +892,14 @@ def zeek_main() -> None:
             _run_collector_process(
                 collector.poll_once,
                 client,
+                collector_kind="ZEEK",
                 poll_interval_seconds=_positive_float_env(
                     "MON_SENSOR_POLL_INTERVAL_SECONDS",
                     "1",
+                ),
+                heartbeat_interval_seconds=_positive_float_env(
+                    "MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS",
+                    "30",
                 ),
             )
         )
@@ -863,9 +936,14 @@ def suricata_main() -> None:
             _run_collector_process(
                 collector.poll_once,
                 client,
+                collector_kind="SURICATA",
                 poll_interval_seconds=_positive_float_env(
                     "MON_SENSOR_POLL_INTERVAL_SECONDS",
                     "1",
+                ),
+                heartbeat_interval_seconds=_positive_float_env(
+                    "MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS",
+                    "30",
                 ),
             )
         )

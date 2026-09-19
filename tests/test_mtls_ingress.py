@@ -14,6 +14,13 @@ from mon.mtls_ingress import (
     create_mtls_server_ssl_context,
     extract_site_identity_from_verified_certificate,
     require_batch_matches_site_identity,
+    require_sensor_heartbeat_matches_site_identity,
+    require_sensor_renewal_matches_site_identity,
+)
+from mon.sensor_fleet_models import (
+    SensorFleetState,
+    SensorHeartbeat,
+    SensorRenewalRequest,
 )
 from mon.site_identity import CertificateAuthority, generate_site_key_and_csr
 
@@ -185,3 +192,42 @@ def test_server_ssl_context_requires_client_certificate(tmp_path) -> None:
     )
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+
+def test_sensor_fleet_messages_must_match_verified_site_scope() -> None:
+    ca, _ = make_ca()
+    identity = extract_site_identity_from_verified_certificate(
+        site_certificate_der(ca)
+    )
+    renewal = SensorRenewalRequest(
+        tenant_id="tenant-a",
+        site_id="site-1",
+        sensor_id="sensor-1",
+        current_fingerprint_sha256="a" * 64,
+        csr_pem="-----BEGIN CERTIFICATE REQUEST-----"
+        + "x" * 80
+        + "-----END CERTIFICATE REQUEST-----",
+    )
+    require_sensor_renewal_matches_site_identity(renewal, identity)
+
+    heartbeat = SensorHeartbeat(
+        tenant_id="tenant-a",
+        site_id="site-1",
+        sensor_id="sensor-1",
+        fingerprint_sha256="a" * 64,
+        observed_at=dt.datetime.now(dt.UTC),
+        state=SensorFleetState.READY,
+        collector_kind="ZEEK",
+    )
+    require_sensor_heartbeat_matches_site_identity(heartbeat, identity)
+
+    with pytest.raises(SiteCertificateScopeError):
+        require_sensor_renewal_matches_site_identity(
+            renewal.model_copy(update={"site_id": "site-2"}),
+            identity,
+        )
+    with pytest.raises(SiteCertificateScopeError):
+        require_sensor_heartbeat_matches_site_identity(
+            heartbeat.model_copy(update={"tenant_id": "tenant-b"}),
+            identity,
+        )

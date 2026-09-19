@@ -18,6 +18,7 @@ from mon.sensor_transport import (
     MtlsSensorIngress,
     SensorTransportConfigurationError,
     require_loopback_site_controller_url,
+    require_sensor_matches_site,
 )
 from mon.site_identity import (
     CertificateAuthority,
@@ -163,6 +164,29 @@ def write_sensor_identity(
     return ca_path, cert_path, key_path
 
 
+def install_scope_only_authorizer(ingress: MtlsSensorIngress) -> None:
+    async def authorize(request: web.Request):
+        identity = ingress._verified_identity(request)
+        require_sensor_matches_site(
+            identity,
+            tenant_id=ingress.tenant_id,
+            site_id=ingress.site_id,
+        )
+        return identity
+
+    ingress._authorize = authorize
+
+
+async def start_plain_app(app: web.Application):
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    assert site._server is not None
+    port = site._server.sockets[0].getsockname()[1]
+    return runner, port
+
+
 async def start_ingress(
     app: web.Application,
     ssl_context: ssl.SSLContext,
@@ -199,6 +223,7 @@ async def test_mtls_sensor_health_derives_identity_from_client_certificate(
         "site-a",
         "http://127.0.0.1:8090",
     )
+    install_scope_only_authorizer(ingress)
     app = web.Application()
     app.router.add_get("/health", ingress.health)
     server_context = create_mtls_server_ssl_context(
@@ -251,6 +276,7 @@ async def test_valid_certificate_for_other_site_is_forbidden(tmp_path) -> None:
         "site-a",
         "http://127.0.0.1:8090",
     )
+    install_scope_only_authorizer(ingress)
     app = web.Application()
     app.router.add_get("/health", ingress.health)
     runner, port = await start_ingress(
@@ -305,6 +331,7 @@ async def test_ingress_injects_verified_sensor_id_into_internal_batch(
         "site-a",
         "http://127.0.0.1:8090",
     )
+    install_scope_only_authorizer(ingress)
     captured: dict[str, object] = {}
 
     async def fake_forward(path: str, payload: dict[str, object]):
@@ -415,6 +442,7 @@ async def test_sensor_ingress_rejects_connection_without_client_certificate(
         "site-a",
         "http://127.0.0.1:8090",
     )
+    install_scope_only_authorizer(ingress)
     app = web.Application()
     app.router.add_get("/health", ingress.health)
     runner, port = await start_ingress(
@@ -439,5 +467,122 @@ async def test_sensor_ingress_rejects_connection_without_client_certificate(
         ) as client:
             with pytest.raises(httpx.TransportError):
                 await client.get(f"https://localhost:{port}/health")
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_sensor_ingress_rejects_certificate_missing_from_local_trust(
+    tmp_path,
+) -> None:
+    async def reject_sensor(request: web.Request) -> web.Response:
+        return web.json_response({"authorized": False})
+
+    local_app = web.Application()
+    local_app.router.add_post(
+        "/api/v1/site/sensors/authorize",
+        reject_sensor,
+    )
+    local_runner, local_port = await start_plain_app(local_app)
+
+    ca, ca_pem = make_ca()
+    server_cert, server_key = make_server_certificate(ca)
+    server_cert_path = tmp_path / "server.pem"
+    server_key_path = tmp_path / "server-key.pem"
+    ca_path = tmp_path / "sensor-ca.pem"
+    server_cert_path.write_text(server_cert, encoding="utf-8")
+    server_key_path.write_text(server_key, encoding="utf-8")
+    ca_path.write_text(ca_pem, encoding="utf-8")
+
+    ingress = MtlsSensorIngress(
+        "tenant-a",
+        "site-a",
+        f"http://127.0.0.1:{local_port}",
+    )
+    app = web.Application()
+    app.router.add_get("/health", ingress.health)
+    runner, port = await start_ingress(
+        app,
+        create_mtls_server_ssl_context(
+            str(server_cert_path),
+            str(server_key_path),
+            str(ca_path),
+        ),
+    )
+    client_ca, client_cert, client_key = write_sensor_identity(
+        tmp_path,
+        ca,
+        ca_pem,
+    )
+    client_context = create_mtls_client_ssl_context(
+        str(client_ca),
+        str(client_cert),
+        str(client_key),
+    )
+    try:
+        async with httpx.AsyncClient(
+            verify=client_context,
+            timeout=5,
+            trust_env=False,
+        ) as client:
+            response = await client.get(
+                f"https://localhost:{port}/health"
+            )
+        assert response.status_code == 403
+        assert "not accepted" in response.text
+    finally:
+        await runner.cleanup()
+        await local_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_sensor_ingress_fails_closed_when_local_trust_is_unavailable(
+    tmp_path,
+) -> None:
+    ca, ca_pem = make_ca()
+    server_cert, server_key = make_server_certificate(ca)
+    server_cert_path = tmp_path / "server.pem"
+    server_key_path = tmp_path / "server-key.pem"
+    ca_path = tmp_path / "sensor-ca.pem"
+    server_cert_path.write_text(server_cert, encoding="utf-8")
+    server_key_path.write_text(server_key, encoding="utf-8")
+    ca_path.write_text(ca_pem, encoding="utf-8")
+
+    ingress = MtlsSensorIngress(
+        "tenant-a",
+        "site-a",
+        "http://127.0.0.1:1",
+        timeout_seconds=0.5,
+    )
+    app = web.Application()
+    app.router.add_get("/health", ingress.health)
+    runner, port = await start_ingress(
+        app,
+        create_mtls_server_ssl_context(
+            str(server_cert_path),
+            str(server_key_path),
+            str(ca_path),
+        ),
+    )
+    client_ca, client_cert, client_key = write_sensor_identity(
+        tmp_path,
+        ca,
+        ca_pem,
+    )
+    client_context = create_mtls_client_ssl_context(
+        str(client_ca),
+        str(client_cert),
+        str(client_key),
+    )
+    try:
+        async with httpx.AsyncClient(
+            verify=client_context,
+            timeout=5,
+            trust_env=False,
+        ) as client:
+            response = await client.get(
+                f"https://localhost:{port}/health"
+            )
+        assert response.status_code == 503
     finally:
         await runner.cleanup()

@@ -18,6 +18,13 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
+from mon.sensor_fleet_models import (
+    SensorEnrollmentTokenRecord,
+    SensorHeartbeat,
+    SensorIdentityRecord,
+    SensorIdentityStatus,
+    SensorRecord,
+)
 from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.store import InMemoryStore, Store
@@ -186,6 +193,80 @@ class SiteIdentityRow(Base):
             "ix_site_identities_fingerprint",
             "fingerprint_sha256",
             unique=True,
+        ),
+    )
+
+
+class SensorEnrollmentTokenRow(Base):
+    __tablename__ = "sensor_enrollment_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    sensor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_sensor_enrollment_tokens_scope",
+            "tenant_id",
+            "site_id",
+            "sensor_id",
+        ),
+        Index("ix_sensor_enrollment_tokens_expiry", "expires_at"),
+    )
+
+
+class SensorRecordRow(Base):
+    __tablename__ = "sensor_fleet"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    sensor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    last_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_sensor_fleet_scope", "tenant_id", "site_id"),
+        Index("ix_sensor_fleet_last_seen", "tenant_id", "site_id", "last_seen_at"),
+    )
+
+
+class SensorIdentityRow(Base):
+    __tablename__ = "sensor_identities"
+
+    identity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    sensor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    fingerprint_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accept_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_sensor_identities_scope",
+            "tenant_id",
+            "site_id",
+            "sensor_id",
+        ),
+        Index(
+            "ix_sensor_identities_fingerprint",
+            "fingerprint_sha256",
+            unique=True,
+        ),
+        Index(
+            "ix_sensor_identities_status",
+            "tenant_id",
+            "site_id",
+            "status",
+            "expires_at",
         ),
     )
 
@@ -540,6 +621,408 @@ class DatabaseStore:
         with self._session_factory() as session:
             rows = session.scalars(statement).all()
         return [SiteIdentityRecord.model_validate(row.payload) for row in rows]
+
+    def add_sensor_enrollment_token(
+        self,
+        record: SensorEnrollmentTokenRecord,
+    ) -> SensorEnrollmentTokenRecord:
+        self._merge(
+            SensorEnrollmentTokenRow(
+                token_hash=record.token_hash,
+                tenant_id=record.tenant_id,
+                site_id=record.site_id,
+                sensor_id=record.sensor_id,
+                expires_at=record.expires_at,
+                used_at=record.used_at,
+                payload=record.model_dump(mode="json"),
+            )
+        )
+        return record
+
+    def get_sensor_enrollment_token(
+        self,
+        token_hash: str,
+    ) -> SensorEnrollmentTokenRecord | None:
+        with self._session_factory() as session:
+            row = session.get(SensorEnrollmentTokenRow, token_hash)
+        return (
+            SensorEnrollmentTokenRecord.model_validate(row.payload)
+            if row is not None
+            else None
+        )
+
+    def complete_sensor_enrollment(
+        self,
+        token_hash: str,
+        now: dt.datetime,
+        sensor: SensorRecord,
+        identity: SensorIdentityRecord,
+    ) -> bool:
+        statement = (
+            select(SensorEnrollmentTokenRow)
+            .where(SensorEnrollmentTokenRow.token_hash == token_hash)
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            token_row = session.scalar(statement)
+            if token_row is None:
+                return False
+            token = SensorEnrollmentTokenRecord.model_validate(token_row.payload)
+            if (
+                token.used_at is not None
+                or token.expires_at <= now
+                or token.tenant_id != sensor.tenant_id
+                or token.site_id != sensor.site_id
+                or token.sensor_id != sensor.sensor_id
+                or identity.tenant_id != sensor.tenant_id
+                or identity.site_id != sensor.site_id
+                or identity.sensor_id != sensor.sensor_id
+            ):
+                return False
+
+            consumed = token.model_copy(
+                update={
+                    "used_at": now,
+                    "used_identity_id": identity.identity_id,
+                }
+            )
+            token_row.used_at = now
+            token_row.payload = consumed.model_dump(mode="json")
+            session.merge(
+                SensorRecordRow(
+                    pk=_key(sensor.tenant_id, sensor.site_id, sensor.sensor_id),
+                    tenant_id=sensor.tenant_id,
+                    site_id=sensor.site_id,
+                    sensor_id=sensor.sensor_id,
+                    last_seen_at=sensor.last_seen_at,
+                    revoked_at=sensor.revoked_at,
+                    payload=sensor.model_dump(mode="json"),
+                )
+            )
+            session.add(
+                SensorIdentityRow(
+                    identity_id=identity.identity_id,
+                    tenant_id=identity.tenant_id,
+                    site_id=identity.site_id,
+                    sensor_id=identity.sensor_id,
+                    fingerprint_sha256=identity.fingerprint_sha256,
+                    status=identity.status.value,
+                    expires_at=identity.expires_at,
+                    accept_until=identity.accept_until,
+                    payload=identity.model_dump(mode="json"),
+                )
+            )
+        return True
+
+    def get_sensor_record(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str,
+    ) -> SensorRecord | None:
+        row = self._get(SensorRecordRow, tenant_id, site_id, sensor_id)
+        return SensorRecord.model_validate(row.payload) if row else None
+
+    def list_sensor_records(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SensorRecord]:
+        rows = self._list_scope(SensorRecordRow, tenant_id, site_id)
+        return sorted(
+            [SensorRecord.model_validate(row.payload) for row in rows],
+            key=lambda item: item.sensor_id,
+        )
+
+    def get_sensor_identity(
+        self,
+        tenant_id: str,
+        site_id: str,
+        identity_id: str,
+    ) -> SensorIdentityRecord | None:
+        statement = select(SensorIdentityRow).where(
+            SensorIdentityRow.identity_id == identity_id,
+            SensorIdentityRow.tenant_id == tenant_id,
+            SensorIdentityRow.site_id == site_id,
+        )
+        with self._session_factory() as session:
+            row = session.scalar(statement)
+        return SensorIdentityRecord.model_validate(row.payload) if row else None
+
+    def get_sensor_identity_by_fingerprint(
+        self,
+        tenant_id: str,
+        site_id: str,
+        fingerprint_sha256: str,
+    ) -> SensorIdentityRecord | None:
+        statement = select(SensorIdentityRow).where(
+            SensorIdentityRow.tenant_id == tenant_id,
+            SensorIdentityRow.site_id == site_id,
+            SensorIdentityRow.fingerprint_sha256 == fingerprint_sha256,
+        )
+        with self._session_factory() as session:
+            row = session.scalar(statement)
+        return SensorIdentityRecord.model_validate(row.payload) if row else None
+
+    def list_sensor_identities(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str | None = None,
+    ) -> list[SensorIdentityRecord]:
+        statement = select(SensorIdentityRow).where(
+            SensorIdentityRow.tenant_id == tenant_id,
+            SensorIdentityRow.site_id == site_id,
+        )
+        if sensor_id is not None:
+            statement = statement.where(SensorIdentityRow.sensor_id == sensor_id)
+        statement = statement.order_by(
+            SensorIdentityRow.expires_at,
+            SensorIdentityRow.identity_id,
+        )
+        with self._session_factory() as session:
+            rows = session.scalars(statement).all()
+        return [
+            SensorIdentityRecord.model_validate(row.payload)
+            for row in rows
+        ]
+
+    def save_sensor_lifecycle(
+        self,
+        sensor: SensorRecord,
+        identities: list[SensorIdentityRecord],
+    ) -> None:
+        for identity in identities:
+            if (
+                identity.tenant_id != sensor.tenant_id
+                or identity.site_id != sensor.site_id
+                or identity.sensor_id != sensor.sensor_id
+            ):
+                raise ValueError("sensor lifecycle identity scope mismatch")
+
+        with self._session_factory.begin() as session:
+            session.merge(
+                SensorRecordRow(
+                    pk=_key(sensor.tenant_id, sensor.site_id, sensor.sensor_id),
+                    tenant_id=sensor.tenant_id,
+                    site_id=sensor.site_id,
+                    sensor_id=sensor.sensor_id,
+                    last_seen_at=sensor.last_seen_at,
+                    revoked_at=sensor.revoked_at,
+                    payload=sensor.model_dump(mode="json"),
+                )
+            )
+            for identity in identities:
+                session.merge(
+                    SensorIdentityRow(
+                        identity_id=identity.identity_id,
+                        tenant_id=identity.tenant_id,
+                        site_id=identity.site_id,
+                        sensor_id=identity.sensor_id,
+                        fingerprint_sha256=identity.fingerprint_sha256,
+                        status=identity.status.value,
+                        expires_at=identity.expires_at,
+                        accept_until=identity.accept_until,
+                        payload=identity.model_dump(mode="json"),
+                    )
+                )
+
+    def complete_sensor_renewal(
+        self,
+        previous_identity_id: str,
+        sensor: SensorRecord,
+        previous: SensorIdentityRecord,
+        successor: SensorIdentityRecord,
+    ) -> bool:
+        identity_statement = (
+            select(SensorIdentityRow)
+            .where(SensorIdentityRow.identity_id == previous_identity_id)
+            .with_for_update()
+        )
+        sensor_pk = _key(sensor.tenant_id, sensor.site_id, sensor.sensor_id)
+        sensor_statement = (
+            select(SensorRecordRow)
+            .where(SensorRecordRow.pk == sensor_pk)
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            sensor_row = session.scalar(sensor_statement)
+            previous_row = session.scalar(identity_statement)
+            if previous_row is None or sensor_row is None:
+                return False
+            stored_previous = SensorIdentityRecord.model_validate(
+                previous_row.payload
+            )
+            stored_sensor = SensorRecord.model_validate(sensor_row.payload)
+            if (
+                stored_previous.status.value != "ACTIVE"
+                or stored_previous.tenant_id != sensor.tenant_id
+                or stored_previous.site_id != sensor.site_id
+                or stored_previous.sensor_id != sensor.sensor_id
+                or previous.identity_id != stored_previous.identity_id
+                or previous.status.value != "RETIRING"
+                or successor.tenant_id != sensor.tenant_id
+                or successor.site_id != sensor.site_id
+                or successor.sensor_id != sensor.sensor_id
+                or stored_sensor.revoked_at is not None
+            ):
+                return False
+
+            previous_row.status = previous.status.value
+            previous_row.expires_at = previous.expires_at
+            previous_row.accept_until = previous.accept_until
+            previous_row.payload = previous.model_dump(mode="json")
+            session.add(
+                SensorIdentityRow(
+                    identity_id=successor.identity_id,
+                    tenant_id=successor.tenant_id,
+                    site_id=successor.site_id,
+                    sensor_id=successor.sensor_id,
+                    fingerprint_sha256=successor.fingerprint_sha256,
+                    status=successor.status.value,
+                    expires_at=successor.expires_at,
+                    accept_until=successor.accept_until,
+                    payload=successor.model_dump(mode="json"),
+                )
+            )
+            sensor_row.last_seen_at = sensor.last_seen_at
+            sensor_row.revoked_at = sensor.revoked_at
+            sensor_row.payload = sensor.model_dump(mode="json")
+        return True
+
+    def revoke_sensor_lifecycle(
+        self,
+        tenant_id: str,
+        site_id: str,
+        sensor_id: str,
+        *,
+        actor_id: str,
+        reason: str,
+        now: dt.datetime,
+    ) -> SensorRecord | None:
+        sensor_pk = _key(tenant_id, site_id, sensor_id)
+        sensor_statement = (
+            select(SensorRecordRow)
+            .where(SensorRecordRow.pk == sensor_pk)
+            .with_for_update()
+        )
+        identities_statement = (
+            select(SensorIdentityRow)
+            .where(
+                SensorIdentityRow.tenant_id == tenant_id,
+                SensorIdentityRow.site_id == site_id,
+                SensorIdentityRow.sensor_id == sensor_id,
+            )
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            sensor_row = session.scalar(sensor_statement)
+            if sensor_row is None:
+                return None
+            stored = SensorRecord.model_validate(sensor_row.payload)
+            if stored.revoked_at is not None:
+                return stored
+
+            updated = stored.model_copy(
+                update={
+                    "updated_at": now,
+                    "revoked_at": now,
+                    "revoked_by": actor_id,
+                    "revocation_reason": reason,
+                }
+            )
+            sensor_row.revoked_at = now
+            sensor_row.payload = updated.model_dump(mode="json")
+
+            identity_rows = session.scalars(identities_statement).all()
+            for row in identity_rows:
+                identity = SensorIdentityRecord.model_validate(row.payload)
+                revoked = identity.model_copy(
+                    update={
+                        "status": SensorIdentityStatus.REVOKED,
+                        "accept_until": None,
+                        "revoked_at": now,
+                        "revoked_by": actor_id,
+                        "revocation_reason": reason,
+                    }
+                )
+                row.status = revoked.status.value
+                row.accept_until = None
+                row.payload = revoked.model_dump(mode="json")
+            return updated
+
+    def record_sensor_heartbeat(
+        self,
+        heartbeat: SensorHeartbeat,
+        received_at: dt.datetime,
+    ) -> SensorRecord | None:
+        sensor_pk = _key(
+            heartbeat.tenant_id,
+            heartbeat.site_id,
+            heartbeat.sensor_id,
+        )
+        sensor_statement = (
+            select(SensorRecordRow)
+            .where(SensorRecordRow.pk == sensor_pk)
+            .with_for_update()
+        )
+        identity_statement = (
+            select(SensorIdentityRow)
+            .where(
+                SensorIdentityRow.tenant_id == heartbeat.tenant_id,
+                SensorIdentityRow.site_id == heartbeat.site_id,
+                SensorIdentityRow.sensor_id == heartbeat.sensor_id,
+                SensorIdentityRow.fingerprint_sha256
+                == heartbeat.fingerprint_sha256,
+            )
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            sensor_row = session.scalar(sensor_statement)
+            if sensor_row is None:
+                return None
+            sensor = SensorRecord.model_validate(sensor_row.payload)
+            if sensor.revoked_at is not None:
+                return None
+
+            identity_row = session.scalar(identity_statement)
+            if identity_row is None:
+                return None
+            identity = SensorIdentityRecord.model_validate(
+                identity_row.payload
+            )
+            if identity.expires_at <= received_at:
+                return None
+            accepted = identity.status.value == "ACTIVE" or (
+                identity.status.value == "RETIRING"
+                and identity.accept_until is not None
+                and identity.accept_until > received_at
+            )
+            if not accepted:
+                return None
+
+            updates: dict[str, object] = {
+                "updated_at": received_at,
+                "last_seen_at": received_at,
+            }
+            if (
+                sensor.last_heartbeat_observed_at is None
+                or heartbeat.observed_at >= sensor.last_heartbeat_observed_at
+            ):
+                updates.update(
+                    {
+                        "last_heartbeat_observed_at": heartbeat.observed_at,
+                        "last_health_state": heartbeat.state,
+                        "collector_kind": heartbeat.collector_kind,
+                        "version": heartbeat.version,
+                        "last_error": heartbeat.last_error,
+                    }
+                )
+            updated = sensor.model_copy(update=updates)
+            sensor_row.last_seen_at = updated.last_seen_at
+            sensor_row.revoked_at = updated.revoked_at
+            sensor_row.payload = updated.model_dump(mode="json")
+            return updated
 
     def _merge(self, row: Any) -> None:
         with self._session_factory.begin() as session:

@@ -28,8 +28,13 @@ spiffe://mon.local/tenant/<tenant>/site/<site>/sensor/<sensor-id>
 Certificates require TLS client-auth EKU.
 
 The repository provides certificate-generation/issuance primitives in
-`mon.sensor_identity`. Automated SaaS enrollment/renewal/revocation is not implemented yet,
-so deployment tooling must currently provision these certificates securely.
+`mon.sensor_identity` and the control plane now provides one-time enrollment, renewal,
+revocation, site trust synchronization, and fleet-health APIs. Initial private-key generation
+still happens on the sensor side.
+
+The current collectors do not yet replace their active certificate/key files automatically.
+Use the renewal protocol with a new CSR and activate the returned credentials through a
+crash-safe deployment mechanism.
 
 ## Sensor ingress configuration
 
@@ -82,10 +87,15 @@ MON_SENSOR_CLIENT_KEY_PASSWORD
 MON_SENSOR_STATE_DIR=/var/lib/mon-sensor
 MON_SENSOR_BATCH_SIZE=100
 MON_SENSOR_POLL_INTERVAL_SECONDS=1
+MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS=30
 MON_SENSOR_TIMEOUT_SECONDS=10
 ```
 
 The collector refuses to start if the tenant/site/sensor values do not match its certificate.
+
+Collectors report `READY`/`DEGRADED` fleet heartbeat state through the authenticated
+sensor ingress. The control plane uses server receipt time for last-seen calculations and
+marks the sensor stale by default after 90 seconds without a heartbeat.
 
 ## Zeek
 
@@ -142,11 +152,35 @@ not reset automatically.
 Rotation policies should retain the previous uncompressed file long enough for the collector
 to drain it.
 
+## Managed enrollment and revocation
+
+Create a one-time sensor enrollment token through the control-plane
+`/api/v1/sensor-enrollment-tokens` API, generate the sensor private key/CSR locally, then
+complete enrollment through `/api/v1/sensor-enrollment`.
+
+A certificate renewal request travels from the authenticated sensor ingress through the
+loopback Site Controller and site mTLS channel. The old certificate remains accepted for a
+bounded one-hour overlap by default, allowing the new credential to be activated without an
+instant cutover.
+
+Revocation is synchronized to each Site Controller as a durable local trust snapshot. Sensor
+ingress checks the exact certificate fingerprint against that local snapshot on every
+application request. If cloud connectivity fails, the last known trust snapshot remains in
+force. A revocation created during the outage cannot take effect at that site until trust
+synchronization resumes.
+
+The default Site Controller trust-sync interval is 15 seconds and is configurable with:
+
+```text
+MON_SITE_SENSOR_TRUST_INTERVAL_SECONDS=15
+```
+
 ## Security boundary
 
-The mTLS ingress authenticates transport identity. The raw Site Controller sensor API is an
-internal loopback boundary and does not independently authenticate remote sensors.
+The mTLS ingress validates the X.509 client certificate and SPIFFE-style scope, then enforces
+the durable local fingerprint allow set. The raw Site Controller sensor API remains an
+internal loopback boundary.
 
-Sensor certificate revocation, automatic renewal, enrollment approval, and fleet health are
-not yet implemented. Until that milestone, use short-lived sensor certificates and controlled
-certificate provisioning.
+Revocation is application-layer authorization backed by the local trust snapshot; this is not
+a CRL/OCSP implementation. Automatic crash-safe replacement of the collectors' on-disk
+certificate/key pair remains a follow-up item.
