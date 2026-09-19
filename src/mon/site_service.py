@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Mapping
 
 import uvicorn
 from fastapi import FastAPI
