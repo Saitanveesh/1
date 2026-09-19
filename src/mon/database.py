@@ -21,7 +21,7 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
-from mon.event_fabric import FabricReceipt
+from mon.event_fabric import FabricReceipt, FabricReceiptStatus
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -84,9 +84,14 @@ class FabricReceiptRow(Base):
     event_id: Mapped[str] = mapped_column(String(256), nullable=False)
     envelope_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     envelope_json: Mapped[str] = mapped_column(Text, nullable=False)
-    processed_at: Mapped[dt.datetime] = mapped_column(
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    received_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
+    )
+    processed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     __table_args__ = (
@@ -94,7 +99,14 @@ class FabricReceiptRow(Base):
             "ix_fabric_receipts_scope",
             "tenant_id",
             "site_id",
-            "processed_at",
+            "received_at",
+        ),
+        Index(
+            "ix_fabric_receipts_status",
+            "tenant_id",
+            "site_id",
+            "status",
+            "received_at",
         ),
     )
 
