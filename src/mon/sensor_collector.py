@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -49,6 +50,7 @@ class SensorCursor:
     device: int
     inode: int
     offset: int
+    anchor_sha256: str
     updated_at: dt.datetime
 
 
@@ -115,6 +117,7 @@ class SQLiteSensorCursorStore:
                         device INTEGER NOT NULL,
                         inode INTEGER NOT NULL,
                         offset INTEGER NOT NULL,
+                        anchor_sha256 TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         last_error TEXT,
                         failures INTEGER NOT NULL DEFAULT 0,
@@ -155,7 +158,8 @@ class SQLiteSensorCursorStore:
         with self._lock:
             row = self._connection.execute(
                 """
-                SELECT source_id, configured_path, device, inode, offset, updated_at
+                SELECT source_id, configured_path, device, inode, offset,
+                       anchor_sha256, updated_at
                 FROM sensor_cursors
                 WHERE source_id = ?
                 """,
@@ -172,6 +176,7 @@ class SQLiteSensorCursorStore:
             device=int(row["device"]),
             inode=int(row["inode"]),
             offset=int(row["offset"]),
+            anchor_sha256=str(row["anchor_sha256"]),
             updated_at=updated_at.astimezone(dt.UTC),
         )
 
@@ -190,13 +195,15 @@ class SQLiteSensorCursorStore:
                 """
                 INSERT INTO sensor_cursors(
                     source_id, configured_path, device, inode, offset,
-                    updated_at, last_error, failures, filtered_records
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, ?)
+                    anchor_sha256, updated_at, last_error, failures,
+                    filtered_records
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?)
                 ON CONFLICT(source_id) DO UPDATE SET
                     configured_path = excluded.configured_path,
                     device = excluded.device,
                     inode = excluded.inode,
                     offset = excluded.offset,
+                    anchor_sha256 = excluded.anchor_sha256,
                     updated_at = excluded.updated_at,
                     last_error = NULL,
                     failures = 0,
@@ -209,6 +216,7 @@ class SQLiteSensorCursorStore:
                     cursor.device,
                     cursor.inode,
                     cursor.offset,
+                    cursor.anchor_sha256,
                     cursor.updated_at.astimezone(dt.UTC).isoformat(),
                     filtered_records,
                 ),
@@ -268,8 +276,25 @@ class SQLiteSensorCursorStore:
 class JsonLineFileReader:
     """Read complete JSON lines without silently skipping rotation gaps."""
 
+    _ANCHOR_BYTES = 256
+
     def __init__(self, cursor_store: SQLiteSensorCursorStore) -> None:
         self.cursor_store = cursor_store
+
+    @classmethod
+    def _anchor_hash(cls, path: Path, offset: int) -> str:
+        if offset < 0:
+            raise ValueError("sensor cursor offset cannot be negative")
+        length = min(cls._ANCHOR_BYTES, offset)
+        start = offset - length
+        with path.open("rb") as handle:
+            handle.seek(start)
+            data = handle.read(length)
+        if len(data) != length:
+            raise SensorRotationGapError(
+                "source file is shorter than the committed checkpoint anchor"
+            )
+        return hashlib.sha256(data).hexdigest()
 
     @staticmethod
     def _matching_inode(
@@ -331,6 +356,11 @@ class JsonLineFileReader:
             raise SensorRotationGapError(
                 f"source {source_id} was truncated below committed offset "
                 f"{cursor.offset}"
+            )
+        if self._anchor_hash(candidate, cursor.offset) != cursor.anchor_sha256:
+            raise SensorRotationGapError(
+                f"source {source_id} prior inode content no longer matches "
+                "the committed checkpoint; inode reuse or rewrite is possible"
             )
         return candidate, cursor.device, cursor.inode, cursor.offset
 
@@ -396,6 +426,10 @@ class JsonLineFileReader:
             device=device,
             inode=inode,
             offset=checkpoint_offset,
+            anchor_sha256=self._anchor_hash(
+                actual_path,
+                checkpoint_offset,
+            ),
             updated_at=dt.datetime.now(dt.UTC),
         )
 
@@ -417,6 +451,7 @@ class JsonLineFileReader:
                     device=current_stat.st_dev,
                     inode=current_stat.st_ino,
                     offset=0,
+                    anchor_sha256=hashlib.sha256(b"").hexdigest(),
                     updated_at=dt.datetime.now(dt.UTC),
                 )
 
