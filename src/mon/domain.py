@@ -366,6 +366,7 @@ class PolicyOutcome(StrEnum):
 
 class ResponseExecutionStatus(StrEnum):
     PENDING_APPROVAL = "PENDING_APPROVAL"
+    DISPATCH_PENDING = "DISPATCH_PENDING"
     EXECUTING = "EXECUTING"
     APPLIED = "APPLIED"
     FAILED = "FAILED"
