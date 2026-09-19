@@ -24,8 +24,8 @@ from mon.site_identity import create_mtls_client_ssl_context
 from mon.site_response import SiteResponseExecutor
 from mon.site_response_outbox import SQLiteResponseUpdateOutbox
 from mon.site_response_store import SQLiteSiteResponseStore
-from mon.site_sensor_trust import SQLiteSensorTrustStore
 from mon.site_runtime import SiteControllerRuntime
+from mon.site_sensor_trust import SQLiteSensorTrustStore
 
 
 class SiteServiceConfigurationError(ValueError):
@@ -338,7 +338,6 @@ def build_site_service_resources(
             sensor_trust_store=sensor_trust_store,
             result_outbox=command_result_outbox,
             response_update_outbox=response_update_outbox,
-            sensor_trust_store=sensor_trust_store,
         )
         controller.recover_pending_analysis(limit=1000)
         runtime = SiteControllerRuntime(
