@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from mon.connector_secrets import (
     ConnectorSecretCipher,
+    ConnectorSecretError,
     ConnectorSecretIntegrityError,
     ConnectorSecretKeyUnavailable,
     ConnectorSecretKeyring,
@@ -206,7 +207,7 @@ def test_keyring_file_requires_private_permissions(tmp_path) -> None:
     path.write_text(json.dumps(document), encoding="utf-8")
     if os.name == "posix":
         path.chmod(0o644)
-        with pytest.raises(Exception, match="group or others"):
+        with pytest.raises(ConnectorSecretError, match="group or others"):
             ConnectorSecretKeyring.from_file(path)
         path.chmod(0o600)
 
