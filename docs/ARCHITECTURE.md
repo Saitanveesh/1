@@ -17,6 +17,8 @@
      Zeek / Suricata        Windows / Linux         FW / Router / NAC
      Flow / PCAP refs       identity/process        Switch / Cloud / WAF
           |                       |                       |
+   sensor mTLS ingress            |                       |
+          |                       |                       |
           +-----------------------+-----------------------+
                                   |
                             Event Fabric
@@ -64,6 +66,7 @@ MON's differentiating layer is correlation, asset/enforcement graphing, attack-p
 - multi-tenant isolation
 - local autonomy during SaaS loss
 - evidence provenance
+- cryptographically scoped remote sensor identity
 - explicit confidence
 - safe rollback
 - idempotent response actions
