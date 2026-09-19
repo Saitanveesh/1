@@ -10,6 +10,7 @@ import sqlite3
 import ssl
 import threading
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -281,14 +282,12 @@ class JsonLineFileReader:
             candidates.append(configured_path)
         parent = configured_path.parent
         if parent.is_dir():
-            try:
+            with suppress(OSError):
                 candidates.extend(
                     item
                     for item in parent.iterdir()
                     if item != configured_path and item.is_file()
                 )
-            except OSError:
-                pass
 
         for candidate in candidates:
             try:
@@ -633,10 +632,8 @@ async def run_collector(
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
-        try:
+        with suppress(NotImplementedError):
             loop.add_signal_handler(signum, stop_event.set)
-        except NotImplementedError:
-            pass
 
     logger = logging.getLogger("mon.sensor_collector")
     last_state: str | None = None
@@ -656,13 +653,11 @@ async def run_collector(
             )
             last_log_at = now
         last_state = state
-        try:
+        with suppress(TimeoutError):
             await asyncio.wait_for(
                 stop_event.wait(),
                 timeout=poll_interval_seconds,
             )
-        except TimeoutError:
-            pass
 
 
 def _collector_client_from_environment() -> tuple[
