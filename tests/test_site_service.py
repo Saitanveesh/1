@@ -35,6 +35,8 @@ def test_offline_site_service_builds_all_durable_state(tmp_path) -> None:
         assert status["command_channel_configured"] is False
         assert status["local_recovery_configured"] is True
         assert status["spool"]["durability"] == "WAL_FULL"
+        assert status["fabric_outbox"]["durability"] == "WAL_FULL"
+        assert status["fabric_outbox"]["pending"] == 0
         assert status["local_pipeline_state_persistence"] == "DURABLE_RESTORED"
         assert status["local_pipeline_restore"] == {
             "events": 0,
@@ -50,6 +52,7 @@ def test_offline_site_service_builds_all_durable_state(tmp_path) -> None:
         assert resources.sensor_trust_store.diagnostics()["initialized"] is False
         for name in (
             "event-spool.db",
+            "fabric-outbox.db",
             "analysis-state.db",
             "response-state.db",
             "command-results.db",
