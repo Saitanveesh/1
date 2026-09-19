@@ -825,6 +825,69 @@ class DatabaseStore:
                     )
                 )
 
+    def complete_sensor_renewal(
+        self,
+        previous_identity_id: str,
+        sensor: SensorRecord,
+        previous: SensorIdentityRecord,
+        successor: SensorIdentityRecord,
+    ) -> bool:
+        statement = (
+            select(SensorIdentityRow)
+            .where(SensorIdentityRow.identity_id == previous_identity_id)
+            .with_for_update()
+        )
+        sensor_pk = _key(sensor.tenant_id, sensor.site_id, sensor.sensor_id)
+        sensor_statement = (
+            select(SensorRecordRow)
+            .where(SensorRecordRow.pk == sensor_pk)
+            .with_for_update()
+        )
+        with self._session_factory.begin() as session:
+            previous_row = session.scalar(statement)
+            sensor_row = session.scalar(sensor_statement)
+            if previous_row is None or sensor_row is None:
+                return False
+            stored_previous = SensorIdentityRecord.model_validate(
+                previous_row.payload
+            )
+            stored_sensor = SensorRecord.model_validate(sensor_row.payload)
+            if (
+                stored_previous.status.value != "ACTIVE"
+                or stored_previous.tenant_id != sensor.tenant_id
+                or stored_previous.site_id != sensor.site_id
+                or stored_previous.sensor_id != sensor.sensor_id
+                or previous.identity_id != stored_previous.identity_id
+                or previous.status.value != "RETIRING"
+                or successor.tenant_id != sensor.tenant_id
+                or successor.site_id != sensor.site_id
+                or successor.sensor_id != sensor.sensor_id
+                or stored_sensor.revoked_at is not None
+            ):
+                return False
+
+            previous_row.status = previous.status.value
+            previous_row.expires_at = previous.expires_at
+            previous_row.accept_until = previous.accept_until
+            previous_row.payload = previous.model_dump(mode="json")
+            session.add(
+                SensorIdentityRow(
+                    identity_id=successor.identity_id,
+                    tenant_id=successor.tenant_id,
+                    site_id=successor.site_id,
+                    sensor_id=successor.sensor_id,
+                    fingerprint_sha256=successor.fingerprint_sha256,
+                    status=successor.status.value,
+                    expires_at=successor.expires_at,
+                    accept_until=successor.accept_until,
+                    payload=successor.model_dump(mode="json"),
+                )
+            )
+            sensor_row.last_seen_at = sensor.last_seen_at
+            sensor_row.revoked_at = sensor.revoked_at
+            sensor_row.payload = sensor.model_dump(mode="json")
+        return True
+
     def _merge(self, row: Any) -> None:
         with self._session_factory.begin() as session:
             session.merge(row)
