@@ -164,6 +164,42 @@ class SQLiteSensorTrustStore:
                 raise SensorTrustStoreError(
                     "sensor trust snapshot is older than the durable local snapshot"
                 )
+            if current is not None and generated_at == current:
+                rows = self._connection.execute(
+                    """
+                    SELECT payload
+                    FROM sensor_trust_identities
+                    ORDER BY sensor_id, identity_id
+                    """
+                ).fetchall()
+                existing = SensorTrustSnapshot(
+                    tenant_id=self.tenant_id,
+                    site_id=self.site_id,
+                    generated_at=current,
+                    identities=[
+                        SensorTrustIdentity.model_validate_json(
+                            str(row["payload"])
+                        )
+                        for row in rows
+                    ],
+                )
+                candidate = snapshot.model_copy(
+                    update={
+                        "identities": sorted(
+                            snapshot.identities,
+                            key=lambda item: (
+                                item.sensor_id,
+                                item.identity_id,
+                            ),
+                        )
+                    }
+                )
+                if existing != candidate:
+                    raise SensorTrustStoreError(
+                        "sensor trust snapshot reused generated_at with different content"
+                    )
+                self._set_metadata("received_at", receipt_time.isoformat())
+                return False
 
             self._connection.execute("DELETE FROM sensor_trust_identities")
             self._connection.executemany(
