@@ -190,6 +190,10 @@ class SiteResponseUpdate(BaseModel):
                 )
             if not execution.error:
                 raise ValueError("failed execution reconciliation requires an error")
+            if execution.result is not None or execution.expires_at is not None:
+                raise ValueError(
+                    "failed execution reconciliation cannot invent apply state"
+                )
             if execution.rollback_at is not None or execution.rollback_result is not None:
                 raise ValueError(
                     "failed execution reconciliation cannot carry rollback state"
