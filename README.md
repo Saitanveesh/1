@@ -62,6 +62,8 @@ Implemented foundations include:
   tenant/site-scoped identity and process analysis state;
 - identity/process attack-graph relationships for authentication, execution,
   parent/child process, and process-network evidence;
+- opt-in event-fabric load/soak evidence CLI for caller-supplied canonical envelope
+  corpora and disposable performance environments;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
@@ -77,7 +79,8 @@ support currently covers direct STIX bundle ingestion and exact indicator matchi
 feed synchronization is read-only and client-side. MON does not yet implement a TAXII server,
 TAXII write/publish APIs, or complex STIX pattern evaluation. Endpoint support currently
 normalizes typed endpoint telemetry into the pipeline and graph; it is not yet a production
-Windows or Linux endpoint agent.
+Windows or Linux endpoint agent. Load/soak measurements are deployment-specific evidence,
+not universal performance, resilience, or tenant-isolation proof.
 
 See:
 
