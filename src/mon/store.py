@@ -186,57 +186,6 @@ class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
         site_id: str,
         asset_id: str | None = None,
     ) -> list[EnforcementBinding]: ...
-    def get_fabric_receipt(
-        self,
-        tenant_id: str,
-        site_id: str,
-        event_id: str,
-    ) -> FabricReceipt | None:
-        return self.fabric_receipts.get((tenant_id, site_id, event_id))
-
-    def add_fabric_receipt(
-        self,
-        receipt: FabricReceipt,
-    ) -> FabricReceipt:
-        key = (receipt.tenant_id, receipt.site_id, receipt.event_id)
-        existing = self.fabric_receipts.get(key)
-        if existing is not None:
-            if (
-                existing.envelope_sha256 != receipt.envelope_sha256
-                or existing.envelope_json != receipt.envelope_json
-            ):
-                raise ValueError(
-                    "fabric receipt already exists with different envelope"
-                )
-            return existing
-        self.fabric_receipts[key] = receipt
-        return receipt
-
-    def complete_fabric_receipt(
-        self,
-        tenant_id: str,
-        site_id: str,
-        event_id: str,
-        *,
-        processed_at: dt.datetime,
-    ) -> FabricReceipt:
-        if processed_at.tzinfo is None or processed_at.utcoffset() is None:
-            raise ValueError("fabric receipt processed_at must be timezone-aware")
-        key = (tenant_id, site_id, event_id)
-        existing = self.fabric_receipts.get(key)
-        if existing is None:
-            raise ValueError("fabric receipt does not exist")
-        if existing.status is FabricReceiptStatus.PROCESSED:
-            return existing
-        completed = existing.model_copy(
-            update={
-                "status": FabricReceiptStatus.PROCESSED,
-                "processed_at": processed_at.astimezone(dt.UTC),
-            }
-        )
-        self.fabric_receipts[key] = completed
-        return completed
-
     def add_enrollment_token(
         self, record: EnrollmentTokenRecord
     ) -> EnrollmentTokenRecord: ...
@@ -502,6 +451,56 @@ class InMemoryStore:
             values = [value for value in values if value.asset_id == asset_id]
         return values
 
+    def get_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> FabricReceipt | None:
+        return self.fabric_receipts.get((tenant_id, site_id, event_id))
+
+    def add_fabric_receipt(
+        self,
+        receipt: FabricReceipt,
+    ) -> FabricReceipt:
+        key = (receipt.tenant_id, receipt.site_id, receipt.event_id)
+        existing = self.fabric_receipts.get(key)
+        if existing is not None:
+            if (
+                existing.envelope_sha256 != receipt.envelope_sha256
+                or existing.envelope_json != receipt.envelope_json
+            ):
+                raise ValueError(
+                    "fabric receipt already exists with different envelope"
+                )
+            return existing
+        self.fabric_receipts[key] = receipt
+        return receipt
+
+    def complete_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+        *,
+        processed_at: dt.datetime,
+    ) -> FabricReceipt:
+        if processed_at.tzinfo is None or processed_at.utcoffset() is None:
+            raise ValueError("fabric receipt processed_at must be timezone-aware")
+        key = (tenant_id, site_id, event_id)
+        existing = self.fabric_receipts.get(key)
+        if existing is None:
+            raise ValueError("fabric receipt does not exist")
+        if existing.status is FabricReceiptStatus.PROCESSED:
+            return existing
+        completed = existing.model_copy(
+            update={
+                "status": FabricReceiptStatus.PROCESSED,
+                "processed_at": processed_at.astimezone(dt.UTC),
+            }
+        )
+        self.fabric_receipts[key] = completed
+        return completed
 
     def add_enrollment_token(
         self,
