@@ -40,6 +40,12 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.enforcement import EnforcementRegistry
+from mon.event_fabric import FabricEnvelope, FabricIngestResult
+from mon.fabric_ingress import (
+    FabricEnvelopeCollision,
+    FabricProcessingUncertain,
+    ingest_fabric_envelope,
+)
 from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
@@ -139,6 +145,43 @@ def health() -> dict[str, str]:
 @app.get("/api/v1/me", response_model=Principal)
 def who_am_i(principal: CurrentPrincipal) -> Principal:
     return principal
+
+
+@app.post(
+    "/api/v1/fabric/events",
+    response_model=FabricIngestResult,
+    status_code=201,
+)
+async def ingest_fabric_event(
+    envelope: FabricEnvelope,
+    principal: CurrentPrincipal,
+) -> FabricIngestResult:
+    require_scope(
+        principal,
+        envelope.tenant_id,
+        envelope.site_id,
+        Permission.INGEST,
+    )
+    started = time.perf_counter()
+    try:
+        outcome = await run_in_threadpool(
+            ingest_fabric_envelope,
+            store,
+            pipeline,
+            envelope,
+        )
+    except FabricEnvelopeCollision as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FabricProcessingUncertain as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if outcome.processing_result is not None:
+        processing_ms = (time.perf_counter() - started) * 1000
+        await live_hub.publish_processing_result(
+            outcome.processing_result,
+            processing_ms=processing_ms,
+        )
+    return outcome.acknowledgement
 
 
 @app.post(
