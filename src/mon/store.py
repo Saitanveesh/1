@@ -192,9 +192,12 @@ class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
         key = (receipt.tenant_id, receipt.site_id, receipt.event_id)
         existing = self.fabric_receipts.get(key)
         if existing is not None:
-            if existing != receipt:
+            if (
+                existing.envelope_sha256 != receipt.envelope_sha256
+                or existing.envelope_json != receipt.envelope_json
+            ):
                 raise ValueError(
-                    "fabric receipt already exists with different content"
+                    "fabric receipt already exists with different envelope"
                 )
             return existing
         self.fabric_receipts[key] = receipt
