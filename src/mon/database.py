@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, String, Text, create_engine, select
+from sqlalchemy import JSON, DateTime, Index, String, Text, create_engine, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -363,15 +363,47 @@ class DatabaseStore:
         value = getattr(self._transaction_state, "session", None)
         return value if isinstance(value, Session) else None
 
+    def _apply_rls_scope(
+        self,
+        session: Session,
+        tenant_id: str,
+        site_id: str,
+    ) -> None:
+        """Bind PostgreSQL row-level security to one tenant/site transaction."""
+        if self.engine.dialect.name != "postgresql":
+            return
+        if not tenant_id or not site_id:
+            raise ValueError("tenant_id and site_id are required for PostgreSQL scope")
+
+        if self._active_session() is session:
+            current = getattr(self._transaction_state, "rls_scope", None)
+            requested = (tenant_id, site_id)
+            if current is not None and current != requested:
+                raise RuntimeError(
+                    "one database transaction cannot cross tenant/site RLS scope"
+                )
+            self._transaction_state.rls_scope = requested
+
+        session.execute(
+            text(
+                "SELECT "
+                "set_config('mon.tenant_id', :tenant_id, true), "
+                "set_config('mon.site_id', :site_id, true)"
+            ),
+            {"tenant_id": tenant_id, "site_id": site_id},
+        )
+
     @contextmanager
     def transaction(self) -> Iterator[None]:
         if self._active_session() is not None:
             raise RuntimeError("nested database transactions are not supported")
         with self._session_factory.begin() as session:
             self._transaction_state.session = session
+            self._transaction_state.rls_scope = None
             try:
                 yield
             finally:
+                self._transaction_state.rls_scope = None
                 self._transaction_state.session = None
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
@@ -423,12 +455,14 @@ class DatabaseStore:
         )
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, event.tenant_id, event.site_id)
             active.add(row)
             active.flush()
             return event
 
         try:
             with self._session_factory.begin() as session:
+                self._apply_rls_scope(session, event.tenant_id, event.site_id)
                 session.add(row)
                 session.flush()
         except IntegrityError:
@@ -471,12 +505,14 @@ class DatabaseStore:
         )
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, event.tenant_id, event.site_id)
             if active.get(EventProcessingRow, row.pk) is None:
                 active.add(row)
                 active.flush()
             return
 
         with self._session_factory.begin() as session:
+            self._apply_rls_scope(session, event.tenant_id, event.site_id)
             if session.get(EventProcessingRow, row.pk) is None:
                 session.add(row)
 
@@ -513,9 +549,11 @@ class DatabaseStore:
         )
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
             rows = active.scalars(statement).all()
         else:
             with self._session_factory() as session:
+                self._apply_rls_scope(session, tenant_id, site_id)
                 rows = session.scalars(statement).all()
         return [
             SecurityEvent.model_validate(row.payload)
@@ -643,6 +681,7 @@ class DatabaseStore:
         if asset_id is not None:
             statement = statement.where(EnforcementBindingRow.asset_id == asset_id)
         with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             rows = session.scalars(statement).all()
         return [EnforcementBinding.model_validate(row.payload) for row in rows]
 
@@ -724,12 +763,14 @@ class DatabaseStore:
         )
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, record.tenant_id, record.site_id)
             active.add(row)
             active.flush()
             return record
 
         try:
             with self._session_factory.begin() as session:
+                self._apply_rls_scope(session, record.tenant_id, record.site_id)
                 session.add(row)
                 session.flush()
         except IntegrityError:
@@ -764,9 +805,11 @@ class DatabaseStore:
         )
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
             rows = active.scalars(statement).all()
         else:
             with self._session_factory() as session:
+                self._apply_rls_scope(session, tenant_id, site_id)
                 rows = session.scalars(statement).all()
         return [self._verified_audit_record(row) for row in rows]
 
@@ -868,6 +911,7 @@ class DatabaseStore:
             SiteIdentityRow.site_id == site_id,
         )
         with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             rows = session.scalars(statement).all()
         return [SiteIdentityRecord.model_validate(row.payload) for row in rows]
 
@@ -929,6 +973,7 @@ class DatabaseStore:
             ):
                 return False
 
+            self._apply_rls_scope(session, sensor.tenant_id, sensor.site_id)
             consumed = token.model_copy(
                 update={
                     "used_at": now,
@@ -995,6 +1040,7 @@ class DatabaseStore:
             SensorIdentityRow.site_id == site_id,
         )
         with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             row = session.scalar(statement)
         return SensorIdentityRecord.model_validate(row.payload) if row else None
 
@@ -1010,6 +1056,7 @@ class DatabaseStore:
             SensorIdentityRow.fingerprint_sha256 == fingerprint_sha256,
         )
         with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             row = session.scalar(statement)
         return SensorIdentityRecord.model_validate(row.payload) if row else None
 
@@ -1030,6 +1077,7 @@ class DatabaseStore:
             SensorIdentityRow.identity_id,
         )
         with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             rows = session.scalars(statement).all()
         return [
             SensorIdentityRecord.model_validate(row.payload)
@@ -1050,6 +1098,7 @@ class DatabaseStore:
                 raise ValueError("sensor lifecycle identity scope mismatch")
 
         with self._session_factory.begin() as session:
+            self._apply_rls_scope(session, sensor.tenant_id, sensor.site_id)
             session.merge(
                 SensorRecordRow(
                     pk=_key(sensor.tenant_id, sensor.site_id, sensor.sensor_id),
@@ -1095,6 +1144,7 @@ class DatabaseStore:
             .with_for_update()
         )
         with self._session_factory.begin() as session:
+            self._apply_rls_scope(session, sensor.tenant_id, sensor.site_id)
             sensor_row = session.scalar(sensor_statement)
             previous_row = session.scalar(identity_statement)
             if previous_row is None or sensor_row is None:
@@ -1165,6 +1215,7 @@ class DatabaseStore:
             .with_for_update()
         )
         with self._session_factory.begin() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             sensor_row = session.scalar(sensor_statement)
             if sensor_row is None:
                 return None
@@ -1227,6 +1278,11 @@ class DatabaseStore:
             .with_for_update()
         )
         with self._session_factory.begin() as session:
+            self._apply_rls_scope(
+                session,
+                heartbeat.tenant_id,
+                heartbeat.site_id,
+            )
             sensor_row = session.scalar(sensor_statement)
             if sensor_row is None:
                 return None
@@ -1349,12 +1405,14 @@ class DatabaseStore:
         )
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, receipt.tenant_id, receipt.site_id)
             active.add(row)
             active.flush()
             return receipt
 
         try:
             with self._session_factory.begin() as session:
+                self._apply_rls_scope(session, receipt.tenant_id, receipt.site_id)
                 session.add(row)
                 session.flush()
         except IntegrityError:
@@ -1386,6 +1444,7 @@ class DatabaseStore:
         key = _key(tenant_id, site_id, event_id)
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
             row = active.get(FabricReceiptRow, key)
             if row is None:
                 raise ValueError("fabric receipt does not exist")
@@ -1396,6 +1455,7 @@ class DatabaseStore:
             return self.get_fabric_receipt(tenant_id, site_id, event_id)
 
         with self._session_factory.begin() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             row = session.get(FabricReceiptRow, key)
             if row is None:
                 raise ValueError("fabric receipt does not exist")
@@ -1408,12 +1468,19 @@ class DatabaseStore:
         return completed
 
     def _merge(self, row: Any) -> None:
+        tenant_id = getattr(row, "tenant_id", None)
+        site_id = getattr(row, "site_id", None)
+        if not isinstance(tenant_id, str) or not isinstance(site_id, str):
+            raise ValueError("scoped database rows require tenant_id and site_id")
+
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
             active.merge(row)
             active.flush()
             return
         with self._session_factory.begin() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             session.merge(row)
 
     def _get(
@@ -1426,8 +1493,10 @@ class DatabaseStore:
         key = _key(tenant_id, site_id, object_id)
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
             return active.get(row_type, key)
         with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             return session.get(row_type, key)
 
     def _list_scope(
@@ -1442,8 +1511,10 @@ class DatabaseStore:
         )
         active = self._active_session()
         if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
             return list(active.scalars(statement).all())
         with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
             return list(session.scalars(statement).all())
 
 
