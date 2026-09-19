@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from mon.domain import EventBatch
 from mon.site_command_models import SiteCommandResult
+from mon.site_response_models import SiteResponseUpdate
 
 
 class SiteCertificateError(ValueError):
@@ -117,6 +118,16 @@ def require_command_result_matches_site_identity(
     if result.tenant_id != identity.tenant_id or result.site_id != identity.site_id:
         raise SiteCertificateScopeError(
             "site command result tenant/site does not match verified client certificate"
+        )
+
+
+def require_response_update_matches_site_identity(
+    update: SiteResponseUpdate,
+    identity: VerifiedSiteIdentity,
+) -> None:
+    if update.tenant_id != identity.tenant_id or update.site_id != identity.site_id:
+        raise SiteCertificateScopeError(
+            "site response update tenant/site does not match verified client certificate"
         )
 
 
@@ -315,6 +326,49 @@ class MtlsSiteIngress:
             )},
         )
 
+    async def submit_response_update(self, request: web.Request) -> web.Response:
+        try:
+            identity = self._verified_identity(request)
+        except SiteCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+
+        try:
+            raw_body = await request.read()
+            update = SiteResponseUpdate.model_validate_json(raw_body)
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(text="invalid site response update") from exc
+
+        try:
+            require_response_update_matches_site_identity(update, identity)
+        except SiteCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        authorization = self._authorization(request)
+        async with httpx.AsyncClient(
+            base_url=self.internal_control_plane_url,
+            timeout=self.timeout_seconds,
+        ) as client:
+            try:
+                response = await client.post(
+                    "/api/v1/site-response-updates",
+                    content=raw_body,
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPBadGateway(text="control plane is unavailable") from exc
+
+        return web.Response(
+            status=response.status_code,
+            body=response.content,
+            headers={"Content-Type": response.headers.get(
+                "content-type",
+                "application/json",
+            )},
+        )
+
 def create_app(
     internal_control_plane_url: str,
     *,
@@ -331,6 +385,10 @@ def create_app(
     app.router.add_post(
         "/api/v1/site/commands/results",
         ingress.submit_command_result,
+    )
+    app.router.add_post(
+        "/api/v1/site/responses/updates",
+        ingress.submit_response_update,
     )
     return app
 
