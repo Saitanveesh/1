@@ -6,7 +6,7 @@ import httpx
 
 from mon.site_command_outbox import SQLiteCommandResultOutbox
 from mon.site_controller import SiteController
-from mon.site_response_models import SiteResponseUpdate
+from mon.site_response_models import SiteResponseUpdate, recovery_update_id
 from mon.site_response_outbox import SQLiteResponseUpdateOutbox
 
 
@@ -80,7 +80,7 @@ class ProductionSiteController(SiteController):
             except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
                 self.response_update_outbox.mark_failed(update.update_id, str(exc))
                 continue
-            self.response_update_outbox.mark_delivered(update.update_id)
+            self.response_update_outbox.mark_reported(update.update_id)
             reported += 1
 
         queued = int(self.response_update_outbox.diagnostics()["queued"])
@@ -90,6 +90,59 @@ class ProductionSiteController(SiteController):
             "reported": reported,
             "queued": queued,
         }
+
+    def _enqueue_autonomous_recovery_updates(self) -> int:
+        if self.recovery_engine is None:
+            return 0
+
+        store = self.recovery_engine.orchestrator.store
+        audits = store.list_audit_records(self.tenant_id, self.site_id)
+        recovery_audits: dict[str, list[object]] = {}
+        for record in audits:
+            if (
+                record.object_type == "response_execution"
+                and record.action == "ROLLBACK"
+                and record.actor_id == self.recovery_engine.actor_id
+            ):
+                recovery_audits.setdefault(record.object_id, []).append(record)
+
+        enqueued = 0
+        for execution in store.list_response_executions(self.tenant_id, self.site_id):
+            related_recovery = recovery_audits.get(execution.execution_id, [])
+            if not related_recovery:
+                continue
+            if execution.status.value not in {"ROLLED_BACK", "ROLLBACK_FAILED"}:
+                continue
+
+            related_audits = [
+                record
+                for record in audits
+                if record.object_type == "response_execution"
+                and record.object_id == execution.execution_id
+            ]
+            observed_at = max(record.occurred_at for record in related_recovery)
+            update = SiteResponseUpdate(
+                update_id=recovery_update_id(execution),
+                tenant_id=self.tenant_id,
+                site_id=self.site_id,
+                execution=execution,
+                audit_records=related_audits,
+                observed_at=observed_at,
+            )
+            if self.response_update_outbox.enqueue(update):
+                enqueued += 1
+        return enqueued
+
+    def compact_response_update_receipts(
+        self,
+        *,
+        retain_for: dt.timedelta,
+        now: dt.datetime | None = None,
+    ) -> int:
+        return self.response_update_outbox.compact_reported(
+            retain_for=retain_for,
+            now=now,
+        )
 
     async def poll_commands(self, limit: int = 20) -> dict[str, object]:
         if self.command_client is None or self.response_executor is None:
@@ -104,6 +157,7 @@ class ProductionSiteController(SiteController):
         # updates. Flush them first so the control plane sees APPLIED before a
         # later site-local ROLLED_BACK state.
         await self.flush_command_results(limit=max(limit, 20))
+        self._enqueue_autonomous_recovery_updates()
         await self.flush_response_updates(limit=max(limit, 20))
 
         try:
@@ -160,37 +214,7 @@ class ProductionSiteController(SiteController):
         now: dt.datetime | None = None,
     ) -> dict[str, object]:
         result = await super().recover_expired_responses(now=now)
-        if self.recovery_engine is not None:
-            execution_ids = [
-                *result.get("rolled_back_execution_ids", []),
-                *result.get("failed_execution_ids", []),
-            ]
-            for execution_id in execution_ids:
-                execution = self.recovery_engine.orchestrator.store.get_response_execution(
-                    self.tenant_id,
-                    self.site_id,
-                    str(execution_id),
-                )
-                if execution is None:
-                    continue
-                audits = [
-                    record
-                    for record in self.recovery_engine.orchestrator.store.list_audit_records(
-                        self.tenant_id,
-                        self.site_id,
-                    )
-                    if record.object_type == "response_execution"
-                    and record.object_id == execution.execution_id
-                ]
-                self.response_update_outbox.enqueue(
-                    SiteResponseUpdate(
-                        tenant_id=self.tenant_id,
-                        site_id=self.site_id,
-                        execution=execution,
-                        audit_records=audits,
-                    )
-                )
-
+        result["response_updates_enqueued"] = self._enqueue_autonomous_recovery_updates()
         delivery = await self.flush_response_updates()
         result["response_update_sync_state"] = delivery["state"]
         result["response_updates_reported"] = delivery["reported"]
