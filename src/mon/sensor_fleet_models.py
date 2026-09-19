@@ -254,3 +254,20 @@ class SensorRenewalResult(BaseModel):
 
     certificate: SensorEnrollmentResult
     trust_snapshot: SensorTrustSnapshot
+
+
+class SensorAuthorizationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sensor_id: str = Field(min_length=1, max_length=128)
+    fingerprint_sha256: str = Field(min_length=64, max_length=64)
+
+
+class SensorAuthorizationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    authorized: bool
+    identity_id: str | None = None
+    status: SensorIdentityStatus | None = None
+    expires_at: dt.datetime | None = None
+    accept_until: dt.datetime | None = None
