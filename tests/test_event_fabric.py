@@ -1,5 +1,4 @@
 import datetime as dt
-import sqlite3
 import uuid
 
 import pytest
@@ -18,7 +17,7 @@ def _envelope(*, event_id=None, tenant_id=None, site_id=None, payload=None):
         schema_version=1,
         occurred_at=now,
         produced_at=now,
-        payload=payload or {"source": "sensor", "count": 1},
+        payload=payload if payload is not None else {"source": "sensor", "count": 1},
     )
 
 
