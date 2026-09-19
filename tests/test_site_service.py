@@ -88,16 +88,26 @@ def test_cloud_configuration_requires_https_and_complete_mtls_identity(tmp_path)
 def test_environment_loader_supports_token_file_without_exposing_secret(tmp_path) -> None:
     token_file = tmp_path / "token"
     token_file.write_text("site-secret\n", encoding="utf-8")
+    ca = tmp_path / "ca.pem"
+    cert = tmp_path / "site.pem"
+    key = tmp_path / "site-key.pem"
+    for path in (ca, cert, key):
+        path.write_text("test fixture", encoding="utf-8")
+
     config = SiteServiceConfig.from_environment(
         {
             "MON_TENANT_ID": "tenant-a",
             "MON_SITE_ID": "site-a",
             "MON_SITE_STATE_DIR": str(tmp_path / "state"),
+            "MON_SITE_INGRESS_URL": "https://control.example",
             "MON_SITE_BEARER_TOKEN_FILE": str(token_file),
+            "MON_SITE_CA_CERT_FILE": str(ca),
+            "MON_SITE_CLIENT_CERT_FILE": str(cert),
+            "MON_SITE_CLIENT_KEY_FILE": str(key),
         }
     )
     assert config.bearer_token == "site-secret"
-    assert config.ingress_url is None
+    assert config.ingress_url == "https://control.example"
 
     with pytest.raises(SiteServiceConfigurationError, match="only one"):
         SiteServiceConfig.from_environment(
