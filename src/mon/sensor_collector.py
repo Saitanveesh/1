@@ -476,6 +476,7 @@ class SensorBatchClient:
         ssl_context: ssl.SSLContext,
         *,
         timeout_seconds: float = 10.0,
+        credential_fingerprint_sha256: str | None = None,
     ) -> None:
         if not base_url.lower().startswith("https://"):
             raise ValueError("sensor ingress URL must use https")
@@ -484,6 +485,7 @@ class SensorBatchClient:
         self.base_url = base_url.rstrip("/")
         self.ssl_context = ssl_context
         self.timeout_seconds = timeout_seconds
+        self._credential_fingerprint_sha256 = credential_fingerprint_sha256
         self._client = self._new_client(self.ssl_context)
 
     def _new_client(self, ssl_context: ssl.SSLContext) -> httpx.AsyncClient:
@@ -493,6 +495,10 @@ class SensorBatchClient:
             timeout=self.timeout_seconds,
             trust_env=False,
         )
+
+    @property
+    def credential_fingerprint_sha256(self) -> str | None:
+        return self._credential_fingerprint_sha256
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -618,11 +624,14 @@ class SensorBatchClient:
     async def replace_ssl_context(
         self,
         ssl_context: ssl.SSLContext,
+        *,
+        fingerprint_sha256: str,
     ) -> None:
         replacement = self._new_client(ssl_context)
         previous = self._client
         self._client = replacement
         self.ssl_context = ssl_context
+        self._credential_fingerprint_sha256 = fingerprint_sha256
         await previous.aclose()
 
 
@@ -862,6 +871,7 @@ def _collector_client_from_environment() -> tuple[
         ingress_url,
         context,
         timeout_seconds=timeout,
+        credential_fingerprint_sha256=active.fingerprint_sha256,
     )
     return tenant_id, site_id, sensor_id, client, credential_store
 
