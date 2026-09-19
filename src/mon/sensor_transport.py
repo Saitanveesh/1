@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 import ipaddress
 import os
-import ssl
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
