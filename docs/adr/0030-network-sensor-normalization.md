@@ -84,6 +84,10 @@ points to that packet location. Otherwise the Suricata flow id is used when avai
 
 ### Deterministic replay identity
 
+Raw records are canonicalized as finite JSON and are limited to 1 MiB per record at the
+normalization boundary. This bounds deterministic hashing work and prevents a single local
+collector record from becoming an unbounded normalization payload.
+
 Normalized event ids are deterministic UUIDv5 values derived from:
 
 - sensor engine;
