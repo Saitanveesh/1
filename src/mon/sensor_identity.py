@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
+from functools import lru_cache
+from pathlib import Path
 import hashlib
 from urllib.parse import quote
 
@@ -14,6 +17,28 @@ from mon.site_identity import CertificateAuthority, IdentityConfigurationError
 
 class SensorEnrollmentDenied(ValueError):
     pass
+
+
+@lru_cache(maxsize=1)
+def get_sensor_certificate_authority() -> CertificateAuthority:
+    certificate_path = os.environ.get("MON_SENSOR_CA_CERT_FILE", "").strip()
+    private_key_path = os.environ.get("MON_SENSOR_CA_KEY_FILE", "").strip()
+    if not certificate_path or not private_key_path:
+        raise IdentityConfigurationError(
+            "MON_SENSOR_CA_CERT_FILE and MON_SENSOR_CA_KEY_FILE must be configured"
+        )
+
+    password_value = os.environ.get("MON_SENSOR_CA_KEY_PASSWORD")
+    password = password_value.encode() if password_value else None
+    return CertificateAuthority.from_pem(
+        Path(certificate_path).read_text(encoding="utf-8"),
+        Path(private_key_path).read_text(encoding="utf-8"),
+        password=password,
+    )
+
+
+def clear_sensor_certificate_authority_cache() -> None:
+    get_sensor_certificate_authority.cache_clear()
 
 
 def _validate_identity_component(name: str, value: str) -> str:
