@@ -74,8 +74,12 @@ namespace are strong identities. Username-only observations are weak and scoped 
 observed asset. Process confidence is also explicit: source process GUIDs are strong;
 PID-only observations are scoped to asset, session, and event time to avoid unsafe merges.
 
-This is a pipeline and graph foundation only. Production Windows/Linux endpoint collection
-is intentionally outside the current boundary.
+The first Windows collector adapter reads Windows Event Log XML for Security logon and
+process-creation records, plus optional Sysmon process/process-network records when Sysmon is
+actually present. It feeds the same endpoint normalization and `SecurityEvent` pipeline
+rather than creating a second event path. The current collector has a durable record cursor
+and bounded local buffer, but it is not a production-complete EDR agent, installer, signed
+Windows service, or Linux collector.
 
 ## Non-negotiable properties
 
