@@ -346,3 +346,130 @@ def test_sensor_normalizer_rejects_oversized_raw_record() -> None:
                 "padding": "x" * (1024 * 1024),
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("log_type", "specific", "category", "attribute", "expected"),
+    [
+        (
+            "http",
+            {"method": "GET", "host": "example.com", "uri": "/index"},
+            "http.transaction",
+            "http_host",
+            "example.com",
+        ),
+        (
+            "ssl",
+            {"server_name": "example.com", "version": "TLSv13"},
+            "tls.handshake",
+            "tls_server_name",
+            "example.com",
+        ),
+        (
+            "notice",
+            {"note": "Scan::Port_Scan", "msg": "scan observed"},
+            "zeek.notice",
+            "notice_type",
+            "Scan::Port_Scan",
+        ),
+        (
+            "weird",
+            {"name": "bad_TCP_checksum", "notice": False},
+            "zeek.weird",
+            "weird_name",
+            "bad_TCP_checksum",
+        ),
+    ],
+)
+def test_zeek_supported_metadata_logs(
+    log_type,
+    specific,
+    category,
+    attribute,
+    expected,
+) -> None:
+    record = {
+        "ts": 1774911641.78917,
+        "uid": f"{log_type}-uid",
+        "id": {
+            "orig_h": "10.0.0.10",
+            "orig_p": 51000,
+            "resp_h": "10.0.0.20",
+            "resp_p": 443,
+        },
+        "proto": "tcp",
+        **specific,
+    }
+
+    event = ZeekJsonNormalizer(
+        "tenant-a",
+        "site-a",
+        "zeek-1",
+    ).normalize(log_type, record)
+
+    assert event.category == category
+    assert event.src_ip == "10.0.0.10"
+    assert event.dst_ip == "10.0.0.20"
+    assert event.attributes[attribute] == expected
+
+
+@pytest.mark.parametrize(
+    ("event_type", "specific", "category", "attribute", "expected"),
+    [
+        (
+            "http",
+            {
+                "http": {
+                    "http_method": "POST",
+                    "hostname": "api.example.com",
+                    "url": "/submit",
+                    "status": 201,
+                }
+            },
+            "http.transaction",
+            "http_host",
+            "api.example.com",
+        ),
+        (
+            "tls",
+            {
+                "tls": {
+                    "sni": "secure.example.com",
+                    "version": "TLS 1.3",
+                    "subject": "CN=secure.example.com",
+                    "issuerdn": "CN=Example CA",
+                }
+            },
+            "tls.handshake",
+            "tls_server_name",
+            "secure.example.com",
+        ),
+    ],
+)
+def test_suricata_supported_application_metadata(
+    event_type,
+    specific,
+    category,
+    attribute,
+    expected,
+) -> None:
+    event = SuricataEveNormalizer(
+        "tenant-a",
+        "site-a",
+        "suricata-1",
+    ).normalize(
+        {
+            "timestamp": "2026-09-19T04:00:00+00:00",
+            "flow_id": 88,
+            "event_type": event_type,
+            "src_ip": "10.0.0.10",
+            "src_port": 51000,
+            "dest_ip": "10.0.0.20",
+            "dest_port": 443,
+            "proto": "TCP",
+            **specific,
+        }
+    )
+
+    assert event.category == category
+    assert event.attributes[attribute] == expected
