@@ -385,35 +385,33 @@ def test_postgres_audit_records_reject_update_and_delete() -> None:
         store.add_audit_record(record)
         assert store.add_audit_record(record) == record
 
-        with pytest.raises(DBAPIError):
-            with store.engine.begin() as connection:
-                connection.execute(
-                    text(
-                        "UPDATE audit_records SET occurred_at = occurred_at "
-                        "WHERE tenant_id = :tenant_id "
-                        "AND site_id = :site_id AND audit_id = :audit_id"
-                    ),
-                    {
-                        "tenant_id": record.tenant_id,
-                        "site_id": record.site_id,
-                        "audit_id": record.audit_id,
-                    },
-                )
+        with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE audit_records SET occurred_at = occurred_at "
+                    "WHERE tenant_id = :tenant_id "
+                    "AND site_id = :site_id AND audit_id = :audit_id"
+                ),
+                {
+                    "tenant_id": record.tenant_id,
+                    "site_id": record.site_id,
+                    "audit_id": record.audit_id,
+                },
+            )
 
-        with pytest.raises(DBAPIError):
-            with store.engine.begin() as connection:
-                connection.execute(
-                    text(
-                        "DELETE FROM audit_records "
-                        "WHERE tenant_id = :tenant_id "
-                        "AND site_id = :site_id AND audit_id = :audit_id"
-                    ),
-                    {
-                        "tenant_id": record.tenant_id,
-                        "site_id": record.site_id,
-                        "audit_id": record.audit_id,
-                    },
-                )
+        with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM audit_records "
+                    "WHERE tenant_id = :tenant_id "
+                    "AND site_id = :site_id AND audit_id = :audit_id"
+                ),
+                {
+                    "tenant_id": record.tenant_id,
+                    "site_id": record.site_id,
+                    "audit_id": record.audit_id,
+                },
+            )
 
         assert store.list_audit_records("ci-tenant", "ci-site")[-1] == record
     finally:
