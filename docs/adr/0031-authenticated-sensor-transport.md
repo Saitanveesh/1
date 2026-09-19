@@ -77,6 +77,8 @@ Before starting, the collector parses its own client certificate and requires th
 tenant/site/sensor identity to match the certificate SAN.
 
 The HTTPS client uses hostname verification and the configured mTLS client certificate.
+Ambient HTTP proxy environment variables are ignored for both collector delivery and ingress
+loopback forwarding so those trust boundaries cannot be silently redirected through a proxy.
 
 ### Zeek file collection
 
@@ -116,8 +118,9 @@ collector condition and the cursor does not advance beyond that record.
 
 ### Durable cursor semantics
 
-Each collector owns a sensor-id-bound SQLite cursor database using WAL and
-`synchronous=FULL`.
+Each collector owns a tenant/site/sensor-bound SQLite cursor database using WAL and
+`synchronous=FULL`. Reusing a cursor database under another tenant, site, or sensor identity
+fails closed.
 
 A source checkpoint contains:
 
