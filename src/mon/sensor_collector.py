@@ -25,7 +25,6 @@ from mon.sensor_credentials import (
     rotate_sensor_credentials_if_due,
 )
 from mon.sensor_fleet_models import SensorFleetState, SensorRenewalResult
-from mon.sensor_transport import extract_sensor_identity_from_verified_certificate
 from mon.site_identity import create_mtls_client_ssl_context
 
 _SUPPORTED_ZEEK_LOGS = ("conn", "dns", "http", "ssl", "notice", "weird")
