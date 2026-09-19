@@ -30,7 +30,12 @@ def upgrade() -> None:
     op.create_index(
         "ix_event_processing_scope",
         "event_processing_receipts",
-        ["tenant_id", "site_id", "processed_at"],
+        ["tenant_id", "site_id", "received_at"],
+    )
+    op.create_index(
+        "ix_fabric_receipts_status",
+        "fabric_receipts",
+        ["tenant_id", "site_id", "status", "received_at"],
     )
 
     op.create_table(
@@ -41,7 +46,9 @@ def upgrade() -> None:
         sa.Column("event_id", sa.String(length=256), nullable=False),
         sa.Column("envelope_sha256", sa.String(length=64), nullable=False),
         sa.Column("envelope_json", sa.Text(), nullable=False),
-        sa.Column("processed_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index(
         "ix_fabric_receipts_scope",
@@ -51,6 +58,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index("ix_fabric_receipts_status", table_name="fabric_receipts")
     op.drop_index("ix_fabric_receipts_scope", table_name="fabric_receipts")
     op.drop_table("fabric_receipts")
 
