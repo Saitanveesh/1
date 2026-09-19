@@ -16,7 +16,7 @@ from mon.domain import (
 from mon.enforcement import EnforcementRegistry
 from mon.enforcement_graph import NoEnforcementPath, select_enforcement_point
 from mon.policy import evaluate_response
-from mon.store import Store
+from mon.store import ResponseStateStore, Store
 
 
 class ResponseStateError(RuntimeError):
@@ -33,12 +33,149 @@ def _blast_radius(binding: EnforcementBinding | None) -> str | None:
     return text[:500] if text else None
 
 
+class ResponseRollbackEngine:
+    """Rollback and TTL recovery against the narrow durable response-state contract."""
+
+    def __init__(
+        self,
+        store: ResponseStateStore,
+        registry: EnforcementRegistry,
+    ) -> None:
+        self.store = store
+        self.registry = registry
+
+    def _audit(
+        self,
+        execution: ResponseExecution,
+        action: str,
+        outcome: str,
+        *,
+        actor_id: str,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        self.store.add_audit_record(
+            AuditRecord(
+                tenant_id=execution.tenant_id,
+                site_id=execution.site_id,
+                actor_id=actor_id,
+                category="RESPONSE",
+                object_type="response_execution",
+                object_id=execution.execution_id,
+                action=action,
+                outcome=outcome,
+                details=details or {},
+            )
+        )
+
+    async def rollback(
+        self,
+        tenant_id: str,
+        site_id: str,
+        execution_id: str,
+        *,
+        actor_id: str,
+        reason: str | None = None,
+    ) -> ResponseExecution:
+        execution = self.store.get_response_execution(
+            tenant_id,
+            site_id,
+            execution_id,
+        )
+        if execution is None:
+            raise ResponseStateError("response execution not found")
+
+        if execution.status is ResponseExecutionStatus.ROLLED_BACK:
+            return execution
+        if execution.status not in {
+            ResponseExecutionStatus.APPLIED,
+            ResponseExecutionStatus.ROLLBACK_FAILED,
+        }:
+            raise ResponseStateError(
+                f"response execution cannot be rolled back from {execution.status.value}"
+            )
+
+        pending = execution.model_copy(
+            update={"status": ResponseExecutionStatus.ROLLBACK_PENDING}
+        )
+        self.store.add_response_execution(pending)
+        self._audit(
+            pending,
+            "ROLLBACK",
+            "STARTED",
+            actor_id=actor_id,
+            details={"reason": reason} if reason else None,
+        )
+
+        try:
+            adapter = self.registry.resolve(
+                pending.plan.enforcement_point.kind,
+                pending.plan.enforcement_point.vendor,
+            )
+            result = await adapter.rollback(pending.plan, pending.execution_id)
+        except Exception as exc:
+            failed = pending.model_copy(
+                update={
+                    "status": ResponseExecutionStatus.ROLLBACK_FAILED,
+                    "error": str(exc)[:2000],
+                }
+            )
+            self.store.add_response_execution(failed)
+            self._audit(
+                failed,
+                "ROLLBACK",
+                "FAILED",
+                actor_id=actor_id,
+                details={"error": str(exc)[:1000]},
+            )
+            return failed
+
+        status = (
+            ResponseExecutionStatus.ROLLED_BACK
+            if result.success
+            else ResponseExecutionStatus.ROLLBACK_FAILED
+        )
+        rolled_back = pending.model_copy(
+            update={
+                "status": status,
+                "rollback_at": utcnow() if result.success else None,
+                "rollback_result": result,
+                "error": None if result.success else result.message,
+            }
+        )
+        self.store.add_response_execution(rolled_back)
+        self._audit(
+            rolled_back,
+            "ROLLBACK",
+            "ROLLED_BACK" if result.success else "FAILED",
+            actor_id=actor_id,
+            details={"adapter_message": result.message},
+        )
+        return rolled_back
+
+    def due_for_rollback(
+        self,
+        tenant_id: str,
+        site_id: str,
+        *,
+        now: dt.datetime | None = None,
+    ) -> list[ResponseExecution]:
+        check_at = now or utcnow()
+        return [
+            execution
+            for execution in self.store.list_response_executions(tenant_id, site_id)
+            if execution.status is ResponseExecutionStatus.APPLIED
+            and execution.expires_at is not None
+            and execution.expires_at <= check_at
+        ]
+
+
 class ResponseOrchestrator:
     """Policy-gated response execution with idempotency, audit, TTL and rollback."""
 
     def __init__(self, store: Store, registry: EnforcementRegistry) -> None:
         self.store = store
         self.registry = registry
+        self.rollback_engine = ResponseRollbackEngine(store, registry)
 
     def plan(self, request: ResponseRequest) -> ResponsePlan:
         incident = self.store.get_incident(
@@ -291,81 +428,13 @@ class ResponseOrchestrator:
         actor_id: str,
         reason: str | None = None,
     ) -> ResponseExecution:
-        execution = self.store.get_response_execution(
+        return await self.rollback_engine.rollback(
             tenant_id,
             site_id,
             execution_id,
-        )
-        if execution is None:
-            raise ResponseStateError("response execution not found")
-
-        if execution.status is ResponseExecutionStatus.ROLLED_BACK:
-            return execution
-        if execution.status not in {
-            ResponseExecutionStatus.APPLIED,
-            ResponseExecutionStatus.ROLLBACK_FAILED,
-        }:
-            raise ResponseStateError(
-                f"response execution cannot be rolled back from {execution.status.value}"
-            )
-
-        pending = execution.model_copy(
-            update={"status": ResponseExecutionStatus.ROLLBACK_PENDING}
-        )
-        self.store.add_response_execution(pending)
-        self._audit(
-            pending,
-            "ROLLBACK",
-            "STARTED",
             actor_id=actor_id,
-            details={"reason": reason} if reason else None,
+            reason=reason,
         )
-
-        try:
-            adapter = self.registry.resolve(
-                pending.plan.enforcement_point.kind,
-                pending.plan.enforcement_point.vendor,
-            )
-            result = await adapter.rollback(pending.plan, pending.execution_id)
-        except Exception as exc:
-            failed = pending.model_copy(
-                update={
-                    "status": ResponseExecutionStatus.ROLLBACK_FAILED,
-                    "error": str(exc)[:2000],
-                }
-            )
-            self.store.add_response_execution(failed)
-            self._audit(
-                failed,
-                "ROLLBACK",
-                "FAILED",
-                actor_id=actor_id,
-                details={"error": str(exc)[:1000]},
-            )
-            return failed
-
-        status = (
-            ResponseExecutionStatus.ROLLED_BACK
-            if result.success
-            else ResponseExecutionStatus.ROLLBACK_FAILED
-        )
-        rolled_back = pending.model_copy(
-            update={
-                "status": status,
-                "rollback_at": utcnow() if result.success else None,
-                "rollback_result": result,
-                "error": None if result.success else result.message,
-            }
-        )
-        self.store.add_response_execution(rolled_back)
-        self._audit(
-            rolled_back,
-            "ROLLBACK",
-            "ROLLED_BACK" if result.success else "FAILED",
-            actor_id=actor_id,
-            details={"adapter_message": result.message},
-        )
-        return rolled_back
 
     def due_for_rollback(
         self,
@@ -374,11 +443,8 @@ class ResponseOrchestrator:
         *,
         now: dt.datetime | None = None,
     ) -> list[ResponseExecution]:
-        check_at = now or utcnow()
-        return [
-            execution
-            for execution in self.store.list_response_executions(tenant_id, site_id)
-            if execution.status is ResponseExecutionStatus.APPLIED
-            and execution.expires_at is not None
-            and execution.expires_at <= check_at
-        ]
+        return self.rollback_engine.due_for_rollback(
+            tenant_id,
+            site_id,
+            now=now,
+        )
