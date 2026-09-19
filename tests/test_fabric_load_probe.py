@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tools import fabric_load_probe as probe
+from mon import fabric_load_probe as probe
 
 
 def test_load_envelopes_preserves_exact_nonempty_lines(tmp_path: Path) -> None:

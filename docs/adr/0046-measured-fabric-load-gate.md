@@ -1,4 +1,4 @@
-# ADR 0045: Measured event-fabric load gate
+# ADR 0046: Measured event-fabric load gate
 
 ## Status
 Accepted
