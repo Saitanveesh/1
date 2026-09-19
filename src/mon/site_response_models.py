@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mon.domain import AuditRecord, ResponseExecution, ResponseExecutionStatus, utcnow
 
-
 _RECOVERY_UPDATE_NAMESPACE = uuid.UUID("34c6fa1c-3ddc-4ef6-b908-63179508e9a7")
 
 
