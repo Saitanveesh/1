@@ -83,6 +83,7 @@ def prepare_response_fixture(vendor: str, *, critical: bool = False) -> None:
             kind=EnforcementKind.ENDPOINT,
             vendor=vendor,
             capabilities={ActionType.ISOLATE_ENDPOINT},
+            attributes={"execution_plane": "CONTROL_PLANE"},
         )
     )
     store.add_enforcement_binding(

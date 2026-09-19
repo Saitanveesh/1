@@ -44,7 +44,13 @@ from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import SecurityPipeline
 from mon.response import ResponseOrchestrator, ResponseStateError
-from mon.site_command_models import SiteCommand, SiteCommandRecord, SiteCommandResult
+from mon.response_dispatch import ResponseDispatcher
+from mon.site_command_models import (
+    SiteCommand,
+    SiteCommandKind,
+    SiteCommandRecord,
+    SiteCommandResult,
+)
 from mon.site_command_queue import SiteCommandError, SiteCommandQueue
 from mon.site_identity import (
     EnrollmentDenied,
@@ -80,6 +86,11 @@ live_hub = LiveEventHub()
 enforcement_registry = EnforcementRegistry()
 response_orchestrator = ResponseOrchestrator(store, enforcement_registry)
 site_command_queue = SiteCommandQueue(store)
+response_dispatcher = ResponseDispatcher(
+    store,
+    response_orchestrator,
+    site_command_queue,
+)
 
 
 @app.get("/health")
@@ -494,7 +505,7 @@ async def execute_response(
         }
     )
     try:
-        execution = await response_orchestrator.execute(
+        execution = await response_dispatcher.dispatch(
             operator_request,
             approval=approval,
         )
@@ -518,7 +529,7 @@ async def rollback_response(
 ) -> ResponseExecution:
     require_scope(principal, tenant_id, site_id, Permission.RESPOND)
     try:
-        execution = await response_orchestrator.rollback(
+        execution = await response_dispatcher.rollback(
             tenant_id,
             site_id,
             execution_id,
@@ -578,7 +589,7 @@ def pull_site_commands(
 
 
 @app.post("/api/v1/site-commands/results", response_model=SiteCommandRecord)
-def submit_site_command_result(
+async def submit_site_command_result(
     result: SiteCommandResult,
     principal: CurrentPrincipal,
 ) -> SiteCommandRecord:
@@ -589,9 +600,25 @@ def submit_site_command_result(
         Permission.SITE_COMMAND,
     )
     try:
-        return site_command_queue.complete(result)
+        record = site_command_queue.complete(result)
     except SiteCommandError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    execution_id = (
+        record.command.response_plan.request.request_id
+        if record.command.kind is SiteCommandKind.APPLY_RESPONSE
+        and record.command.response_plan is not None
+        else record.command.rollback_execution_id
+    )
+    if execution_id is not None:
+        execution = store.get_response_execution(
+            result.tenant_id,
+            result.site_id,
+            execution_id,
+        )
+        if execution is not None:
+            await _publish_response_execution(execution)
+    return record
 
 
 @app.post(
