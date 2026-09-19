@@ -64,6 +64,7 @@ MON's differentiating layer is correlation, asset/enforcement graphing, attack-p
 ## Non-negotiable properties
 
 - multi-tenant isolation
+- connector credentials referenced by ID and encrypted outside generic control-plane JSON
 - local autonomy during SaaS loss
 - evidence provenance
 - cryptographically scoped remote sensor identity
