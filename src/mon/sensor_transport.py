@@ -271,6 +271,7 @@ class MtlsSensorIngress:
         async with httpx.AsyncClient(
             base_url=self.internal_site_controller_url,
             timeout=self.timeout_seconds,
+            trust_env=False,
         ) as client:
             try:
                 response = await client.post(path, json=payload)
