@@ -77,6 +77,63 @@ def test_result_outbox_persists_and_enforces_scope(tmp_path) -> None:
         reopened.close()
 
 
+def test_compaction_removes_only_old_acknowledged_receipts(tmp_path) -> None:
+    outbox = SQLiteCommandResultOutbox(
+        tmp_path / "results.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
+    now = dt.datetime(2026, 9, 19, tzinfo=dt.UTC)
+    old = SiteCommandResult(
+        command_id="old",
+        tenant_id="tenant-a",
+        site_id="site-a",
+        success=False,
+        error="historical failed command result",
+    )
+    pending = SiteCommandResult(
+        command_id="pending",
+        tenant_id="tenant-a",
+        site_id="site-a",
+        success=False,
+        error="unreported failed command result",
+    )
+    try:
+        outbox.enqueue(old)
+        outbox.enqueue(pending)
+        assert outbox.mark_reported("old") is True
+        # Set a deterministic old acknowledgement without changing production API.
+        outbox._connection.execute(
+            "UPDATE command_result_outbox SET reported_at = ? WHERE command_id = ?",
+            ((now - dt.timedelta(days=31)).isoformat(), "old"),
+        )
+        outbox._connection.commit()
+        assert outbox.compact_reported(retain_for=dt.timedelta(days=30), now=now) == 1
+        assert outbox.get("old") is None
+        assert outbox.get("pending") == pending
+        assert outbox.diagnostics()["queued"] == 1
+    finally:
+        outbox.close()
+
+
+def test_compaction_rejects_unsafe_retention(tmp_path) -> None:
+    outbox = SQLiteCommandResultOutbox(
+        tmp_path / "results.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
+    try:
+        with pytest.raises(ValueError, match="positive"):
+            outbox.compact_reported(retain_for=dt.timedelta(0))
+        with pytest.raises(ValueError, match="timezone-aware"):
+            outbox.compact_reported(
+                retain_for=dt.timedelta(days=1),
+                now=dt.datetime(2026, 9, 19),
+            )
+    finally:
+        outbox.close()
+
+
 @pytest.mark.asyncio
 async def test_command_result_survives_upload_failure_without_reexecution(tmp_path) -> None:
     command = make_rollback_command()

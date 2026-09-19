@@ -137,6 +137,35 @@ class SQLiteCommandResultOutbox:
             self._connection.commit()
             return cursor.rowcount == 1
 
+    def compact_reported(
+        self,
+        *,
+        retain_for: dt.timedelta,
+        now: dt.datetime | None = None,
+    ) -> int:
+        """Delete acknowledged receipts older than the configured retention window.
+
+        Pending results are never compacted. A positive retention period is mandatory so
+        replay protection cannot accidentally be disabled by a zero/negative setting.
+        """
+        if retain_for <= dt.timedelta(0):
+            raise ValueError("retain_for must be positive")
+        current = now or dt.datetime.now(dt.UTC)
+        if current.tzinfo is None or current.utcoffset() is None:
+            raise ValueError("now must be timezone-aware")
+        cutoff = (current.astimezone(dt.UTC) - retain_for).isoformat()
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                DELETE FROM command_result_outbox
+                WHERE tenant_id = ? AND site_id = ?
+                  AND reported_at IS NOT NULL AND reported_at < ?
+                """,
+                (self.tenant_id, self.site_id, cutoff),
+            )
+            self._connection.commit()
+            return cursor.rowcount
+
     def diagnostics(self) -> dict[str, object]:
         with self._lock:
             row = self._connection.execute(
