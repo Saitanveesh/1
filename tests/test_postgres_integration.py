@@ -567,3 +567,85 @@ def test_postgres_rls_transaction_refuses_scope_switch() -> None:
     finally:
         store.close()
 
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_connector_secret_vault_is_encrypted_and_rls_scoped() -> None:
+    from sqlalchemy import text
+
+    from mon.connector_secrets import (
+        ConnectorSecretKeyring,
+        ConnectorSecretNotFound,
+        ConnectorSecretVault,
+    )
+
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    secret_id = f"ci-connector-{suffix}"
+    plaintext = f"ci-secret-{suffix}".encode()
+    store = DatabaseStore(url)
+    vault = ConnectorSecretVault(
+        store,
+        ConnectorSecretKeyring(
+            active_key_id="ci-key",
+            keys={"ci-key": b"k" * 32},
+        ),
+    )
+    try:
+        metadata = vault.put(
+            tenant_id="ci-secret-tenant",
+            site_id="ci-secret-site",
+            secret_id=secret_id,
+            plaintext=plaintext,
+            actor_id="ci",
+        )
+        assert metadata.key_id == "ci-key"
+        assert vault.resolve(
+            "ci-secret-tenant",
+            "ci-secret-site",
+            secret_id,
+        ) == plaintext
+
+        with store.engine.connect() as connection:
+            unscoped = connection.execute(
+                text(
+                    "SELECT secret_id FROM connector_secrets "
+                    "WHERE secret_id = :secret_id"
+                ),
+                {"secret_id": secret_id},
+            ).scalars().all()
+        assert unscoped == []
+
+        with store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": "ci-secret-tenant",
+                    "site_id": "ci-secret-site",
+                },
+            )
+            row = connection.execute(
+                text(
+                    "SELECT ciphertext, key_id FROM connector_secrets "
+                    "WHERE secret_id = :secret_id"
+                ),
+                {"secret_id": secret_id},
+            ).mappings().one()
+        assert plaintext not in bytes(row["ciphertext"])
+        assert row["key_id"] == "ci-key"
+
+        with pytest.raises(ConnectorSecretNotFound):
+            vault.resolve(
+                "other-tenant",
+                "ci-secret-site",
+                secret_id,
+            )
+    finally:
+        store.close()
+

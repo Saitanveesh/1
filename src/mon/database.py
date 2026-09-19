@@ -7,11 +7,12 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, String, Text, create_engine, select, text
+from sqlalchemy import JSON, DateTime, Index, LargeBinary, String, Text, create_engine, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from mon.audit_integrity import AuditIntegrityError, audit_record_sha256
+from mon.connector_secrets import EncryptedConnectorSecret
 from mon.domain import (
     Asset,
     AuditRecord,
@@ -158,6 +159,35 @@ class EnforcementPointRow(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
     __table_args__ = (Index("ix_enforcement_points_scope", "tenant_id", "site_id"),)
+
+
+class ConnectorSecretRow(Base):
+    __tablename__ = "connector_secrets"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    secret_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    key_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_connector_secrets_scope",
+            "tenant_id",
+            "site_id",
+            "secret_id",
+        ),
+    )
 
 
 class EnforcementBindingRow(Base):
@@ -673,6 +703,85 @@ class DatabaseStore:
     ) -> list[EnforcementPoint]:
         rows = self._list_scope(EnforcementPointRow, tenant_id, site_id)
         return [EnforcementPoint.model_validate(row.payload) for row in rows]
+
+    @staticmethod
+    def _connector_secret_from_row(
+        row: ConnectorSecretRow,
+    ) -> EncryptedConnectorSecret:
+        created_at = row.created_at
+        if created_at.tzinfo is None or created_at.utcoffset() is None:
+            created_at = created_at.replace(tzinfo=dt.UTC)
+        updated_at = row.updated_at
+        if updated_at.tzinfo is None or updated_at.utcoffset() is None:
+            updated_at = updated_at.replace(tzinfo=dt.UTC)
+        return EncryptedConnectorSecret(
+            secret_id=row.secret_id,
+            tenant_id=row.tenant_id,
+            site_id=row.site_id,
+            key_id=row.key_id,
+            nonce=bytes(row.nonce),
+            ciphertext=bytes(row.ciphertext),
+            created_at=created_at.astimezone(dt.UTC),
+            updated_at=updated_at.astimezone(dt.UTC),
+        )
+
+    def get_connector_secret_record(
+        self,
+        tenant_id: str,
+        site_id: str,
+        secret_id: str,
+    ) -> EncryptedConnectorSecret | None:
+        row = self._get(
+            ConnectorSecretRow,
+            tenant_id,
+            site_id,
+            secret_id,
+        )
+        return self._connector_secret_from_row(row) if row is not None else None
+
+    def put_connector_secret_record(
+        self,
+        record: EncryptedConnectorSecret,
+    ) -> EncryptedConnectorSecret:
+        self._merge(
+            ConnectorSecretRow(
+                pk=_key(record.tenant_id, record.site_id, record.secret_id),
+                tenant_id=record.tenant_id,
+                site_id=record.site_id,
+                secret_id=record.secret_id,
+                key_id=record.key_id,
+                nonce=record.nonce,
+                ciphertext=record.ciphertext,
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+            )
+        )
+        return record
+
+    def delete_connector_secret_record(
+        self,
+        tenant_id: str,
+        site_id: str,
+        secret_id: str,
+    ) -> bool:
+        key = _key(tenant_id, site_id, secret_id)
+        active = self._active_session()
+        if active is not None:
+            self._apply_rls_scope(active, tenant_id, site_id)
+            row = active.get(ConnectorSecretRow, key)
+            if row is None:
+                return False
+            active.delete(row)
+            active.flush()
+            return True
+
+        with self._session_factory.begin() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
+            row = session.get(ConnectorSecretRow, key)
+            if row is None:
+                return False
+            session.delete(row)
+        return True
 
     def add_enforcement_binding(self, binding: EnforcementBinding) -> EnforcementBinding:
         self._merge(
