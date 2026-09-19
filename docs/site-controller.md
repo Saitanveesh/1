@@ -15,8 +15,8 @@ command loops. It persists local delivery and response state under one site stat
 
 `MON_SITE_STATE_DIR` defaults to `/var/lib/mon-site`. The directory contains independent
 SQLite databases for event buffering, response execution/audit state, command-result receipts,
-and response updates. These files are bound to the configured tenant/site and must not be
-copied between site identities.
+response updates, and the last synchronized sensor trust snapshot. These files are bound to
+the configured tenant/site and must not be copied between site identities.
 
 The local API listens on `127.0.0.1:8090` by default. `MON_SITE_PORT` may change the
 port. `MON_SITE_HOST` must remain a loopback address (`localhost`, `127.0.0.0/8`, or
@@ -54,6 +54,7 @@ Optional settings:
 - `MON_SITE_FLUSH_INTERVAL_SECONDS` — default 5
 - `MON_SITE_RECOVERY_INTERVAL_SECONDS` — default 5
 - `MON_SITE_COMMAND_INTERVAL_SECONDS` — default 2
+- `MON_SITE_SENSOR_TRUST_INTERVAL_SECONDS` — default 15
 - `MON_SITE_REQUEST_TIMEOUT_SECONDS` — default 10
 
 Values must be positive and no greater than 3600 seconds.
@@ -66,6 +67,10 @@ The local service currently exposes:
 - `POST /api/v1/site/events`
 - `POST /api/v1/site/sensors/zeek/batch`
 - `POST /api/v1/site/sensors/suricata/batch`
+- `POST /api/v1/site/sensors/authorize`
+- `POST /api/v1/site/sensors/heartbeat`
+- `POST /api/v1/site/sensors/renew`
+- `POST /api/v1/site/sensors/trust/sync`
 - `POST /api/v1/site/flush`
 - `GET /api/v1/site/runtime`
 
@@ -86,8 +91,13 @@ before loopback forwarding. See `docs/sensor-collectors.md`.
 The production `mon-site` configuration now rejects non-loopback listener addresses so the
 unauthenticated internal API cannot be exposed remotely through configuration.
 
-The runtime endpoint reports the last state/error for cloud flush, local recovery, and command
-poll loops.
+The runtime endpoint reports the last state/error for cloud flush, local recovery, command
+polling, and sensor-trust synchronization.
+
+Sensor authorization is evaluated from the durable local trust snapshot, not by a live SaaS
+lookup on every event. If SaaS is unavailable, the last known trust snapshot continues to
+apply. If no trust snapshot has ever been synchronized, remote sensor authorization fails
+closed.
 
 ## Enforcement
 
