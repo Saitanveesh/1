@@ -13,6 +13,7 @@ from mon.domain import EvidenceClass, EvidenceRef
 
 _EVENT_NAMESPACE = uuid.UUID("0dc3cc11-77e8-4ea2-a28e-c5f76752b9f6")
 _EVIDENCE_NAMESPACE = uuid.UUID("ea7e6bce-d3cc-43cc-90b5-68ffd5d2c5d8")
+_MAX_CANONICAL_RECORD_BYTES = 1024 * 1024
 
 
 class SensorNormalizationError(ValueError):
@@ -21,7 +22,7 @@ class SensorNormalizationError(ValueError):
 
 def canonical_record(record: Mapping[str, Any]) -> str:
     try:
-        return json.dumps(
+        payload = json.dumps(
             dict(record),
             sort_keys=True,
             separators=(",", ":"),
@@ -32,6 +33,11 @@ def canonical_record(record: Mapping[str, Any]) -> str:
         raise SensorNormalizationError(
             "sensor record must contain JSON-compatible finite values"
         ) from exc
+    if len(payload.encode("utf-8")) > _MAX_CANONICAL_RECORD_BYTES:
+        raise SensorNormalizationError(
+            "sensor record exceeds the 1 MiB normalization limit"
+        )
+    return payload
 
 
 def deterministic_event_id(
