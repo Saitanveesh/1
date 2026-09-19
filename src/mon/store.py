@@ -16,6 +16,7 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
+from mon.event_fabric import FabricReceipt
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -31,6 +32,13 @@ class PipelineStore(Protocol):
     """Persistence contract required by the local evidence pipeline."""
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
+
+    def get_event(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> SecurityEvent | None: ...
 
     def add_event(self, event: SecurityEvent) -> SecurityEvent: ...
 
@@ -85,6 +93,20 @@ class TransactionalPipelineStore(PipelineStore, Protocol):
     ) -> list[SecurityEvent]: ...
 
 
+class FabricReceiptStore(Protocol):
+    def get_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> FabricReceipt | None: ...
+
+    def add_fabric_receipt(
+        self,
+        receipt: FabricReceipt,
+    ) -> FabricReceipt: ...
+
+
 class ResponseStateStore(Protocol):
     """Persistence contract required by local response execution and recovery."""
 
@@ -107,8 +129,15 @@ class ResponseStateStore(Protocol):
     ) -> list[AuditRecord]: ...
 
 
-class Store(PipelineStore, ResponseStateStore, Protocol):
+class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
+
+    def get_event(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> SecurityEvent | None: ...
 
     def add_event(self, event: SecurityEvent) -> SecurityEvent: ...
 
@@ -148,6 +177,29 @@ class Store(PipelineStore, ResponseStateStore, Protocol):
         site_id: str,
         asset_id: str | None = None,
     ) -> list[EnforcementBinding]: ...
+    def get_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> FabricReceipt | None:
+        return self.fabric_receipts.get((tenant_id, site_id, event_id))
+
+    def add_fabric_receipt(
+        self,
+        receipt: FabricReceipt,
+    ) -> FabricReceipt:
+        key = (receipt.tenant_id, receipt.site_id, receipt.event_id)
+        existing = self.fabric_receipts.get(key)
+        if existing is not None:
+            if existing != receipt:
+                raise ValueError(
+                    "fabric receipt already exists with different content"
+                )
+            return existing
+        self.fabric_receipts[key] = receipt
+        return receipt
+
     def add_enrollment_token(
         self, record: EnrollmentTokenRecord
     ) -> EnrollmentTokenRecord: ...
@@ -252,6 +304,18 @@ class Store(PipelineStore, ResponseStateStore, Protocol):
         self, tenant_id: str, site_id: str
     ) -> list[SiteCommandRecord]: ...
 
+    def get_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> FabricReceipt | None: ...
+
+    def add_fabric_receipt(
+        self,
+        receipt: FabricReceipt,
+    ) -> FabricReceipt: ...
+
 
 class InMemoryStore:
     """Development store with strict tenant/site scoping."""
@@ -272,10 +336,22 @@ class InMemoryStore:
         self.response_executions: dict[tuple[str, str, str], ResponseExecution] = {}
         self.audit_records: dict[tuple[str, str, str], AuditRecord] = {}
         self.site_commands: dict[tuple[str, str, str], SiteCommandRecord] = {}
+        self.fabric_receipts: dict[tuple[str, str, str], FabricReceipt] = {}
         self._identity_lock = threading.RLock()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
         return (tenant_id, site_id, event_id) in self.event_ids
+
+    def get_event(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> SecurityEvent | None:
+        for event in self.events[(tenant_id, site_id)]:
+            if event.event_id == event_id:
+                return event
+        return None
 
     def add_event(self, event: SecurityEvent) -> SecurityEvent:
         key = (event.tenant_id, event.site_id, event.event_id)
