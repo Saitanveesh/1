@@ -71,14 +71,24 @@ def zeek_record(uid: str) -> dict[str, object]:
 
 def test_cursor_store_is_bound_to_sensor_identity(tmp_path) -> None:
     path = tmp_path / "cursors.db"
-    first = SQLiteSensorCursorStore(path, sensor_id="sensor-a")
+    first = SQLiteSensorCursorStore(
+        path,
+        tenant_id="tenant-a",
+        site_id="site-a",
+        sensor_id="sensor-a",
+    )
     first.close()
 
     reopened = SQLiteSensorCursorStore(path, sensor_id="sensor-a")
     reopened.close()
 
     with pytest.raises(ValueError, match="sensor_id mismatch"):
-        SQLiteSensorCursorStore(path, sensor_id="sensor-b")
+        SQLiteSensorCursorStore(
+            path,
+            tenant_id="tenant-a",
+            site_id="site-a",
+            sensor_id="sensor-b",
+        )
 
 
 @pytest.mark.asyncio
@@ -92,6 +102,8 @@ async def test_zeek_collector_commits_only_complete_lines(tmp_path) -> None:
 
     store = SQLiteSensorCursorStore(
         tmp_path / "zeek-cursors.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="zeek-1",
     )
     client = FakeSensorClient()
@@ -131,6 +143,8 @@ async def test_suricata_collector_filters_unsupported_eve_types_without_stalling
     )
     store = SQLiteSensorCursorStore(
         tmp_path / "suricata-cursors.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="suricata-1",
     )
     client = FakeSensorClient()
@@ -163,6 +177,8 @@ async def test_delivery_failure_does_not_advance_file_cursor(tmp_path) -> None:
     write_json_lines(eve, [suricata_record("flow")])
     store = SQLiteSensorCursorStore(
         tmp_path / "cursors.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="suricata-1",
     )
     client = FakeSensorClient()
@@ -196,6 +212,8 @@ async def test_rotation_drains_old_inode_before_new_file(tmp_path) -> None:
 
     store = SQLiteSensorCursorStore(
         tmp_path / "cursors.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="suricata-1",
     )
     client = FakeSensorClient()
@@ -229,6 +247,8 @@ async def test_missing_rotated_inode_is_reported_as_gap_not_silently_reset(
     write_json_lines(eve, [suricata_record("flow")])
     store = SQLiteSensorCursorStore(
         tmp_path / "cursors.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="suricata-1",
     )
     client = FakeSensorClient()
@@ -272,6 +292,8 @@ async def test_same_inode_truncation_is_reported_as_gap(tmp_path) -> None:
     )
     store = SQLiteSensorCursorStore(
         tmp_path / "cursors.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="suricata-1",
     )
     client = FakeSensorClient()
@@ -295,10 +317,14 @@ async def test_missing_core_sensor_sources_report_degraded(tmp_path) -> None:
     zeek_dir.mkdir()
     zeek_store = SQLiteSensorCursorStore(
         tmp_path / "zeek-missing.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="zeek-1",
     )
     suricata_store = SQLiteSensorCursorStore(
         tmp_path / "suricata-missing.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
         sensor_id="suricata-1",
     )
     client = FakeSensorClient()
