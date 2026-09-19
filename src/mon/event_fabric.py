@@ -57,7 +57,13 @@ class DurableFabricInbox:
     implement their own idempotency contract for external effects.
     """
 
-    def __init__(self, path: str | Path, *, tenant_id: uuid.UUID, site_id: uuid.UUID) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        tenant_id: uuid.UUID,
+        site_id: uuid.UUID,
+    ) -> None:
         self.tenant_id = tenant_id
         self.site_id = site_id
         self._connection = sqlite3.connect(str(path), isolation_level=None)
@@ -98,12 +104,17 @@ class DurableFabricInbox:
             if row is not None:
                 self._verify_duplicate(envelope, row)
                 self._connection.execute("COMMIT")
-                return DeliveryResult(envelope.event_id, processed=False, duplicate=True)
+                return DeliveryResult(
+                    envelope.event_id,
+                    processed=False,
+                    duplicate=True,
+                )
 
             handler(envelope, self._connection)
             self._connection.execute(
                 "INSERT INTO fabric_receipts "
-                "(event_id, tenant_id, site_id, event_type, schema_version, payload_json, processed_at) "
+                "(event_id, tenant_id, site_id, event_type, schema_version, "
+                "payload_json, processed_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     event_id,
@@ -116,7 +127,11 @@ class DurableFabricInbox:
                 ),
             )
             self._connection.execute("COMMIT")
-            return DeliveryResult(envelope.event_id, processed=True, duplicate=False)
+            return DeliveryResult(
+                envelope.event_id,
+                processed=True,
+                duplicate=False,
+            )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -139,4 +154,9 @@ class DurableFabricInbox:
 
 
 def _canonical_payload(payload: Mapping[str, Any]) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
