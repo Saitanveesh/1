@@ -140,6 +140,10 @@ class SensorCredentialStore:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
+        if os.name == "nt":
+            # Windows collector durability requires a separate native release
+            # gate; directory fsync is not available through this path.
+            return
         descriptor = os.open(path, os.O_RDONLY)
         try:
             os.fsync(descriptor)
