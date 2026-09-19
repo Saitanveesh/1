@@ -302,3 +302,47 @@ def test_sensor_normalizers_fail_closed_on_invalid_or_unsupported_records(
 ) -> None:
     with pytest.raises(SensorNormalizationError, match=message):
         normalizer.normalize(*args)
+
+
+def test_suricata_preserves_packet_reference_when_eve_supplies_pcap_location() -> None:
+    event = SuricataEveNormalizer(
+        "tenant-a",
+        "site-a",
+        "suricata-1",
+    ).normalize(
+        {
+            "timestamp": "2026-09-19T04:00:00+00:00",
+            "flow_id": 42,
+            "pcap_cnt": 53381,
+            "pcap_filename": "/evidence/capture-001.pcap",
+            "event_type": "alert",
+            "src_ip": "198.51.100.10",
+            "dest_ip": "10.0.0.20",
+            "proto": "TCP",
+            "alert": {
+                "signature_id": 7,
+                "signature": "TEST packet reference",
+                "severity": 2,
+            },
+        }
+    )
+
+    assert (
+        event.evidence[0].raw_reference
+        == "pcap:/evidence/capture-001.pcap#packet=53381"
+    )
+
+
+def test_sensor_normalizer_rejects_oversized_raw_record() -> None:
+    normalizer = SuricataEveNormalizer("tenant-a", "site-a", "suricata-1")
+    with pytest.raises(SensorNormalizationError, match="1 MiB"):
+        normalizer.normalize(
+            {
+                "timestamp": "2026-09-19T04:00:00+00:00",
+                "event_type": "flow",
+                "src_ip": "10.0.0.10",
+                "dest_ip": "10.0.0.20",
+                "proto": "TCP",
+                "padding": "x" * (1024 * 1024),
+            }
+        )
