@@ -202,6 +202,12 @@ class AssetEngine:
             byte_total = existing.measured_bytes
             if measured_bytes is not None:
                 byte_total = (byte_total or 0) + measured_bytes
+            attributes = dict(existing.attributes)
+            if hostnames and existing.hostnames and not hostnames <= existing.hostnames:
+                attributes["hostname_conflict_observed"] = True
+                attributes["hostname_conflict_values"] = sorted(
+                    set(existing.hostnames) | hostnames
+                )[:16]
 
             updated = existing.model_copy(
                 update={
@@ -224,6 +230,7 @@ class AssetEngine:
                     "measured_bytes": byte_total,
                     "first_seen": min(existing.first_seen, event.observed_at),
                     "last_seen": max(existing.last_seen, event.observed_at),
+                    "attributes": attributes,
                 }
             )
             return self.store.add_asset(updated)

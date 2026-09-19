@@ -11,6 +11,7 @@ from mon.attack_graph import AttackGraphEngine
 from mon.correlation import CorrelationEngine
 from mon.detection import DetectionEngine
 from mon.domain import EventProcessingResult, SecurityEvent
+from mon.identity_engine import IdentityProcessEngine
 from mon.store import (
     AnalysisCheckpointStore,
     InMemoryStore,
@@ -49,6 +50,7 @@ class SecurityPipeline:
         self.graph = graph or AttackGraphEngine()
         self.correlator = correlator or CorrelationEngine()
         self.asset_engine = AssetEngine(self.store)
+        self.identity_engine = IdentityProcessEngine(self.store)  # type: ignore[arg-type]
         self.telemetry = telemetry or TelemetryEngine()
         self.persistence_mode = persistence_mode
         self.last_restore: dict[str, object] | None = None
@@ -115,6 +117,7 @@ class SecurityPipeline:
                 events = self.store.list_events(tenant_id, site_id)
 
             for event in events:
+                self.identity_engine.observe(event)
                 self.telemetry.observe(event)
                 self.graph.observe_event(event)
                 # Detector replay intentionally discards generated findings. Its
@@ -178,6 +181,7 @@ class SecurityPipeline:
     def _process_new_event(self, event: SecurityEvent) -> EventProcessingResult:
         stored = self.store.add_event(event)
         asset = self.asset_engine.observe(event)
+        identity, process = self.identity_engine.observe(event)
         telemetry = self.telemetry.observe(event)
         self.graph.observe_event(event)
         findings = self.detector.process(event)
@@ -191,11 +195,15 @@ class SecurityPipeline:
 
         return EventProcessingResult(
             event=stored,
-            asset_updates=[asset] if asset is not None else [],
+            asset_updates=[
+                item for item in (asset,) if item is not None
+            ],
             telemetry=telemetry,
             findings=findings,
             incidents=incidents,
             duplicate=False,
+            identity_updates=[identity] if identity is not None else [],
+            process_updates=[process] if process is not None else [],
         )
 
     def process_event(self, event: SecurityEvent) -> EventProcessingResult:

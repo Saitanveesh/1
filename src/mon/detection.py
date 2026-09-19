@@ -27,6 +27,7 @@ class DetectionThresholds:
     arp_sweep_requests: int = 24
     admin_service_attempts: int = 25
     beacon_observations: int = 8
+    endpoint_auth_failures: int = 8
 
 
 @dataclass(frozen=True)
@@ -435,6 +436,53 @@ class DetectionEngine:
                             ),
                         },
                         evidence_class=EvidenceClass.IDS_ALERT,
+                    )
+                )
+
+        if event.category.casefold() == "endpoint.auth.failure" and source != "unknown":
+            identity = self._text(
+                event.attributes.get("identity_principal")
+                or event.attributes.get("identity_display_name"),
+                512,
+            )
+            auth_failures = self._record(
+                "endpoint-auth-failure-pressure",
+                event,
+                f"{source}:{identity or 'unknown'}",
+                300,
+                value=identity,
+                dst_ip=event.asset_id,
+            )
+            if (
+                len(auth_failures) >= self.thresholds.endpoint_auth_failures
+                and self._may_emit(
+                    "endpoint-auth-failure-pressure",
+                    event,
+                    f"{source}:{identity or 'unknown'}",
+                    300,
+                )
+            ):
+                findings.append(
+                    self._finding(
+                        event,
+                        "endpoint-auth-failure-pressure",
+                        "Repeated endpoint authentication failures",
+                        Severity.MEDIUM,
+                        0.72,
+                        (
+                            f"{len(auth_failures)} endpoint authentication failures "
+                            "observed in 300s"
+                        ),
+                        {
+                            "window_seconds": 300,
+                            "failures": len(auth_failures),
+                            "identity_observed": identity,
+                            "claim": (
+                                "authentication-failure pressure only; "
+                                "not proof of compromise or successful access"
+                            ),
+                        },
+                        evidence_class=EvidenceClass.IDENTITY,
                     )
                 )
 
