@@ -7,9 +7,10 @@ import re
 import shutil
 import ssl
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Iterator, Protocol
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -32,6 +33,10 @@ class SensorCredentialTransportError(RuntimeError):
     pass
 
 
+class SensorCredentialBusyError(SensorCredentialError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class SensorCredentialGeneration:
     generation_id: str
@@ -51,6 +56,9 @@ class PendingSensorRenewal:
 
 
 class SensorCredentialClient(Protocol):
+    @property
+    def credential_fingerprint_sha256(self) -> str | None: ...
+
     async def renew_certificate(self, csr_pem: str) -> SensorRenewalResult: ...
 
     async def probe_ssl_context(
@@ -62,7 +70,12 @@ class SensorCredentialClient(Protocol):
         sensor_id: str,
     ) -> None: ...
 
-    async def replace_ssl_context(self, ssl_context: ssl.SSLContext) -> None: ...
+    async def replace_ssl_context(
+        self,
+        ssl_context: ssl.SSLContext,
+        *,
+        fingerprint_sha256: str,
+    ) -> None: ...
 
 
 class SensorCredentialStore:
@@ -223,6 +236,50 @@ class SensorCredentialStore:
                     f"sensor credential store {key} mismatch: "
                     f"expected {value!r}, found {actual.get(key)!r}"
                 )
+
+    @contextmanager
+    def rotation_lease(self) -> Iterator[None]:
+        lock_file = self.root / "rotation.lock"
+        descriptor = os.open(
+            lock_file,
+            os.O_RDWR | os.O_CREAT,
+            0o600,
+        )
+        try:
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"0")
+                os.fsync(descriptor)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(
+                        descriptor,
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+            except (BlockingIOError, OSError) as exc:
+                raise SensorCredentialBusyError(
+                    "another collector owns sensor credential rotation"
+                ) from exc
+            try:
+                yield
+            finally:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
     @staticmethod
     def _public_key_bytes(public_key: object) -> bytes:
@@ -482,6 +539,21 @@ class SensorCredentialStore:
         if not certificate.is_file():
             return None
         return self._generation_from_id(pending.generation_id)
+
+    def discard_stale_pending(self) -> bool:
+        pending = self.pending_renewal()
+        if pending is None:
+            return False
+        active = self.active_generation()
+        if pending.current_fingerprint_sha256 == active.fingerprint_sha256:
+            return False
+        directory = self._generation_dir(pending.generation_id)
+        self.pending_file.unlink(missing_ok=True)
+        self._fsync_directory(self.root)
+        if directory.exists() and directory.name != active.generation_id:
+            shutil.rmtree(directory)
+            self._fsync_directory(self.generations_dir)
+        return True
 
     def renewal_due(
         self,
@@ -813,55 +885,90 @@ async def rotate_sensor_credentials_if_due(
     now: dt.datetime | None = None,
 ) -> dict[str, object]:
     check_at = (now or dt.datetime.now(dt.UTC)).astimezone(dt.UTC)
-    if not store.renewal_due(now=check_at, renew_before=renew_before):
-        active = store.active_generation()
-        return {
-            "state": "CURRENT",
-            "fingerprint_sha256": active.fingerprint_sha256,
-            "expires_at": active.expires_at.isoformat(),
-        }
+    try:
+        lease = store.rotation_lease()
+        lease.__enter__()
+    except SensorCredentialBusyError:
+        return {"state": "BUSY"}
 
-    pending = store.begin_renewal(now=check_at)
-    candidate = store.pending_generation()
-    if candidate is not None:
-        candidate_context = store.ssl_context_for(candidate)
-        try:
+    try:
+        active = store.active_generation()
+        if (
+            client.credential_fingerprint_sha256 is not None
+            and client.credential_fingerprint_sha256
+            != active.fingerprint_sha256
+        ):
+            store.discard_stale_pending()
+            active = store.active_generation()
+            active_context = store.ssl_context_for(active)
             await client.probe_ssl_context(
-                candidate_context,
+                active_context,
                 tenant_id=store.tenant_id,
                 site_id=store.site_id,
                 sensor_id=store.sensor_id,
             )
-        except SensorCredentialTransportError:
-            pass
-        else:
-            activated = store.activate_pending()
-            await client.replace_ssl_context(candidate_context)
-            store.prune_generations()
+            await client.replace_ssl_context(
+                active_context,
+                fingerprint_sha256=active.fingerprint_sha256,
+            )
+
+        if not store.renewal_due(now=check_at, renew_before=renew_before):
+            active = store.active_generation()
             return {
-                "state": "ROTATED",
-                "generation_id": activated.generation_id,
-                "fingerprint_sha256": activated.fingerprint_sha256,
-                "expires_at": activated.expires_at.isoformat(),
-                "recovered_pending": True,
+                "state": "CURRENT",
+                "fingerprint_sha256": active.fingerprint_sha256,
+                "expires_at": active.expires_at.isoformat(),
             }
 
-    result = await client.renew_certificate(pending.csr_pem)
-    candidate = store.install_renewal_result(result)
-    candidate_context = store.ssl_context_for(candidate)
-    await client.probe_ssl_context(
-        candidate_context,
-        tenant_id=store.tenant_id,
-        site_id=store.site_id,
-        sensor_id=store.sensor_id,
-    )
-    activated = store.activate_pending()
-    await client.replace_ssl_context(candidate_context)
-    store.prune_generations()
-    return {
-        "state": "ROTATED",
-        "generation_id": activated.generation_id,
-        "fingerprint_sha256": activated.fingerprint_sha256,
-        "expires_at": activated.expires_at.isoformat(),
-        "recovered_pending": False,
-    }
+        pending = store.begin_renewal(now=check_at)
+        candidate = store.pending_generation()
+        if candidate is not None:
+            candidate_context = store.ssl_context_for(candidate)
+            try:
+                await client.probe_ssl_context(
+                    candidate_context,
+                    tenant_id=store.tenant_id,
+                    site_id=store.site_id,
+                    sensor_id=store.sensor_id,
+                )
+            except SensorCredentialTransportError:
+                pass
+            else:
+                activated = store.activate_pending()
+                await client.replace_ssl_context(
+                    candidate_context,
+                    fingerprint_sha256=activated.fingerprint_sha256,
+                )
+                store.prune_generations()
+                return {
+                    "state": "ROTATED",
+                    "generation_id": activated.generation_id,
+                    "fingerprint_sha256": activated.fingerprint_sha256,
+                    "expires_at": activated.expires_at.isoformat(),
+                    "recovered_pending": True,
+                }
+
+        result = await client.renew_certificate(pending.csr_pem)
+        candidate = store.install_renewal_result(result)
+        candidate_context = store.ssl_context_for(candidate)
+        await client.probe_ssl_context(
+            candidate_context,
+            tenant_id=store.tenant_id,
+            site_id=store.site_id,
+            sensor_id=store.sensor_id,
+        )
+        activated = store.activate_pending()
+        await client.replace_ssl_context(
+            candidate_context,
+            fingerprint_sha256=activated.fingerprint_sha256,
+        )
+        store.prune_generations()
+        return {
+            "state": "ROTATED",
+            "generation_id": activated.generation_id,
+            "fingerprint_sha256": activated.fingerprint_sha256,
+            "expires_at": activated.expires_at.isoformat(),
+            "recovered_pending": False,
+        }
+    finally:
+        lease.__exit__(None, None, None)
