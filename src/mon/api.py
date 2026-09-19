@@ -59,6 +59,11 @@ from mon.site_identity import (
     get_certificate_authority,
     issue_enrollment_token,
 )
+from mon.site_response_models import SiteResponseUpdate
+from mon.site_response_reconciliation import (
+    SiteResponseUpdateError,
+    SiteResponseUpdateReconciler,
+)
 from mon.site_identity_models import (
     EnrollmentTokenIssue,
     EnrollmentTokenRequest,
@@ -91,6 +96,7 @@ response_dispatcher = ResponseDispatcher(
     response_orchestrator,
     site_command_queue,
 )
+site_response_reconciler = SiteResponseUpdateReconciler(store)
 
 
 @app.get("/health")
@@ -619,6 +625,26 @@ async def submit_site_command_result(
         if execution is not None:
             await _publish_response_execution(execution)
     return record
+
+
+@app.post("/api/v1/site-response-updates", response_model=ResponseExecution)
+async def submit_site_response_update(
+    update: SiteResponseUpdate,
+    principal: CurrentPrincipal,
+) -> ResponseExecution:
+    require_scope(
+        principal,
+        update.tenant_id,
+        update.site_id,
+        Permission.SITE_COMMAND,
+    )
+    try:
+        execution = site_response_reconciler.reconcile(update)
+    except SiteResponseUpdateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    await _publish_response_execution(execution)
+    return execution
 
 
 @app.post(
