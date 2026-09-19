@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, String, create_engine, select
+from sqlalchemy import JSON, DateTime, Index, String, Text, create_engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -18,6 +21,7 @@ from mon.domain import (
     ResponseExecution,
     SecurityEvent,
 )
+from mon.event_fabric import FabricReceipt, FabricReceiptStatus
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -46,6 +50,64 @@ class EventRow(Base):
     __table_args__ = (
         Index("ix_security_events_scope", "tenant_id", "site_id"),
         Index("ix_security_events_event_id", "event_id"),
+    )
+
+
+class EventProcessingRow(Base):
+    __tablename__ = "event_processing_receipts"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    processed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_event_processing_scope",
+            "tenant_id",
+            "site_id",
+            "processed_at",
+        ),
+    )
+
+
+class FabricReceiptRow(Base):
+    __tablename__ = "fabric_receipts"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    envelope_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    envelope_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    received_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    processed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_fabric_receipts_scope",
+            "tenant_id",
+            "site_id",
+            "received_at",
+        ),
+        Index(
+            "ix_fabric_receipts_status",
+            "tenant_id",
+            "site_id",
+            "status",
+            "received_at",
+        ),
     )
 
 
@@ -286,17 +348,70 @@ class DatabaseStore:
             expire_on_commit=False,
             class_=Session,
         )
+        self._transaction_state = threading.local()
         if create_schema:
             Base.metadata.create_all(self.engine)
 
     def close(self) -> None:
+        if getattr(self._transaction_state, "session", None) is not None:
+            raise RuntimeError("cannot close DatabaseStore during an active transaction")
         self.engine.dispose()
 
+    def _active_session(self) -> Session | None:
+        value = getattr(self._transaction_state, "session", None)
+        return value if isinstance(value, Session) else None
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        if self._active_session() is not None:
+            raise RuntimeError("nested database transactions are not supported")
+        with self._session_factory.begin() as session:
+            self._transaction_state.session = session
+            try:
+                yield
+            finally:
+                self._transaction_state.session = None
+
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
-        with self._session_factory() as session:
-            return session.get(EventRow, _key(tenant_id, site_id, event_id)) is not None
+        return self.get_event(tenant_id, site_id, event_id) is not None
+
+    def get_event(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> SecurityEvent | None:
+        row = self._get(EventRow, tenant_id, site_id, event_id)
+        return SecurityEvent.model_validate(row.payload) if row else None
+
+    def event_processed(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> bool:
+        row = self._get(
+            EventProcessingRow,
+            tenant_id,
+            site_id,
+            event_id,
+        )
+        return row is not None
 
     def add_event(self, event: SecurityEvent) -> SecurityEvent:
+        existing = self.get_event(
+            event.tenant_id,
+            event.site_id,
+            event.event_id,
+        )
+        if existing is not None:
+            if existing != event:
+                raise ValueError(
+                    "event_id already exists with different content "
+                    "in control-plane store"
+                )
+            return existing
+
         row = EventRow(
             pk=_key(event.tenant_id, event.site_id, event.event_id),
             tenant_id=event.tenant_id,
@@ -304,13 +419,64 @@ class DatabaseStore:
             event_id=event.event_id,
             payload=event.model_dump(mode="json"),
         )
-        with self._session_factory() as session:
-            try:
+        active = self._active_session()
+        if active is not None:
+            active.add(row)
+            active.flush()
+            return event
+
+        try:
+            with self._session_factory.begin() as session:
                 session.add(row)
-                session.commit()
-            except IntegrityError:
-                session.rollback()
+                session.flush()
+        except IntegrityError:
+            existing = self.get_event(
+                event.tenant_id,
+                event.site_id,
+                event.event_id,
+            )
+            if existing is None:
+                raise
+            if existing != event:
+                raise ValueError(
+                    "event_id already exists with different content "
+                    "in control-plane store"
+                ) from None
+            return existing
         return event
+
+    def mark_event_processed(self, event: SecurityEvent) -> None:
+        current = self.get_event(
+            event.tenant_id,
+            event.site_id,
+            event.event_id,
+        )
+        if current is None:
+            raise ValueError(
+                "cannot mark an event processed before its durable event record"
+            )
+        if current != event:
+            raise ValueError(
+                "processed event content does not match durable event record"
+            )
+
+        row = EventProcessingRow(
+            pk=_key(event.tenant_id, event.site_id, event.event_id),
+            tenant_id=event.tenant_id,
+            site_id=event.site_id,
+            event_id=event.event_id,
+            processed_at=dt.datetime.now(dt.UTC),
+        )
+        active = self._active_session()
+        if active is not None:
+            if active.get(EventProcessingRow, row.pk) is None:
+                active.add(row)
+                active.flush()
+            return
+
+        with self._session_factory.begin() as session:
+            if session.get(EventProcessingRow, row.pk) is None:
+                session.add(row)
 
     def list_events(
         self,
@@ -324,6 +490,35 @@ class DatabaseStore:
         if since is not None:
             events = [event for event in events if event.observed_at >= since]
         return sorted(events, key=lambda event: (event.observed_at, event.event_id))
+
+    def list_unprocessed_events(
+        self,
+        tenant_id: str,
+        site_id: str,
+    ) -> list[SecurityEvent]:
+        statement = (
+            select(EventRow)
+            .outerjoin(
+                EventProcessingRow,
+                EventProcessingRow.pk == EventRow.pk,
+            )
+            .where(
+                EventRow.tenant_id == tenant_id,
+                EventRow.site_id == site_id,
+                EventProcessingRow.pk.is_(None),
+            )
+            .order_by(EventRow.event_id)
+        )
+        active = self._active_session()
+        if active is not None:
+            rows = active.scalars(statement).all()
+        else:
+            with self._session_factory() as session:
+                rows = session.scalars(statement).all()
+        return [
+            SecurityEvent.model_validate(row.payload)
+            for row in rows
+        ]
 
     def add_finding(self, finding: Finding) -> Finding:
         self._merge(
@@ -1024,7 +1219,146 @@ class DatabaseStore:
             sensor_row.payload = updated.model_dump(mode="json")
             return updated
 
+    def get_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> FabricReceipt | None:
+        row = self._get(
+            FabricReceiptRow,
+            tenant_id,
+            site_id,
+            event_id,
+        )
+        if row is None:
+            return None
+        received_at = row.received_at
+        if received_at.tzinfo is None or received_at.utcoffset() is None:
+            received_at = received_at.replace(tzinfo=dt.UTC)
+        processed_at = row.processed_at
+        if processed_at is not None and (
+            processed_at.tzinfo is None
+            or processed_at.utcoffset() is None
+        ):
+            processed_at = processed_at.replace(tzinfo=dt.UTC)
+        return FabricReceipt(
+            event_id=row.event_id,
+            tenant_id=row.tenant_id,
+            site_id=row.site_id,
+            envelope_sha256=row.envelope_sha256,
+            envelope_json=row.envelope_json,
+            status=FabricReceiptStatus(row.status),
+            received_at=received_at,
+            processed_at=processed_at,
+        )
+
+    @staticmethod
+    def _receipt_matches(
+        existing: FabricReceipt,
+        receipt: FabricReceipt,
+    ) -> bool:
+        return (
+            existing.event_id == receipt.event_id
+            and existing.tenant_id == receipt.tenant_id
+            and existing.site_id == receipt.site_id
+            and existing.envelope_sha256 == receipt.envelope_sha256
+            and existing.envelope_json == receipt.envelope_json
+        )
+
+    def add_fabric_receipt(
+        self,
+        receipt: FabricReceipt,
+    ) -> FabricReceipt:
+        existing = self.get_fabric_receipt(
+            receipt.tenant_id,
+            receipt.site_id,
+            receipt.event_id,
+        )
+        if existing is not None:
+            if not self._receipt_matches(existing, receipt):
+                raise ValueError(
+                    "fabric receipt already exists with different envelope"
+                )
+            return existing
+
+        row = FabricReceiptRow(
+            pk=_key(receipt.tenant_id, receipt.site_id, receipt.event_id),
+            tenant_id=receipt.tenant_id,
+            site_id=receipt.site_id,
+            event_id=receipt.event_id,
+            envelope_sha256=receipt.envelope_sha256,
+            envelope_json=receipt.envelope_json,
+            status=receipt.status.value,
+            received_at=receipt.received_at,
+            processed_at=receipt.processed_at,
+        )
+        active = self._active_session()
+        if active is not None:
+            active.add(row)
+            active.flush()
+            return receipt
+
+        try:
+            with self._session_factory.begin() as session:
+                session.add(row)
+                session.flush()
+        except IntegrityError:
+            existing = self.get_fabric_receipt(
+                receipt.tenant_id,
+                receipt.site_id,
+                receipt.event_id,
+            )
+            if (
+                existing is None
+                or not self._receipt_matches(existing, receipt)
+            ):
+                raise ValueError(
+                    "fabric receipt already exists with different envelope"
+                ) from None
+            return existing
+        return receipt
+
+    def complete_fabric_receipt(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+        *,
+        processed_at: dt.datetime,
+    ) -> FabricReceipt:
+        if processed_at.tzinfo is None or processed_at.utcoffset() is None:
+            raise ValueError("fabric receipt processed_at must be timezone-aware")
+        key = _key(tenant_id, site_id, event_id)
+        active = self._active_session()
+        if active is not None:
+            row = active.get(FabricReceiptRow, key)
+            if row is None:
+                raise ValueError("fabric receipt does not exist")
+            if row.status != FabricReceiptStatus.PROCESSED.value:
+                row.status = FabricReceiptStatus.PROCESSED.value
+                row.processed_at = processed_at.astimezone(dt.UTC)
+                active.flush()
+            return self.get_fabric_receipt(tenant_id, site_id, event_id)
+
+        with self._session_factory.begin() as session:
+            row = session.get(FabricReceiptRow, key)
+            if row is None:
+                raise ValueError("fabric receipt does not exist")
+            if row.status != FabricReceiptStatus.PROCESSED.value:
+                row.status = FabricReceiptStatus.PROCESSED.value
+                row.processed_at = processed_at.astimezone(dt.UTC)
+        completed = self.get_fabric_receipt(tenant_id, site_id, event_id)
+        if completed is None:
+            raise RuntimeError("completed fabric receipt disappeared")
+        return completed
+
     def _merge(self, row: Any) -> None:
+        active = self._active_session()
+        if active is not None:
+            active.merge(row)
+            active.flush()
+            return
         with self._session_factory.begin() as session:
             session.merge(row)
 
@@ -1035,8 +1369,12 @@ class DatabaseStore:
         site_id: str,
         object_id: str,
     ) -> Any | None:
+        key = _key(tenant_id, site_id, object_id)
+        active = self._active_session()
+        if active is not None:
+            return active.get(row_type, key)
         with self._session_factory() as session:
-            return session.get(row_type, _key(tenant_id, site_id, object_id))
+            return session.get(row_type, key)
 
     def _list_scope(
         self,
@@ -1048,6 +1386,9 @@ class DatabaseStore:
             row_type.tenant_id == tenant_id,
             row_type.site_id == site_id,
         )
+        active = self._active_session()
+        if active is not None:
+            return list(active.scalars(statement).all())
         with self._session_factory() as session:
             return list(session.scalars(statement).all())
 

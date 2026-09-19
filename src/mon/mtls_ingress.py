@@ -15,6 +15,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID
 from pydantic import ValidationError
 
 from mon.domain import EventBatch
+from mon.event_fabric import FabricEnvelope
 from mon.sensor_fleet_models import SensorHeartbeat, SensorRenewalRequest
 from mon.site_command_models import SiteCommandResult
 from mon.site_response_models import SiteResponseUpdate
@@ -110,6 +111,20 @@ def require_batch_matches_site_identity(
             raise SiteCertificateScopeError(
                 "event tenant/site does not match the verified client certificate"
             )
+
+
+def require_fabric_envelope_matches_site_identity(
+    envelope: FabricEnvelope,
+    identity: VerifiedSiteIdentity,
+) -> None:
+    if (
+        envelope.tenant_id != identity.tenant_id
+        or envelope.site_id != identity.site_id
+    ):
+        raise SiteCertificateScopeError(
+            "fabric envelope tenant/site does not match "
+            "the verified client certificate"
+        )
 
 
 def require_command_result_matches_site_identity(
@@ -256,6 +271,62 @@ class MtlsSiteIngress:
             headers=response_headers,
         )
 
+
+    async def ingest_fabric_event(
+        self,
+        request: web.Request,
+    ) -> web.Response:
+        try:
+            identity = self._verified_identity(request)
+        except SiteCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+
+        try:
+            raw_body = await request.read()
+            envelope = FabricEnvelope.model_validate_json(raw_body)
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(
+                text="invalid fabric envelope"
+            ) from exc
+
+        try:
+            require_fabric_envelope_matches_site_identity(
+                envelope,
+                identity,
+            )
+        except SiteCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        authorization = self._authorization(request)
+        async with httpx.AsyncClient(
+            base_url=self.internal_control_plane_url,
+            timeout=self.timeout_seconds,
+            trust_env=False,
+        ) as client:
+            try:
+                response = await client.post(
+                    "/api/v1/fabric/events",
+                    content=raw_body,
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise web.HTTPBadGateway(
+                    text="control plane is unavailable"
+                ) from exc
+
+        return web.Response(
+            status=response.status_code,
+            body=response.content,
+            headers={
+                "Content-Type": response.headers.get(
+                    "content-type",
+                    "application/json",
+                )
+            },
+        )
 
     @staticmethod
     def _authorization(request: web.Request) -> str:
@@ -545,6 +616,10 @@ def create_app(
     app = web.Application(client_max_size=8 * 1024 * 1024)
     app.router.add_get("/health", ingress.health)
     app.router.add_post("/api/v1/events/batch", ingress.ingest_batch)
+    app.router.add_post(
+        "/api/v1/site/fabric/events",
+        ingress.ingest_fabric_event,
+    )
     app.router.add_get("/api/v1/site/commands", ingress.pull_commands)
     app.router.add_post(
         "/api/v1/site/commands/results",

@@ -40,9 +40,16 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.enforcement import EnforcementRegistry
+from mon.event_fabric import FabricEnvelope, FabricIngestResult
+from mon.fabric_ingress import (
+    FabricEnvelopeCollision,
+    FabricEnvelopeInvalid,
+    FabricProcessingUncertain,
+    ingest_fabric_envelope,
+)
 from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
-from mon.pipeline import SecurityPipeline
+from mon.pipeline import PipelineStateError, SecurityPipeline
 from mon.response import ResponseOrchestrator, ResponseStateError
 from mon.response_dispatch import ResponseDispatcher
 from mon.sensor_fleet import (
@@ -142,6 +149,45 @@ def who_am_i(principal: CurrentPrincipal) -> Principal:
 
 
 @app.post(
+    "/api/v1/fabric/events",
+    response_model=FabricIngestResult,
+    status_code=201,
+)
+async def ingest_fabric_event(
+    envelope: FabricEnvelope,
+    principal: CurrentPrincipal,
+) -> FabricIngestResult:
+    require_scope(
+        principal,
+        envelope.tenant_id,
+        envelope.site_id,
+        Permission.INGEST,
+    )
+    started = time.perf_counter()
+    try:
+        outcome = await run_in_threadpool(
+            ingest_fabric_envelope,
+            store,
+            pipeline,
+            envelope,
+        )
+    except FabricEnvelopeInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except FabricEnvelopeCollision as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FabricProcessingUncertain as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if outcome.processing_result is not None:
+        processing_ms = (time.perf_counter() - started) * 1000
+        await live_hub.publish_processing_result(
+            outcome.processing_result,
+            processing_ms=processing_ms,
+        )
+    return outcome.acknowledgement
+
+
+@app.post(
     "/api/v1/events",
     response_model=EventProcessingResult,
     status_code=201,
@@ -157,7 +203,10 @@ async def ingest_event(
         Permission.INGEST,
     )
     started = time.perf_counter()
-    result = await run_in_threadpool(pipeline.process_event, event)
+    try:
+        result = await run_in_threadpool(pipeline.process_event, event)
+    except PipelineStateError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     processing_ms = (time.perf_counter() - started) * 1000
     await live_hub.publish_processing_result(result, processing_ms=processing_ms)
     return result
@@ -183,7 +232,10 @@ async def ingest_event_batch(
     results: list[EventProcessingResult] = []
     for event in batch.events:
         started = time.perf_counter()
-        result = await run_in_threadpool(pipeline.process_event, event)
+        try:
+            result = await run_in_threadpool(pipeline.process_event, event)
+        except PipelineStateError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         processing_ms = (time.perf_counter() - started) * 1000
         results.append(result)
         await live_hub.publish_processing_result(result, processing_ms=processing_ms)

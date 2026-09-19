@@ -4,7 +4,7 @@ import ssl
 
 import httpx
 
-from mon.event_fabric import FabricEnvelope
+from mon.event_fabric import FabricEnvelope, FabricIngestResult
 
 
 class HttpFabricPublisher:
@@ -51,3 +51,20 @@ class HttpFabricPublisher:
                 headers={"Content-Type": "application/json"},
             )
             response.raise_for_status()
+            try:
+                result = FabricIngestResult.model_validate(response.json())
+            except ValueError as exc:
+                raise RuntimeError(
+                    "fabric ingress returned an invalid acknowledgement"
+                ) from exc
+
+        if not result.accepted:
+            raise RuntimeError("fabric ingress did not accept the envelope")
+        if result.event_id != envelope.event_id:
+            raise RuntimeError(
+                "fabric ingress acknowledged a different event_id"
+            )
+        if result.envelope_sha256 != envelope.canonical_sha256:
+            raise RuntimeError(
+                "fabric ingress acknowledgement digest does not match envelope"
+            )

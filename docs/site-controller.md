@@ -14,8 +14,9 @@ command loops. It persists local delivery and response state under one site stat
 `MON_TENANT_ID` and `MON_SITE_ID` are required.
 
 `MON_SITE_STATE_DIR` defaults to `/var/lib/mon-site`. The directory contains independent
-SQLite databases for event buffering, response execution/audit state, command-result receipts,
-response updates, and the last synchronized sensor trust snapshot. These files are bound to
+SQLite databases for event buffering, exact event-fabric delivery, response execution/audit
+state, command-result receipts, response updates, and the last synchronized sensor trust
+snapshot. These files are bound to
 the configured tenant/site and must not be copied between site identities.
 
 The local API listens on `127.0.0.1:8090` by default. `MON_SITE_PORT` may change the
@@ -46,6 +47,11 @@ service token in command arguments or general configuration files.
 `MON_SITE_CLIENT_KEY_PASSWORD` is optional for encrypted private keys.
 
 Plain HTTP is rejected by the production Site Controller configuration.
+
+Production event delivery uses the durable fabric outbox and the authenticated HTTP fabric
+publisher. Each exact FabricEnvelope is sent to /api/v1/site/fabric/events through the site
+mTLS gateway. The legacy EventBatch sender remains a compatibility boundary but is not the
+production mon-site telemetry path.
 
 ## Loop intervals
 
@@ -127,3 +133,14 @@ crash-recovery protocol.
 The remaining local scale boundary is retained analysis history and the resulting linear
 warm-restore cost. Retention/snapshotting must preserve evidence required by active
 investigations rather than silently discarding it.
+
+
+## Fabric upgrade boundary
+
+The production Site Controller now uses the fabric path from ADRs 0034-0037. Deployments
+upgrading from the older batch-delivery path should drain their legacy event spool before
+cutover unless historical control-plane event state has been explicitly reconciled.
+
+Migration 0006 does not invent processing receipts for historical events. If an old event
+exists without proof that all derived state committed atomically, fabric redelivery returns an
+uncertain-state error instead of acknowledging success.

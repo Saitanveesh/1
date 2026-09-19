@@ -6,6 +6,9 @@ import pytest
 
 from mon.database import DatabaseStore
 from mon.domain import SecurityEvent
+from mon.event_fabric import FabricReceiptStatus, security_event_envelope
+from mon.fabric_ingress import ingest_fabric_envelope
+from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorFleetState,
@@ -251,3 +254,103 @@ def test_postgres_sensor_fleet_lifecycle_persists_and_is_scoped() -> None:
         is None
     )
     second.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_pipeline_commits_event_and_processing_receipt_atomically() -> None:
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    event_id = f"ci-processed-{uuid.uuid4()}"
+    item = SecurityEvent(
+        event_id=event_id,
+        tenant_id="ci-tenant",
+        site_id="ci-site",
+        sensor_id="ci-sensor",
+        observed_at=dt.datetime.now(dt.UTC),
+        category="integration.fabric",
+        src_ip="10.0.0.10",
+        dst_ip="10.0.0.20",
+        protocol="tcp",
+    )
+
+    first = DatabaseStore(url)
+    pipeline = SecurityPipeline(
+        store=first,
+        persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+    )
+    result = pipeline.process_event(item)
+    assert result.duplicate is False
+    assert first.event_processed("ci-tenant", "ci-site", event_id)
+    first.close()
+
+    second = DatabaseStore(url)
+    try:
+        assert second.get_event("ci-tenant", "ci-site", event_id) == item
+        assert second.event_processed("ci-tenant", "ci-site", event_id)
+        assert event_id not in {
+            value.event_id
+            for value in second.list_unprocessed_events(
+                "ci-tenant",
+                "ci-site",
+            )
+        }
+    finally:
+        second.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_fabric_receipt_survives_restart_and_deduplicates() -> None:
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    event_id = f"ci-fabric-{uuid.uuid4()}"
+    observed_at = dt.datetime.now(dt.UTC)
+    item = SecurityEvent(
+        event_id=event_id,
+        tenant_id="ci-tenant",
+        site_id="ci-site",
+        sensor_id="ci-sensor",
+        observed_at=observed_at,
+        category="integration.fabric",
+    )
+    envelope = security_event_envelope(
+        item,
+        produced_at=observed_at + dt.timedelta(milliseconds=1),
+    )
+
+    first = DatabaseStore(url)
+    pipeline = SecurityPipeline(
+        store=first,
+        persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+    )
+    ingested = ingest_fabric_envelope(first, pipeline, envelope)
+    assert ingested.acknowledgement.duplicate is False
+    first.close()
+
+    second = DatabaseStore(url)
+    second_pipeline = SecurityPipeline(
+        store=second,
+        persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+    )
+    try:
+        receipt = second.get_fabric_receipt(
+            "ci-tenant",
+            "ci-site",
+            event_id,
+        )
+        assert receipt is not None
+        assert receipt.status is FabricReceiptStatus.PROCESSED
+        assert receipt.envelope_sha256 == envelope.canonical_sha256
+
+        duplicate = ingest_fabric_envelope(
+            second,
+            second_pipeline,
+            envelope,
+        )
+        assert duplicate.acknowledgement.duplicate is True
+        assert duplicate.processing_result is None
+    finally:
+        second.close()

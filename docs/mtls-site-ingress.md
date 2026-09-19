@@ -19,6 +19,10 @@ Then set `MON_MTLS_CERT_DIR` to that directory and start the profile:
 MON_MTLS_CERT_DIR=/secure/mon-certs docker compose --profile mtls up --build
 ```
 
-The gateway listens on 8443 and forwards verified event batches to the internal control
-plane. Do not expose the internal control-plane site-ingestion path as a replacement for
-the gateway in production.
+The gateway listens on 8443 and forwards verified site traffic to the internal control
+plane. Production telemetry uses POST /api/v1/site/fabric/events. The gateway parses the
+FabricEnvelope, requires tenant/site scope to match the verified site certificate, and
+forwards the exact envelope bytes to the internal /api/v1/fabric/events route.
+
+The older event-batch route remains available for migration and compatibility. Do not expose
+internal control-plane site-ingestion paths as a replacement for the gateway in production.

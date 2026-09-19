@@ -12,6 +12,8 @@ import uvicorn
 from fastapi import FastAPI
 
 from mon.enforcement import EnforcementRegistry
+from mon.event_fabric_outbox import DurableFabricOutbox
+from mon.event_fabric_transport import HttpFabricPublisher
 from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
 from mon.production_site_controller import ProductionSiteController
 from mon.sensor_fleet_client import HttpSensorFleetClient
@@ -19,7 +21,7 @@ from mon.site_analysis_store import SQLiteSiteAnalysisStore
 from mon.site_api import create_site_app
 from mon.site_command_client import HttpSiteCommandClient
 from mon.site_command_outbox import SQLiteCommandResultOutbox
-from mon.site_controller import HttpControlPlaneSender, SQLiteEventSpool
+from mon.site_controller import SQLiteEventSpool
 from mon.site_identity import create_mtls_client_ssl_context
 from mon.site_response import SiteResponseExecutor
 from mon.site_response_outbox import SQLiteResponseUpdateOutbox
@@ -224,6 +226,7 @@ class SiteServiceResources:
     controller: ProductionSiteController
     runtime: SiteControllerRuntime
     event_spool: SQLiteEventSpool
+    fabric_outbox: DurableFabricOutbox
     analysis_store: SQLiteSiteAnalysisStore
     response_store: SQLiteSiteResponseStore
     command_result_outbox: SQLiteCommandResultOutbox
@@ -236,6 +239,7 @@ class SiteServiceResources:
         self.command_result_outbox.close()
         self.response_store.close()
         self.analysis_store.close()
+        self.fabric_outbox.close()
         self.event_spool.close()
 
 
@@ -249,6 +253,11 @@ def build_site_service_resources(
 
     event_spool = SQLiteEventSpool(
         config.state_dir / "event-spool.db",
+        tenant_id=config.tenant_id,
+        site_id=config.site_id,
+    )
+    fabric_outbox = DurableFabricOutbox(
+        config.state_dir / "fabric-outbox.db",
         tenant_id=config.tenant_id,
         site_id=config.site_id,
     )
@@ -293,7 +302,7 @@ def build_site_service_resources(
             enforcement,
         )
 
-        sender = None
+        fabric_publisher = None
         command_client = None
         sensor_fleet_client = None
         if config.ingress_url is not None:
@@ -307,7 +316,7 @@ def build_site_service_resources(
                 str(config.client_private_key_file),
                 private_key_password=config.client_private_key_password,
             )
-            sender = HttpControlPlaneSender(
+            fabric_publisher = HttpFabricPublisher(
                 config.ingress_url,
                 timeout_seconds=config.request_timeout_seconds,
                 bearer_token=config.bearer_token,
@@ -330,8 +339,9 @@ def build_site_service_resources(
             config.tenant_id,
             config.site_id,
             event_spool,
-            sender=sender,
             pipeline=pipeline,
+            fabric_outbox=fabric_outbox,
+            fabric_publisher=fabric_publisher,
             command_client=command_client,
             response_executor=response_executor,
             sensor_fleet_client=sensor_fleet_client,
@@ -352,6 +362,7 @@ def build_site_service_resources(
             controller=controller,
             runtime=runtime,
             event_spool=event_spool,
+            fabric_outbox=fabric_outbox,
             analysis_store=analysis_store,
             response_store=response_store,
             command_result_outbox=command_result_outbox,
@@ -364,6 +375,7 @@ def build_site_service_resources(
         command_result_outbox.close()
         response_store.close()
         analysis_store.close()
+        fabric_outbox.close()
         event_spool.close()
         raise
 

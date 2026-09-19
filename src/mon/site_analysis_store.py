@@ -243,6 +243,27 @@ class SQLiteSiteAnalysisStore:
             ).fetchone()
         return row is not None
 
+    def get_event(
+        self,
+        tenant_id: str,
+        site_id: str,
+        event_id: str,
+    ) -> SecurityEvent | None:
+        self._require_scope(tenant_id, site_id)
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT payload FROM site_analysis_events
+                WHERE tenant_id = ? AND site_id = ? AND event_id = ?
+                """,
+                (tenant_id, site_id, event_id),
+            ).fetchone()
+        return (
+            SecurityEvent.model_validate_json(row["payload"])
+            if row is not None
+            else None
+        )
+
     def event_processed(
         self,
         tenant_id: str,
