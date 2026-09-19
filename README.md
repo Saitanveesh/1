@@ -56,6 +56,8 @@ Implemented foundations include:
   deleting forensic evidence;
 - STIX 2.1 indicator-bundle ingestion with tenant/site-scoped persistence and
   evidence-backed exact indicator matching for IPs, domains, URLs, and file hashes;
+- TAXII 2.1 read-only feed synchronization with vault-backed credentials, bounded HTTP
+  behavior, pagination, added_after cursors, retry/backoff state, and tenant/site RLS;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
@@ -68,8 +70,8 @@ analysis unit before the event becomes cloud-deliverable. Local forensic history
 silently pruned by checkpoint maintenance. The nftables adapter in this repository remains
 disposable-sandbox-only rather than a production host firewall connector. Threat-intelligence
 support currently covers direct STIX bundle ingestion and exact indicator matching; TAXII
-polling, scheduled feed synchronization, and complex STIX pattern evaluation are not yet
-implemented.
+feed synchronization is read-only and client-side. MON does not yet implement a TAXII server,
+TAXII write/publish APIs, or complex STIX pattern evaluation.
 
 See:
 

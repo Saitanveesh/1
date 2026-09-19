@@ -28,6 +28,7 @@ from mon.sensor_fleet_models import (
 )
 from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
+from mon.taxii import TaxiiFeedRecord, TaxiiFeedState
 from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
 
 
@@ -355,6 +356,7 @@ class InMemoryStore:
         self.fabric_receipts: dict[tuple[str, str, str], FabricReceipt] = {}
         self.threat_intel_sources: dict[tuple[str, str, str], ThreatIntelSource] = {}
         self.threat_indicators: dict[tuple[str, str, str], ThreatIndicator] = {}
+        self.taxii_feeds: dict[tuple[str, str, str], TaxiiFeedRecord] = {}
         self._identity_lock = threading.RLock()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
@@ -464,7 +466,7 @@ class InMemoryStore:
             existing.stix_id == indicator.stix_id
             and existing_modified is not None
             and incoming_modified is not None
-            and incoming_modified < existing_modified
+            and incoming_modified <= existing_modified
         ):
             return "unchanged"
         self.threat_indicators[key] = indicator
@@ -487,6 +489,60 @@ class InMemoryStore:
             and (indicator_type is None or indicator.indicator_type is indicator_type)
             and indicator.active_at(check_at)
         ]
+
+    def add_taxii_feed(self, record: TaxiiFeedRecord) -> TaxiiFeedRecord:
+        self.taxii_feeds[
+            (record.config.tenant_id, record.config.site_id, record.config.feed_id)
+        ] = record
+        self.add_audit_record(
+            AuditRecord(
+                tenant_id=record.config.tenant_id,
+                site_id=record.config.site_id,
+                actor_id="mon-taxii-config",
+                category="THREAT_INTEL",
+                object_type="taxii_feed",
+                object_id=record.config.feed_id,
+                action="UPSERT",
+                outcome="STORED",
+                occurred_at=record.config.updated_at,
+                details={
+                    "source_id": record.config.source_id,
+                    "collection_id": record.config.collection_id,
+                    "auth_mode": record.config.auth_mode.value,
+                    "credential_ref": record.config.credential_ref is not None,
+                    "enabled": record.config.enabled,
+                },
+            )
+        )
+        return record
+
+    def get_taxii_feed(
+        self,
+        tenant_id: str,
+        site_id: str,
+        feed_id: str,
+    ) -> TaxiiFeedRecord | None:
+        return self.taxii_feeds.get((tenant_id, site_id, feed_id))
+
+    def list_taxii_feeds(
+        self,
+        tenant_id: str | None = None,
+        site_id: str | None = None,
+    ) -> list[TaxiiFeedRecord]:
+        return [
+            record
+            for (scope_tenant, scope_site, _), record in self.taxii_feeds.items()
+            if (tenant_id is None or scope_tenant == tenant_id)
+            and (site_id is None or scope_site == site_id)
+        ]
+
+    def update_taxii_feed_state(self, state: TaxiiFeedState) -> TaxiiFeedState:
+        key = (state.tenant_id, state.site_id, state.feed_id)
+        record = self.taxii_feeds.get(key)
+        if record is None:
+            raise ValueError("TAXII feed was not found")
+        self.taxii_feeds[key] = record.model_copy(update={"state": state})
+        return state
 
     def add_enforcement_point(self, point: EnforcementPoint) -> EnforcementPoint:
         self.enforcement_points[point.enforcement_point_id] = point
