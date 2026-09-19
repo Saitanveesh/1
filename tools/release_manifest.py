@@ -17,11 +17,17 @@ def sha256_file(path: Path) -> str:
 def build_manifest(artifact_dir: Path, source_sha: str) -> dict[str, object]:
     root = artifact_dir.resolve()
     files: list[dict[str, object]] = []
-    for path in sorted((item for item in root.rglob("*") if item.is_file()), key=lambda p: p.relative_to(root).as_posix()):
+    artifact_paths = sorted(
+        (item for item in root.rglob("*") if item.is_file()),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
+    for path in artifact_paths:
         relative = path.relative_to(root).as_posix()
         if relative == "manifest.json":
             continue
-        files.append({"path": relative, "sha256": sha256_file(path), "size": path.stat().st_size})
+        files.append(
+            {"path": relative, "sha256": sha256_file(path), "size": path.stat().st_size}
+        )
     if not files:
         raise ValueError("release artifact directory is empty")
     return {"schema_version": 1, "source_sha": source_sha, "files": files}
@@ -30,7 +36,10 @@ def build_manifest(artifact_dir: Path, source_sha: str) -> dict[str, object]:
 def write_manifest(artifact_dir: Path, source_sha: str) -> Path:
     manifest = build_manifest(artifact_dir, source_sha)
     output = artifact_dir / "manifest.json"
-    output.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
     return output
 
 
