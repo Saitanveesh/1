@@ -164,6 +164,7 @@ class FakeCredentialClient:
         *,
         fail_renewal: bool = False,
         probe_failures: int = 0,
+        current_fingerprint_sha256: str | None = None,
     ) -> None:
         self.ca = ca
         self.fail_renewal = fail_renewal
@@ -171,7 +172,7 @@ class FakeCredentialClient:
         self.renew_calls: list[str] = []
         self.probe_calls = 0
         self.replace_calls = 0
-        self._credential_fingerprint_sha256: str | None = None
+        self._credential_fingerprint_sha256 = current_fingerprint_sha256
 
     @property
     def credential_fingerprint_sha256(self) -> str | None:
@@ -431,4 +432,72 @@ def test_rotation_not_due_does_not_create_pending_generation(tmp_path) -> None:
         )
         is False
     )
+    assert store.pending_renewal() is None
+
+
+@pytest.mark.asyncio
+async def test_peer_rotation_is_loaded_before_old_overlap_expires(tmp_path) -> None:
+    ca = make_ca()
+    first_store = make_store(tmp_path, ca)
+    original = first_store.active_generation()
+    first_client = FakeCredentialClient(
+        ca,
+        current_fingerprint_sha256=original.fingerprint_sha256,
+    )
+    rotated = await rotate_sensor_credentials_if_due(
+        first_store,
+        first_client,
+        renew_before=dt.timedelta(days=90),
+    )
+    assert rotated["state"] == "ROTATED"
+    new_active = first_store.active_generation()
+
+    second_store = SensorCredentialStore(
+        first_store.root,
+        tenant_id="tenant-a",
+        site_id="site-a",
+        sensor_id="sensor-1",
+        server_ca_certificate_file=first_store.server_ca_certificate_file,
+        bootstrap_certificate_file=None,
+        bootstrap_private_key_file=None,
+    )
+    second_client = FakeCredentialClient(
+        ca,
+        current_fingerprint_sha256=original.fingerprint_sha256,
+    )
+    result = await rotate_sensor_credentials_if_due(
+        second_store,
+        second_client,
+        renew_before=dt.timedelta(days=7),
+    )
+
+    assert result["state"] == "CURRENT"
+    assert second_client.renew_calls == []
+    assert second_client.probe_calls == 1
+    assert second_client.replace_calls == 1
+    assert (
+        second_client.credential_fingerprint_sha256
+        == new_active.fingerprint_sha256
+    )
+
+
+@pytest.mark.asyncio
+async def test_busy_rotation_lease_does_not_start_second_renewal(tmp_path) -> None:
+    ca = make_ca()
+    store = make_store(tmp_path, ca)
+    active = store.active_generation()
+    client = FakeCredentialClient(
+        ca,
+        current_fingerprint_sha256=active.fingerprint_sha256,
+    )
+
+    with store.rotation_lease():
+        result = await rotate_sensor_credentials_if_due(
+            store,
+            client,
+            renew_before=dt.timedelta(days=90),
+        )
+
+    assert result == {"state": "BUSY"}
+    assert client.renew_calls == []
     assert store.pending_renewal() is None
