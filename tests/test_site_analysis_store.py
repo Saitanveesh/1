@@ -1,9 +1,10 @@
 import datetime as dt
+import sqlite3
 
 import pytest
 
 from mon.domain import SecurityEvent
-from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
+from mon.pipeline import PipelinePersistenceMode, PipelineStateError, SecurityPipeline
 from mon.site_analysis_store import SQLiteSiteAnalysisStore
 
 BASE = dt.datetime(2026, 9, 19, 4, 0, tzinfo=dt.UTC)
@@ -169,3 +170,134 @@ def test_active_incident_correlation_restores_across_restart(tmp_path) -> None:
         assert len(incidents[0].finding_ids) == 2
     finally:
         second_store.close()
+
+
+def test_restore_refuses_event_without_atomic_processing_receipt(tmp_path) -> None:
+    store = SQLiteSiteAnalysisStore(
+        tmp_path / "analysis.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
+    pipeline = SecurityPipeline(
+        store=store,
+        persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+    )
+    try:
+        store.add_event(event(1))
+        assert store.event_processed("tenant-a", "site-a", event(1).event_id) is False
+        with pytest.raises(PipelineStateError, match="without atomic processing receipts"):
+            pipeline.restore_scope("tenant-a", "site-a")
+    finally:
+        store.close()
+
+
+def test_pipeline_transaction_rolls_back_all_derived_state_and_restores_memory(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = SQLiteSiteAnalysisStore(
+        tmp_path / "analysis.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
+    pipeline = SecurityPipeline(
+        store=store,
+        persistence_mode=PipelinePersistenceMode.DURABLE_RESTORED,
+    )
+    for index in range(11):
+        pipeline.process_event(event(index))
+
+    asset_before = store.get_asset("tenant-a", "site-a", "ip:10.0.0.17")
+    assert asset_before is not None
+    original_add_incident = store.add_incident
+
+    def fail_add_incident(incident):
+        raise RuntimeError("simulated incident commit failure")
+
+    monkeypatch.setattr(store, "add_incident", fail_add_incident)
+    try:
+        with pytest.raises(RuntimeError, match="simulated incident"):
+            pipeline.process_event(event(11))
+
+        diagnostics = store.diagnostics()
+        assert diagnostics["events"] == 11
+        assert diagnostics["processed_events"] == 11
+        assert diagnostics["unprocessed_events"] == 0
+        assert diagnostics["findings"] == 0
+        assert diagnostics["incidents"] == 0
+        asset_after_failure = store.get_asset(
+            "tenant-a",
+            "site-a",
+            "ip:10.0.0.17",
+        )
+        assert asset_after_failure == asset_before
+
+        monkeypatch.setattr(store, "add_incident", original_add_incident)
+        retried = pipeline.process_event(event(11))
+        assert len(retried.findings) == 1
+        assert len(retried.incidents) == 1
+        assert store.diagnostics()["events"] == 12
+        assert store.diagnostics()["processed_events"] == 12
+        assert store.diagnostics()["findings"] == 1
+        assert store.diagnostics()["incidents"] == 1
+    finally:
+        store.close()
+
+
+def test_v1_analysis_database_with_events_requires_explicit_rebuild(tmp_path) -> None:
+    path = tmp_path / "analysis-v1.db"
+    item = event(1)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE site_analysis_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO site_analysis_metadata(key, value) VALUES (?, ?)",
+            [
+                ("schema_version", "1"),
+                ("tenant_id", "tenant-a"),
+                ("site_id", "site-a"),
+            ],
+        )
+        connection.execute(
+            """
+            CREATE TABLE site_analysis_events (
+                tenant_id TEXT NOT NULL,
+                site_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, site_id, event_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO site_analysis_events(
+                tenant_id, site_id, event_id, observed_at, payload
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                item.tenant_id,
+                item.site_id,
+                item.event_id,
+                item.observed_at.isoformat(),
+                item.model_dump_json(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(ValueError, match="explicit rebuild"):
+        SQLiteSiteAnalysisStore(
+            path,
+            tenant_id="tenant-a",
+            site_id="site-a",
+        )
