@@ -12,7 +12,11 @@ from mon.domain import (
     ProcessRecord,
     SecurityEvent,
 )
-from mon.event_fabric import FabricReceiptStatus, security_event_envelope
+from mon.event_fabric import (
+    FabricReceipt,
+    FabricReceiptStatus,
+    security_event_envelope,
+)
 from mon.fabric_ingress import ingest_fabric_envelope
 from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
 from mon.sensor_fleet_models import (
@@ -484,6 +488,141 @@ def test_postgres_fabric_receipt_survives_restart_and_deduplicates() -> None:
         assert duplicate.processing_result is None
     finally:
         second.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MON_TEST_DATABASE_URL"),
+    reason="PostgreSQL integration URL is not configured",
+)
+def test_postgres_fabric_receipts_are_rls_scoped() -> None:
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    url = os.environ["MON_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    now = dt.datetime.now(dt.UTC)
+    event_a = SecurityEvent(
+        event_id=f"fabric-rls-a-{suffix}",
+        tenant_id="fabric-tenant-a",
+        site_id="fabric-site-1",
+        sensor_id="ci-sensor",
+        observed_at=now,
+        category="integration.fabric.rls",
+    )
+    event_b = SecurityEvent(
+        event_id=f"fabric-rls-b-{suffix}",
+        tenant_id="fabric-tenant-b",
+        site_id="fabric-site-1",
+        sensor_id="ci-sensor",
+        observed_at=now,
+        category="integration.fabric.rls",
+    )
+    envelope_a = security_event_envelope(
+        event_a,
+        produced_at=now + dt.timedelta(milliseconds=1),
+    )
+    envelope_b = security_event_envelope(
+        event_b,
+        produced_at=now + dt.timedelta(milliseconds=2),
+    )
+    store = DatabaseStore(url)
+    try:
+        store.add_fabric_receipt(
+            FabricReceipt(
+                event_id=envelope_a.event_id,
+                tenant_id=envelope_a.tenant_id,
+                site_id=envelope_a.site_id,
+                envelope_sha256=envelope_a.canonical_sha256,
+                envelope_json=envelope_a.canonical_json(),
+                received_at=now,
+            )
+        )
+        store.add_fabric_receipt(
+            FabricReceipt(
+                event_id=envelope_b.event_id,
+                tenant_id=envelope_b.tenant_id,
+                site_id=envelope_b.site_id,
+                envelope_sha256=envelope_b.canonical_sha256,
+                envelope_json=envelope_b.canonical_json(),
+                received_at=now,
+            )
+        )
+
+        with store.engine.connect() as connection:
+            visible_without_scope = connection.execute(
+                text(
+                    "SELECT event_id FROM fabric_receipts "
+                    "WHERE event_id IN (:event_a, :event_b)"
+                ),
+                {
+                    "event_a": envelope_a.event_id,
+                    "event_b": envelope_b.event_id,
+                },
+            ).scalars().all()
+        assert visible_without_scope == []
+
+        with store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": envelope_a.tenant_id,
+                    "site_id": envelope_a.site_id,
+                },
+            )
+            visible = connection.execute(
+                text(
+                    "SELECT event_id FROM fabric_receipts "
+                    "WHERE event_id IN (:event_a, :event_b) "
+                    "ORDER BY event_id"
+                ),
+                {
+                    "event_a": envelope_a.event_id,
+                    "event_b": envelope_b.event_id,
+                },
+            ).scalars().all()
+            assert visible == [envelope_a.event_id]
+
+        with pytest.raises(DBAPIError), store.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "SELECT "
+                    "set_config('mon.tenant_id', :tenant_id, true), "
+                    "set_config('mon.site_id', :site_id, true)"
+                ),
+                {
+                    "tenant_id": envelope_a.tenant_id,
+                    "site_id": envelope_a.site_id,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO fabric_receipts("
+                    "pk, tenant_id, site_id, event_id, envelope_sha256, "
+                    "envelope_json, status, received_at"
+                    ") VALUES ("
+                    ":pk, :tenant_id, :site_id, :event_id, :sha, "
+                    ":body, 'PENDING', :received_at"
+                    ")"
+                ),
+                {
+                    "pk": (
+                        f"{envelope_b.tenant_id}\x1f"
+                        f"{envelope_b.site_id}\x1ffabric-denied-{suffix}"
+                    ),
+                    "tenant_id": envelope_b.tenant_id,
+                    "site_id": envelope_b.site_id,
+                    "event_id": f"fabric-denied-{suffix}",
+                    "sha": envelope_b.canonical_sha256,
+                    "body": envelope_b.canonical_json(),
+                    "received_at": now,
+                },
+            )
+    finally:
+        store.close()
 
 
 @pytest.mark.skipif(
