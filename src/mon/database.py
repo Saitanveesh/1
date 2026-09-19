@@ -1233,6 +1233,15 @@ class DatabaseStore:
         )
         if row is None:
             return None
+        received_at = row.received_at
+        if received_at.tzinfo is None or received_at.utcoffset() is None:
+            received_at = received_at.replace(tzinfo=dt.UTC)
+        processed_at = row.processed_at
+        if processed_at is not None and (
+            processed_at.tzinfo is None
+            or processed_at.utcoffset() is None
+        ):
+            processed_at = processed_at.replace(tzinfo=dt.UTC)
         return FabricReceipt(
             event_id=row.event_id,
             tenant_id=row.tenant_id,
@@ -1240,8 +1249,8 @@ class DatabaseStore:
             envelope_sha256=row.envelope_sha256,
             envelope_json=row.envelope_json,
             status=FabricReceiptStatus(row.status),
-            received_at=row.received_at,
-            processed_at=row.processed_at,
+            received_at=received_at,
+            processed_at=processed_at,
         )
 
     @staticmethod
