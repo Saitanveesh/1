@@ -247,3 +247,10 @@ class SensorTrustSnapshot(BaseModel):
     site_id: str = Field(min_length=1, max_length=128)
     generated_at: dt.datetime
     identities: list[SensorTrustIdentity] = Field(default_factory=list)
+
+
+class SensorRenewalResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    certificate: SensorEnrollmentResult
+    trust_snapshot: SensorTrustSnapshot
