@@ -931,10 +931,10 @@ async def _run_collector_process(
         )
     if (
         renewal_check_interval_seconds <= 0
-        or renewal_check_interval_seconds > 3600
+        or renewal_check_interval_seconds > 900
     ):
         raise ValueError(
-            "renewal_check_interval_seconds must be greater than 0 and at most 3600"
+            "renewal_check_interval_seconds must be greater than 0 and at most 900"
         )
     if renew_before_seconds < 60 or renew_before_seconds > 7_776_000:
         raise ValueError(
@@ -947,8 +947,9 @@ async def _run_collector_process(
 
     async def managed_poll() -> dict[str, object]:
         nonlocal next_heartbeat_at, next_renewal_check_at
-        result = await poll()
         now = loop.time()
+        rotation: dict[str, object] | None = None
+        rotation_error: str | None = None
         if now >= next_renewal_check_at:
             try:
                 rotation = await rotate_sensor_credentials_if_due(
@@ -958,26 +959,35 @@ async def _run_collector_process(
                         seconds=renew_before_seconds
                     ),
                 )
-                if rotation["state"] == "ROTATED":
-                    result["credential_rotation"] = rotation
-                next_renewal_check_at = now + renewal_check_interval_seconds
+                next_renewal_check_at = now + (
+                    min(60.0, renewal_check_interval_seconds)
+                    if rotation["state"] == "BUSY"
+                    else renewal_check_interval_seconds
+                )
             except (
                 SensorCredentialError,
                 SensorCredentialTransportError,
                 OSError,
                 ssl.SSLError,
             ) as exc:
-                error = str(exc)[:1000]
-                result["state"] = "DEGRADED"
-                result["credential_rotation_error"] = error
+                rotation_error = str(exc)[:1000]
                 logger.warning(
                     "sensor credential rotation failed: %s",
-                    error,
+                    rotation_error,
                 )
                 next_renewal_check_at = now + min(
                     60.0,
                     renewal_check_interval_seconds,
                 )
+
+        result = await poll()
+        if rotation is not None and rotation["state"] == "ROTATED":
+            result["credential_rotation"] = rotation
+        if rotation_error is not None:
+            result["state"] = "DEGRADED"
+            result["credential_rotation_error"] = rotation_error
+
+        now = loop.time()
         if now >= next_heartbeat_at:
             state = (
                 SensorFleetState.READY
@@ -1065,9 +1075,11 @@ def zeek_main() -> None:
                     "MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS",
                     "30",
                 ),
-                renewal_check_interval_seconds=_positive_float_env(
+                renewal_check_interval_seconds=_bounded_float_env(
                     "MON_SENSOR_RENEW_CHECK_INTERVAL_SECONDS",
                     "300",
+                    minimum=1,
+                    maximum=900,
                 ),
                 renew_before_seconds=_bounded_float_env(
                     "MON_SENSOR_RENEW_BEFORE_SECONDS",
@@ -1126,9 +1138,11 @@ def suricata_main() -> None:
                     "MON_SENSOR_HEARTBEAT_INTERVAL_SECONDS",
                     "30",
                 ),
-                renewal_check_interval_seconds=_positive_float_env(
+                renewal_check_interval_seconds=_bounded_float_env(
                     "MON_SENSOR_RENEW_CHECK_INTERVAL_SECONDS",
                     "300",
+                    minimum=1,
+                    maximum=900,
                 ),
                 renew_before_seconds=_bounded_float_env(
                     "MON_SENSOR_RENEW_BEFORE_SECONDS",
