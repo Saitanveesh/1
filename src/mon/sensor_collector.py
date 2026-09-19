@@ -435,19 +435,22 @@ class SensorBatchClient:
         self.base_url = base_url.rstrip("/")
         self.ssl_context = ssl_context
         self.timeout_seconds = timeout_seconds
-
-    async def _post(self, path: str, payload: dict[str, object]) -> None:
-        async with httpx.AsyncClient(
+        self._client = httpx.AsyncClient(
             base_url=self.base_url,
             verify=self.ssl_context,
             timeout=self.timeout_seconds,
-        ) as client:
-            try:
-                response = await client.post(path, json=payload)
-            except httpx.HTTPError as exc:
-                raise SensorDeliveryError(
-                    "sensor ingress is unavailable"
-                ) from exc
+        )
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    async def _post(self, path: str, payload: dict[str, object]) -> None:
+        try:
+            response = await self._client.post(path, json=payload)
+        except httpx.HTTPError as exc:
+            raise SensorDeliveryError(
+                "sensor ingress is unavailable"
+            ) from exc
         if response.status_code < 200 or response.status_code >= 300:
             detail = response.text.strip()[:500]
             raise SensorDeliveryError(
@@ -721,6 +724,21 @@ def _positive_float_env(name: str, default: str) -> float:
     return value
 
 
+async def _run_collector_process(
+    poll: Callable[[], Any],
+    client: SensorBatchClient,
+    *,
+    poll_interval_seconds: float,
+) -> None:
+    try:
+        await run_collector(
+            poll,
+            poll_interval_seconds=poll_interval_seconds,
+        )
+    finally:
+        await client.close()
+
+
 def zeek_main() -> None:
     logging.basicConfig(level=logging.INFO)
     sensor_id, client = _collector_client_from_environment()
@@ -742,8 +760,9 @@ def zeek_main() -> None:
     )
     try:
         asyncio.run(
-            run_collector(
+            _run_collector_process(
                 collector.poll_once,
+                client,
                 poll_interval_seconds=_positive_float_env(
                     "MON_SENSOR_POLL_INTERVAL_SECONDS",
                     "1",
@@ -778,8 +797,9 @@ def suricata_main() -> None:
     )
     try:
         asyncio.run(
-            run_collector(
+            _run_collector_process(
                 collector.poll_once,
+                client,
                 poll_interval_seconds=_positive_float_env(
                     "MON_SENSOR_POLL_INTERVAL_SECONDS",
                     "1",
