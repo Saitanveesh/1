@@ -15,10 +15,10 @@ from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.x509.oid import ExtendedKeyUsageOID
 
 from mon.sensor_fleet_models import SensorRenewalResult
 from mon.sensor_identity import generate_sensor_key_and_csr, sensor_spiffe_uri
-from mon.sensor_transport import extract_sensor_identity_from_verified_certificate
 from mon.site_identity import create_mtls_client_ssl_context
 
 _GENERATION_ID = re.compile(r"^[A-Za-z0-9-]{1,80}$")
@@ -78,8 +78,8 @@ class SensorCredentialStore:
         site_id: str,
         sensor_id: str,
         server_ca_certificate_file: str | Path,
-        bootstrap_certificate_file: str | Path,
-        bootstrap_private_key_file: str | Path,
+        bootstrap_certificate_file: str | Path | None,
+        bootstrap_private_key_file: str | Path | None,
         private_key_password: str | None = None,
     ) -> None:
         if not tenant_id or not site_id or not sensor_id:
@@ -90,23 +90,27 @@ class SensorCredentialStore:
         self.site_id = site_id
         self.sensor_id = sensor_id
         self.server_ca_certificate_file = Path(server_ca_certificate_file)
-        self.bootstrap_certificate_file = Path(bootstrap_certificate_file)
-        self.bootstrap_private_key_file = Path(bootstrap_private_key_file)
+        self.bootstrap_certificate_file = (
+            Path(bootstrap_certificate_file)
+            if bootstrap_certificate_file is not None
+            else None
+        )
+        self.bootstrap_private_key_file = (
+            Path(bootstrap_private_key_file)
+            if bootstrap_private_key_file is not None
+            else None
+        )
         self.private_key_password = private_key_password
         self.generations_dir = self.root / "generations"
         self.metadata_file = self.root / "metadata.json"
         self.active_file = self.root / "active.json"
         self.pending_file = self.root / "pending.json"
 
-        for path in (
-            self.server_ca_certificate_file,
-            self.bootstrap_certificate_file,
-            self.bootstrap_private_key_file,
-        ):
-            if not path.is_file():
-                raise SensorCredentialError(
-                    f"sensor credential input file does not exist: {path}"
-                )
+        if not self.server_ca_certificate_file.is_file():
+            raise SensorCredentialError(
+                "sensor ingress server CA certificate file does not exist: "
+                f"{self.server_ca_certificate_file}"
+            )
 
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.generations_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -264,17 +268,34 @@ class SensorCredentialStore:
                 "sensor certificate public key does not match private key"
             )
 
+        expected_spiffe = sensor_spiffe_uri(
+            self.tenant_id,
+            self.site_id,
+            self.sensor_id,
+        )
         try:
-            identity = extract_sensor_identity_from_verified_certificate(
-                certificate.public_bytes(serialization.Encoding.DER)
+            eku = certificate.extensions.get_extension_for_class(
+                x509.ExtendedKeyUsage
+            ).value
+            san = certificate.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            ).value
+        except x509.ExtensionNotFound as exc:
+            raise SensorCredentialError(
+                "sensor certificate is missing required identity extensions"
+            ) from exc
+        if ExtendedKeyUsageOID.CLIENT_AUTH not in eku:
+            raise SensorCredentialError(
+                "sensor certificate is not valid for client authentication"
             )
-        except ValueError as exc:
-            raise SensorCredentialError(str(exc)) from exc
-        if (
-            identity.tenant_id != self.tenant_id
-            or identity.site_id != self.site_id
-            or identity.sensor_id != self.sensor_id
-        ):
+        sensor_uris = [
+            uri
+            for uri in san.get_values_for_type(
+                x509.UniformResourceIdentifier
+            )
+            if uri.startswith("spiffe://mon.local/")
+        ]
+        if sensor_uris != [expected_spiffe]:
             raise SensorCredentialError(
                 "sensor credential identity does not match configured scope"
             )
@@ -287,7 +308,7 @@ class SensorCredentialStore:
             private_key_file=private_key_file,
             fingerprint_sha256=identity.fingerprint_sha256,
             expires_at=certificate.not_valid_after_utc,
-            spiffe_uri=identity.spiffe_uri,
+            spiffe_uri=expected_spiffe,
         )
 
     def _generation_dir(self, generation_id: str) -> Path:
@@ -357,6 +378,16 @@ class SensorCredentialStore:
         return final_directory
 
     def _import_bootstrap_generation(self) -> None:
+        if (
+            self.bootstrap_certificate_file is None
+            or self.bootstrap_private_key_file is None
+            or not self.bootstrap_certificate_file.is_file()
+            or not self.bootstrap_private_key_file.is_file()
+        ):
+            raise SensorCredentialError(
+                "bootstrap sensor certificate and private key are required "
+                "when the managed credential store is uninitialized"
+            )
         try:
             certificate = x509.load_pem_x509_certificate(
                 self.bootstrap_certificate_file.read_bytes()
@@ -529,6 +560,20 @@ class SensorCredentialStore:
         certificate: x509.Certificate,
         ca_certificate: x509.Certificate,
     ) -> None:
+        try:
+            constraints = ca_certificate.extensions.get_extension_for_class(
+                x509.BasicConstraints
+            ).value
+        except x509.ExtensionNotFound as exc:
+            raise SensorCredentialError(
+                "returned sensor CA lacks BasicConstraints"
+            ) from exc
+        if not constraints.ca:
+            raise SensorCredentialError(
+                "returned sensor issuing certificate is not a CA"
+            )
+        if ca_certificate.not_valid_after_utc <= dt.datetime.now(dt.UTC):
+            raise SensorCredentialError("returned sensor CA is expired")
         if certificate.issuer != ca_certificate.subject:
             raise SensorCredentialError(
                 "renewed sensor certificate issuer does not match returned CA"
@@ -621,18 +666,34 @@ class SensorCredentialStore:
             )
         self._verify_issuer_signature(certificate, ca_certificate)
 
-        try:
-            identity = extract_sensor_identity_from_verified_certificate(
-                certificate.public_bytes(serialization.Encoding.DER)
+        now = dt.datetime.now(dt.UTC)
+        if certificate.not_valid_before_utc > now:
+            raise SensorCredentialError(
+                "renewed sensor certificate is not valid yet"
             )
-        except ValueError as exc:
-            raise SensorCredentialError(str(exc)) from exc
-        if (
-            identity.tenant_id != self.tenant_id
-            or identity.site_id != self.site_id
-            or identity.sensor_id != self.sensor_id
-            or identity.spiffe_uri != expected_spiffe
-        ):
+        if certificate.not_valid_after_utc <= now:
+            raise SensorCredentialError(
+                "renewed sensor certificate is already expired"
+            )
+        try:
+            eku = certificate.extensions.get_extension_for_class(
+                x509.ExtendedKeyUsage
+            ).value
+            san = certificate.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            ).value
+        except x509.ExtensionNotFound as exc:
+            raise SensorCredentialError(
+                "renewed sensor certificate is missing identity extensions"
+            ) from exc
+        if ExtendedKeyUsageOID.CLIENT_AUTH not in eku:
+            raise SensorCredentialError(
+                "renewed sensor certificate lacks client-auth usage"
+            )
+        sensor_uris = san.get_values_for_type(
+            x509.UniformResourceIdentifier
+        )
+        if sensor_uris != [expected_spiffe]:
             raise SensorCredentialError(
                 "renewed certificate identity does not match configured sensor"
             )
