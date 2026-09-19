@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI, HTTPException
 
 from mon.domain import EventProcessingResult, SecurityEvent
 from mon.site_controller import SiteController, SiteScopeViolation
 
 
-def create_site_app(controller: SiteController) -> FastAPI:
+def create_site_app(
+    controller: SiteController,
+    *,
+    lifespan: Any | None = None,
+) -> FastAPI:
     app = FastAPI(
         title="MON Site Controller",
         description="Locally autonomous MON site ingestion and synchronization service.",
+        lifespan=lifespan,
     )
 
     @app.get("/health")
