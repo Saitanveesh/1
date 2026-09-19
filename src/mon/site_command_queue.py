@@ -189,6 +189,87 @@ class SiteCommandQueue:
             commands.append(delivered.command)
         return commands
 
+    @staticmethod
+    def _has_verified_present_evidence(result: SiteCommandResult) -> bool:
+        return any(
+            record.actor_id == "mon-site-reconciliation"
+            and record.action == "VERIFY"
+            and record.outcome == "PRESENT"
+            for record in result.audit_records
+        )
+
+    def _validate_apply_result(
+        self,
+        record: SiteCommandRecord,
+        result: SiteCommandResult,
+    ) -> None:
+        execution = result.execution
+        if execution is None:
+            return
+        plan = record.command.response_plan
+        assert plan is not None
+        if execution.plan != plan:
+            raise SiteCommandError(
+                "site command result cannot mutate the dispatched response plan"
+            )
+        if execution.approval != record.command.approval:
+            raise SiteCommandError(
+                "site command result cannot mutate response approval"
+            )
+        if execution.requested_at != record.command.created_at:
+            raise SiteCommandError(
+                "site command result requested_at does not match command creation"
+            )
+
+        if result.success:
+            if execution.status not in {
+                ResponseExecutionStatus.APPLIED,
+                ResponseExecutionStatus.ROLLED_BACK,
+            }:
+                raise SiteCommandError(
+                    "successful apply command result has invalid execution status"
+                )
+            if (
+                execution.applied_at is None
+                and not self._has_verified_present_evidence(result)
+            ):
+                raise SiteCommandError(
+                    "apply result without applied_at requires VERIFY/PRESENT evidence"
+                )
+        elif execution.status is not ResponseExecutionStatus.FAILED:
+            raise SiteCommandError(
+                "failed apply command result has invalid execution status"
+            )
+
+    def _validate_rollback_result(
+        self,
+        record: SiteCommandRecord,
+        result: SiteCommandResult,
+    ) -> bool:
+        execution = result.execution
+        if execution is None:
+            return False
+        current = self.store.get_response_execution(
+            record.command.tenant_id,
+            record.command.site_id,
+            execution.execution_id,
+        )
+        if current is None:
+            raise SiteCommandError(
+                "rollback command result references unknown response execution"
+            )
+        if execution.plan != current.plan:
+            raise SiteCommandError(
+                "rollback command result cannot mutate the response plan"
+            )
+        if result.success:
+            if execution.status is not ResponseExecutionStatus.ROLLED_BACK:
+                raise SiteCommandError(
+                    "successful rollback command result must be ROLLED_BACK"
+                )
+            return True
+        return execution.status is ResponseExecutionStatus.ROLLBACK_FAILED
+
     def complete(self, result: SiteCommandResult) -> SiteCommandRecord:
         record = self.store.get_site_command(
             result.tenant_id,
@@ -202,13 +283,25 @@ class SiteCommandQueue:
             if record.result == result:
                 return record
             raise SiteCommandError("site command already has a different terminal result")
+        if record.status is SiteCommandStatus.EXPIRED:
+            raise SiteCommandError(
+                "expired site command cannot accept a terminal command result"
+            )
 
         expected_execution_id = self._execution_id(record)
+        persist_execution = False
         if result.execution is not None:
             if result.execution.execution_id != expected_execution_id:
                 raise SiteCommandError(
                     "site command result execution_id does not match command"
                 )
+            if record.command.kind is SiteCommandKind.APPLY_RESPONSE:
+                self._validate_apply_result(record, result)
+                persist_execution = True
+            else:
+                persist_execution = self._validate_rollback_result(record, result)
+
+        if persist_execution and result.execution is not None:
             self.store.add_response_execution(result.execution)
         elif not result.success:
             self._reconcile_pending_failure(

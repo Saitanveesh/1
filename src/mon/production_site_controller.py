@@ -7,7 +7,12 @@ import httpx
 from mon.domain import AuditRecord, ResponseExecutionStatus
 from mon.site_command_outbox import SQLiteCommandResultOutbox
 from mon.site_controller import SiteController
-from mon.site_response_models import SiteResponseUpdate, recovery_update_id
+from mon.site_response_models import (
+    SiteResponseUpdate,
+    SiteResponseUpdateKind,
+    execution_reconciliation_update_id,
+    recovery_update_id,
+)
 from mon.site_response_outbox import SQLiteResponseUpdateOutbox
 
 
@@ -82,6 +87,14 @@ class ProductionSiteController(SiteController):
                 self.response_update_outbox.mark_failed(update.update_id, str(exc))
                 continue
             self.response_update_outbox.mark_reported(update.update_id)
+            if (
+                update.kind is SiteResponseUpdateKind.EXECUTION_RECONCILIATION
+                and update.command_id is not None
+            ):
+                self.result_outbox.mark_superseded(
+                    update.command_id,
+                    "late execution state reconciled through response update",
+                )
             reported += 1
 
         queued = int(self.response_update_outbox.diagnostics()["queued"])
@@ -91,6 +104,97 @@ class ProductionSiteController(SiteController):
             "reported": reported,
             "queued": queued,
         }
+
+    @staticmethod
+    def _parse_command_not_after(record: AuditRecord) -> dt.datetime | None:
+        raw = record.details.get("command_not_after")
+        if not isinstance(raw, str):
+            return None
+        try:
+            value = dt.datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            return None
+        return value.astimezone(dt.UTC)
+
+    def _enqueue_execution_reconciliation_updates(
+        self,
+        *,
+        now: dt.datetime | None = None,
+    ) -> int:
+        if self.response_executor is None:
+            return 0
+
+        check_at = now or dt.datetime.now(dt.UTC)
+        if check_at.tzinfo is None or check_at.utcoffset() is None:
+            raise ValueError("execution reconciliation time must be timezone-aware")
+        check_at = check_at.astimezone(dt.UTC)
+
+        store = self.response_executor.store
+        audits = store.list_audit_records(self.tenant_id, self.site_id)
+        enqueued = 0
+        supported = {
+            ResponseExecutionStatus.APPLIED,
+            ResponseExecutionStatus.FAILED,
+            ResponseExecutionStatus.ROLLED_BACK,
+            ResponseExecutionStatus.ROLLBACK_FAILED,
+        }
+        for execution in store.list_response_executions(self.tenant_id, self.site_id):
+            if execution.status not in supported:
+                continue
+            related = [
+                record
+                for record in audits
+                if record.object_type == "response_execution"
+                and record.object_id == execution.execution_id
+            ]
+            verification = [
+                record
+                for record in related
+                if record.actor_id == "mon-site-reconciliation"
+                and record.action == "VERIFY"
+                and record.outcome in {"PRESENT", "ABSENT"}
+            ]
+            if not verification:
+                continue
+
+            contexts: set[tuple[str, dt.datetime]] = set()
+            for record in related:
+                if record.action != "EXECUTE" or record.outcome != "STARTED":
+                    continue
+                command_id = record.details.get("command_id")
+                not_after = self._parse_command_not_after(record)
+                if isinstance(command_id, str) and command_id and not_after is not None:
+                    contexts.add((command_id, not_after))
+            if len(contexts) != 1:
+                continue
+
+            command_id, not_after = next(iter(contexts))
+            if check_at < not_after:
+                continue
+            if self.result_outbox.is_reported(command_id):
+                continue
+            if self.result_outbox.is_superseded(command_id):
+                continue
+
+            observed_at = max(record.occurred_at for record in related)
+            update = SiteResponseUpdate(
+                update_id=execution_reconciliation_update_id(
+                    execution,
+                    command_id,
+                ),
+                kind=SiteResponseUpdateKind.EXECUTION_RECONCILIATION,
+                command_id=command_id,
+                tenant_id=self.tenant_id,
+                site_id=self.site_id,
+                execution=execution,
+                audit_records=related,
+                observed_at=observed_at,
+            )
+            if self.response_update_outbox.enqueue(update):
+                enqueued += 1
+        return enqueued
 
     def _enqueue_autonomous_recovery_updates(self) -> int:
         if self.recovery_engine is None:
@@ -112,18 +216,26 @@ class ProductionSiteController(SiteController):
             related_recovery = recovery_audits.get(execution.execution_id, [])
             if not related_recovery:
                 continue
-            if execution.status not in {
-                ResponseExecutionStatus.ROLLED_BACK,
-                ResponseExecutionStatus.ROLLBACK_FAILED,
-            }:
-                continue
-
             related_audits = [
                 record
                 for record in audits
                 if record.object_type == "response_execution"
                 and record.object_id == execution.execution_id
             ]
+            if any(
+                record.actor_id == "mon-site-reconciliation"
+                and record.action == "VERIFY"
+                for record in related_audits
+            ):
+                # Interrupted executions use the richer reconciliation update,
+                # which can carry both verified apply evidence and final rollback.
+                continue
+            if execution.status not in {
+                ResponseExecutionStatus.ROLLED_BACK,
+                ResponseExecutionStatus.ROLLBACK_FAILED,
+            }:
+                continue
+
             observed_at = max(record.occurred_at for record in related_recovery)
             update = SiteResponseUpdate(
                 update_id=recovery_update_id(execution),
@@ -157,10 +269,11 @@ class ProductionSiteController(SiteController):
                 "unreported": 0,
             }
 
-        # Apply-command results are causal predecessors of autonomous recovery
-        # updates. Flush them first so the control plane sees APPLIED before a
-        # later site-local ROLLED_BACK state.
+        # Normal command results are the preferred causal path. Only after
+        # attempting them do we reconstruct late evidence-backed reconciliation
+        # for commands whose delivery window has elapsed.
         await self.flush_command_results(limit=max(limit, 20))
+        self._enqueue_execution_reconciliation_updates()
         self._enqueue_autonomous_recovery_updates()
         await self.flush_response_updates(limit=max(limit, 20))
 
@@ -207,6 +320,7 @@ class ProductionSiteController(SiteController):
                 failed += 1
 
         delivery = await self.flush_command_results(limit=max(limit, 20))
+        self._enqueue_execution_reconciliation_updates()
         response_delivery = await self.flush_response_updates(limit=max(limit, 20))
         queued = int(self.result_outbox.diagnostics()["queued"])
         queued_updates = int(self.response_update_outbox.diagnostics()["queued"])
@@ -232,8 +346,16 @@ class ProductionSiteController(SiteController):
         *,
         now: dt.datetime | None = None,
     ) -> dict[str, object]:
+        await self.flush_command_results()
         result = await super().recover_expired_responses(now=now)
-        result["response_updates_enqueued"] = self._enqueue_autonomous_recovery_updates()
+        reconciliation_enqueued = self._enqueue_execution_reconciliation_updates(
+            now=now,
+        )
+        recovery_enqueued = self._enqueue_autonomous_recovery_updates()
+        result["execution_reconciliation_updates_enqueued"] = reconciliation_enqueued
+        result["response_updates_enqueued"] = (
+            reconciliation_enqueued + recovery_enqueued
+        )
         delivery = await self.flush_response_updates()
         result["response_update_sync_state"] = delivery["state"]
         result["response_updates_reported"] = delivery["reported"]

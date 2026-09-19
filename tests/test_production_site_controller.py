@@ -16,6 +16,7 @@ class FakeExecutor:
         # SiteController derives its local recovery engine from the response
         # executor's orchestrator. Keep the fake aligned with that contract.
         self.orchestrator = type("FakeOrchestrator", (), {"store": InMemoryStore()})()
+        self.store = self.orchestrator.store
 
     async def execute(self, command: SiteCommand) -> SiteCommandResult:
         self.calls += 1
@@ -174,3 +175,35 @@ async def test_command_result_survives_upload_failure_without_reexecution(tmp_pa
     assert second["state"] == "SYNCED"
     assert executor.calls == 1
     assert client.submits == 2
+
+
+def test_superseded_result_receipt_is_retained_but_not_retried(tmp_path) -> None:
+    outbox = SQLiteCommandResultOutbox(
+        tmp_path / "results.db",
+        tenant_id="tenant-a",
+        site_id="site-a",
+    )
+    result = SiteCommandResult(
+        command_id="cmd-superseded",
+        tenant_id="tenant-a",
+        site_id="site-a",
+        success=False,
+        error="late result",
+    )
+    try:
+        assert outbox.enqueue(result)
+        assert outbox.pending() == [result]
+        assert outbox.mark_superseded(
+            result.command_id,
+            "state converged through response reconciliation",
+        )
+        assert outbox.pending() == []
+        assert outbox.get(result.command_id) == result
+        assert outbox.is_superseded(result.command_id)
+        assert outbox.is_reported(result.command_id) is False
+        diagnostics = outbox.diagnostics()
+        assert diagnostics["queued"] == 0
+        assert diagnostics["superseded"] == 1
+        assert outbox.mark_failed(result.command_id, "should not retry") is False
+    finally:
+        outbox.close()

@@ -32,7 +32,9 @@ class SQLiteCommandResultOutbox:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT,
                     created_at TEXT NOT NULL,
-                    reported_at TEXT
+                    reported_at TEXT,
+                    superseded_at TEXT,
+                    superseded_reason TEXT
                 )
                 """
             )
@@ -45,6 +47,14 @@ class SQLiteCommandResultOutbox:
             if "reported_at" not in columns:
                 self._connection.execute(
                     "ALTER TABLE command_result_outbox ADD COLUMN reported_at TEXT"
+                )
+            if "superseded_at" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE command_result_outbox ADD COLUMN superseded_at TEXT"
+                )
+            if "superseded_reason" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE command_result_outbox ADD COLUMN superseded_reason TEXT"
                 )
             self._connection.commit()
 
@@ -96,7 +106,8 @@ class SQLiteCommandResultOutbox:
             rows = self._connection.execute(
                 """
                 SELECT payload FROM command_result_outbox
-                WHERE tenant_id = ? AND site_id = ? AND reported_at IS NULL
+                WHERE tenant_id = ? AND site_id = ?
+                  AND reported_at IS NULL AND superseded_at IS NULL
                 ORDER BY created_at ASC
                 LIMIT ?
                 """,
@@ -111,7 +122,7 @@ class SQLiteCommandResultOutbox:
                 UPDATE command_result_outbox
                 SET reported_at = ?, last_error = NULL
                 WHERE command_id = ? AND tenant_id = ? AND site_id = ?
-                  AND reported_at IS NULL
+                  AND reported_at IS NULL AND superseded_at IS NULL
                 """,
                 (
                     dt.datetime.now(dt.UTC).isoformat(),
@@ -130,9 +141,51 @@ class SQLiteCommandResultOutbox:
                 UPDATE command_result_outbox
                 SET attempts = attempts + 1, last_error = ?
                 WHERE command_id = ? AND tenant_id = ? AND site_id = ?
-                  AND reported_at IS NULL
+                  AND reported_at IS NULL AND superseded_at IS NULL
                 """,
                 (error[:1000], command_id, self.tenant_id, self.site_id),
+            )
+            self._connection.commit()
+            return cursor.rowcount == 1
+
+    def is_reported(self, command_id: str) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT reported_at FROM command_result_outbox
+                WHERE command_id = ? AND tenant_id = ? AND site_id = ?
+                """,
+                (command_id, self.tenant_id, self.site_id),
+            ).fetchone()
+        return row is not None and row["reported_at"] is not None
+
+    def is_superseded(self, command_id: str) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT superseded_at FROM command_result_outbox
+                WHERE command_id = ? AND tenant_id = ? AND site_id = ?
+                """,
+                (command_id, self.tenant_id, self.site_id),
+            ).fetchone()
+        return row is not None and row["superseded_at"] is not None
+
+    def mark_superseded(self, command_id: str, reason: str) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE command_result_outbox
+                SET superseded_at = ?, superseded_reason = ?, last_error = NULL
+                WHERE command_id = ? AND tenant_id = ? AND site_id = ?
+                  AND reported_at IS NULL AND superseded_at IS NULL
+                """,
+                (
+                    dt.datetime.now(dt.UTC).isoformat(),
+                    reason[:1000],
+                    command_id,
+                    self.tenant_id,
+                    self.site_id,
+                ),
             )
             self._connection.commit()
             return cursor.rowcount == 1
@@ -159,7 +212,8 @@ class SQLiteCommandResultOutbox:
                 """
                 DELETE FROM command_result_outbox
                 WHERE tenant_id = ? AND site_id = ?
-                  AND reported_at IS NOT NULL AND reported_at < ?
+                  AND (reported_at IS NOT NULL OR superseded_at IS NOT NULL)
+                  AND COALESCE(reported_at, superseded_at) < ?
                 """,
                 (self.tenant_id, self.site_id, cutoff),
             )
@@ -171,10 +225,22 @@ class SQLiteCommandResultOutbox:
             row = self._connection.execute(
                 """
                 SELECT
-                    SUM(CASE WHEN reported_at IS NULL THEN 1 ELSE 0 END) AS queued,
+                    SUM(
+                        CASE
+                            WHEN reported_at IS NULL AND superseded_at IS NULL THEN 1
+                            ELSE 0
+                        END
+                    ) AS queued,
                     COUNT(*) AS receipts,
+                    SUM(CASE WHEN reported_at IS NOT NULL THEN 1 ELSE 0 END) AS reported,
+                    SUM(CASE WHEN superseded_at IS NOT NULL THEN 1 ELSE 0 END) AS superseded,
                     COALESCE(MAX(attempts), 0) AS max_attempts,
-                    MAX(last_error) AS last_error
+                    MAX(
+                        CASE
+                            WHEN reported_at IS NULL AND superseded_at IS NULL
+                            THEN last_error
+                        END
+                    ) AS last_error
                 FROM command_result_outbox
                 WHERE tenant_id = ? AND site_id = ?
                 """,
@@ -183,6 +249,8 @@ class SQLiteCommandResultOutbox:
         return {
             "queued": int(row["queued"] or 0) if row else 0,
             "receipts": int(row["receipts"]) if row else 0,
+            "reported": int(row["reported"] or 0) if row else 0,
+            "superseded": int(row["superseded"] or 0) if row else 0,
             "max_attempts": int(row["max_attempts"]) if row else 0,
             "last_error": row["last_error"] if row else None,
         }

@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mon.domain import AuditRecord, ResponseExecution, ResponseExecutionStatus, utcnow
 
 _RECOVERY_UPDATE_NAMESPACE = uuid.UUID("34c6fa1c-3ddc-4ef6-b908-63179508e9a7")
+_EXECUTION_RECONCILIATION_NAMESPACE = uuid.UUID(
+    "11b7db5c-a263-4517-8751-54b74cb1e62b"
+)
+
+
+class SiteResponseUpdateKind(StrEnum):
+    RECOVERY = "RECOVERY"
+    EXECUTION_RECONCILIATION = "EXECUTION_RECONCILIATION"
 
 
 def recovery_update_id(execution: ResponseExecution) -> str:
@@ -16,7 +25,11 @@ def recovery_update_id(execution: ResponseExecution) -> str:
         if execution.rollback_result is not None
         else ""
     )
-    rollback_at = execution.rollback_at.isoformat() if execution.rollback_at is not None else ""
+    rollback_at = (
+        execution.rollback_at.isoformat()
+        if execution.rollback_at is not None
+        else ""
+    )
     material = ":".join(
         (
             execution.tenant_id,
@@ -31,48 +44,63 @@ def recovery_update_id(execution: ResponseExecution) -> str:
     return str(uuid.uuid5(_RECOVERY_UPDATE_NAMESPACE, material))
 
 
+def execution_reconciliation_update_id(
+    execution: ResponseExecution,
+    command_id: str,
+) -> str:
+    result = execution.result.model_dump_json() if execution.result is not None else ""
+    rollback_result = (
+        execution.rollback_result.model_dump_json()
+        if execution.rollback_result is not None
+        else ""
+    )
+    expires_at = execution.expires_at.isoformat() if execution.expires_at is not None else ""
+    rollback_at = (
+        execution.rollback_at.isoformat()
+        if execution.rollback_at is not None
+        else ""
+    )
+    material = ":".join(
+        (
+            execution.tenant_id,
+            execution.site_id,
+            execution.execution_id,
+            command_id,
+            execution.status.value,
+            expires_at,
+            result,
+            rollback_at,
+            rollback_result,
+            execution.error or "",
+        )
+    )
+    return str(uuid.uuid5(_EXECUTION_RECONCILIATION_NAMESPACE, material))
+
+
 class SiteResponseUpdate(BaseModel):
-    """Site-origin response state after autonomous recovery."""
+    """Site-origin response state reported outside the normal command-result path."""
 
     model_config = ConfigDict(extra="forbid")
 
-    update_id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=256)
+    update_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        min_length=1,
+        max_length=256,
+    )
+    kind: SiteResponseUpdateKind = SiteResponseUpdateKind.RECOVERY
+    command_id: str | None = Field(default=None, min_length=1, max_length=256)
     tenant_id: str = Field(min_length=1, max_length=128)
     site_id: str = Field(min_length=1, max_length=128)
     execution: ResponseExecution
     audit_records: list[AuditRecord] = Field(default_factory=list)
     observed_at: dt.datetime = Field(default_factory=utcnow)
 
-    @model_validator(mode="after")
-    def validate_update(self) -> SiteResponseUpdate:
+    def _validate_common(self) -> None:
         execution = self.execution
         if self.observed_at.utcoffset() is None:
             raise ValueError("response update observed_at must be timezone-aware")
         if execution.tenant_id != self.tenant_id or execution.site_id != self.site_id:
             raise ValueError("response update execution scope does not match report scope")
-        if execution.status not in {
-            ResponseExecutionStatus.ROLLED_BACK,
-            ResponseExecutionStatus.ROLLBACK_FAILED,
-        }:
-            raise ValueError("site response update must report a terminal rollback state")
-
-        if execution.status is ResponseExecutionStatus.ROLLED_BACK:
-            if execution.rollback_at is None:
-                raise ValueError("rolled-back response update requires rollback_at")
-            if execution.rollback_result is None or not execution.rollback_result.success:
-                raise ValueError("rolled-back response update requires successful rollback_result")
-            if execution.error is not None:
-                raise ValueError("rolled-back response update cannot carry an error")
-            if (
-                execution.applied_at is not None
-                and execution.rollback_at < execution.applied_at
-            ):
-                raise ValueError("response rollback cannot predate response application")
-        else:
-            if execution.rollback_result is not None and execution.rollback_result.success:
-                raise ValueError("rollback-failed response update cannot carry a successful result")
-            if not execution.error:
-                raise ValueError("rollback-failed response update requires an error")
 
         audit_ids: set[str] = set()
         for record in self.audit_records:
@@ -85,4 +113,158 @@ class SiteResponseUpdate(BaseModel):
             if record.audit_id in audit_ids:
                 raise ValueError("response update contains duplicate audit records")
             audit_ids.add(record.audit_id)
+
+    def _validate_recovery(self) -> None:
+        execution = self.execution
+        if self.command_id is not None:
+            raise ValueError("recovery response update cannot set command_id")
+        if execution.status not in {
+            ResponseExecutionStatus.ROLLED_BACK,
+            ResponseExecutionStatus.ROLLBACK_FAILED,
+        }:
+            raise ValueError("site recovery update must report a terminal rollback state")
+
+        if execution.status is ResponseExecutionStatus.ROLLED_BACK:
+            if execution.rollback_at is None:
+                raise ValueError("rolled-back response update requires rollback_at")
+            if execution.rollback_result is None or not execution.rollback_result.success:
+                raise ValueError(
+                    "rolled-back response update requires successful rollback_result"
+                )
+            if execution.error is not None:
+                raise ValueError("rolled-back response update cannot carry an error")
+            if (
+                execution.applied_at is not None
+                and execution.rollback_at < execution.applied_at
+            ):
+                raise ValueError("response rollback cannot predate response application")
+        else:
+            if (
+                execution.rollback_result is not None
+                and execution.rollback_result.success
+            ):
+                raise ValueError(
+                    "rollback-failed response update cannot carry a successful result"
+                )
+            if not execution.error:
+                raise ValueError("rollback-failed response update requires an error")
+
+    def _has_verification(self, outcome: str) -> bool:
+        return any(
+            record.actor_id == "mon-site-reconciliation"
+            and record.action == "VERIFY"
+            and record.outcome == outcome
+            for record in self.audit_records
+        )
+
+    def _has_recovery_rollback(self) -> bool:
+        return any(
+            record.actor_id == "mon-site-recovery"
+            and record.action == "ROLLBACK"
+            for record in self.audit_records
+        )
+
+    def _validate_execution_reconciliation(self) -> None:
+        execution = self.execution
+        if self.command_id is None:
+            raise ValueError("execution reconciliation update requires command_id")
+        if execution.status not in {
+            ResponseExecutionStatus.APPLIED,
+            ResponseExecutionStatus.FAILED,
+            ResponseExecutionStatus.ROLLED_BACK,
+            ResponseExecutionStatus.ROLLBACK_FAILED,
+        }:
+            raise ValueError(
+                "execution reconciliation must report APPLIED, FAILED, "
+                "ROLLED_BACK or ROLLBACK_FAILED"
+            )
+        if execution.applied_at is not None:
+            raise ValueError(
+                "interrupted execution reconciliation cannot invent applied_at"
+            )
+
+        if execution.status is ResponseExecutionStatus.FAILED:
+            if not self._has_verification("ABSENT"):
+                raise ValueError(
+                    "failed execution reconciliation requires VERIFY/ABSENT evidence"
+                )
+            if not execution.error:
+                raise ValueError("failed execution reconciliation requires an error")
+            if execution.result is not None or execution.expires_at is not None:
+                raise ValueError(
+                    "failed execution reconciliation cannot invent apply state"
+                )
+            if execution.rollback_at is not None or execution.rollback_result is not None:
+                raise ValueError(
+                    "failed execution reconciliation cannot carry rollback state"
+                )
+            return
+
+        if not self._has_verification("PRESENT"):
+            raise ValueError(
+                "execution reconciliation requires VERIFY/PRESENT evidence"
+            )
+        if execution.result is None or not execution.result.success:
+            raise ValueError(
+                "verified-present execution reconciliation requires successful result"
+            )
+        ttl_seconds = execution.plan.request.ttl_seconds
+        if ttl_seconds is None:
+            if execution.expires_at is not None:
+                raise ValueError(
+                    "response without TTL cannot gain expires_at during reconciliation"
+                )
+        elif execution.expires_at is None:
+            raise ValueError(
+                "verified-present execution reconciliation requires expires_at"
+            )
+
+        if execution.status is ResponseExecutionStatus.APPLIED:
+            if (
+                execution.rollback_at is not None
+                or execution.rollback_result is not None
+                or execution.error is not None
+            ):
+                raise ValueError(
+                    "applied execution reconciliation cannot carry rollback state"
+                )
+            return
+
+        if not self._has_recovery_rollback():
+            raise ValueError(
+                "terminal execution reconciliation requires local recovery audit evidence"
+            )
+        if execution.status is ResponseExecutionStatus.ROLLED_BACK:
+            if execution.rollback_at is None:
+                raise ValueError(
+                    "rolled-back execution reconciliation requires rollback_at"
+                )
+            if execution.rollback_result is None or not execution.rollback_result.success:
+                raise ValueError(
+                    "rolled-back execution reconciliation requires successful rollback_result"
+                )
+            if execution.error is not None:
+                raise ValueError(
+                    "rolled-back execution reconciliation cannot carry an error"
+                )
+        else:
+            if (
+                execution.rollback_result is not None
+                and execution.rollback_result.success
+            ):
+                raise ValueError(
+                    "rollback-failed execution reconciliation cannot carry successful result"
+                )
+            if not execution.error:
+                raise ValueError(
+                    "rollback-failed execution reconciliation requires an error"
+                )
+
+    @model_validator(mode="after")
+    def validate_update(self) -> SiteResponseUpdate:
+        self._validate_common()
+        if self.kind is SiteResponseUpdateKind.RECOVERY:
+            self._validate_recovery()
+        else:
+            self._validate_execution_reconciliation()
         return self
