@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import uuid
 from enum import StrEnum
 from typing import Any
@@ -266,6 +267,49 @@ class AttackGraphSnapshot(BaseModel):
     generated_at: dt.datetime = Field(default_factory=utcnow)
 
 
+_INLINE_CREDENTIAL_KEYS = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "client_secret",
+        "api_key",
+        "apikey",
+        "api_token",
+        "auth_token",
+        "access_token",
+        "refresh_token",
+        "bearer_token",
+        "private_key",
+        "private_key_pem",
+        "credential",
+        "credentials",
+    }
+)
+
+
+def _inline_credential_path(value: object, path: str = "attributes") -> str | None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized = re.sub(
+                r"[^a-z0-9]+",
+                "_",
+                str(key).casefold(),
+            ).strip("_")
+            current = f"{path}.{key}"
+            if normalized in _INLINE_CREDENTIAL_KEYS:
+                return current
+            found = _inline_credential_path(child, current)
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            found = _inline_credential_path(child, f"{path}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
 class EnforcementPoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -277,7 +321,18 @@ class EnforcementPoint(BaseModel):
     capabilities: set[ActionType]
     health: EnforcementHealth = EnforcementHealth.HEALTHY
     priority: int = Field(default=100, ge=0, le=1000)
+    credential_ref: str | None = Field(default=None, min_length=1, max_length=256)
     attributes: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def reject_inline_connector_credentials(self) -> EnforcementPoint:
+        path = _inline_credential_path(self.attributes)
+        if path is not None:
+            raise ValueError(
+                f"inline connector credential at {path} is forbidden; "
+                "use credential_ref"
+            )
+        return self
 
 
 class EnforcementBinding(BaseModel):
