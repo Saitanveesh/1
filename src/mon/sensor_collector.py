@@ -439,6 +439,7 @@ class SensorBatchClient:
             base_url=self.base_url,
             verify=self.ssl_context,
             timeout=self.timeout_seconds,
+            trust_env=False,
         )
 
     async def close(self) -> None:
