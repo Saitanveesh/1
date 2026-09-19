@@ -117,6 +117,29 @@ class SQLiteSiteResponseStore:
         if tenant_id != self.tenant_id or site_id != self.site_id:
             raise ValueError("response state scope does not match this site store")
 
+    def _validate_execution(self, execution: ResponseExecution) -> None:
+        self._require_scope(execution.tenant_id, execution.site_id)
+        request = execution.plan.request
+        point = execution.plan.enforcement_point
+        self._require_scope(request.tenant_id, request.site_id)
+        self._require_scope(point.tenant_id, point.site_id)
+        if execution.execution_id != request.request_id:
+            raise ValueError(
+                "response execution_id must match the site response request_id"
+            )
+
+        timestamps = {
+            "requested_at": execution.requested_at,
+            "applied_at": execution.applied_at,
+            "expires_at": execution.expires_at,
+            "rollback_at": execution.rollback_at,
+        }
+        if execution.approval is not None:
+            timestamps["approval.approved_at"] = execution.approval.approved_at
+        for field_name, value in timestamps.items():
+            if value is not None:
+                self._utc_iso(value, field_name=field_name)
+
     @staticmethod
     def _utc_iso(value: dt.datetime, *, field_name: str) -> str:
         if value.tzinfo is None or value.utcoffset() is None:
@@ -127,7 +150,7 @@ class SQLiteSiteResponseStore:
         self,
         execution: ResponseExecution,
     ) -> ResponseExecution:
-        self._require_scope(execution.tenant_id, execution.site_id)
+        self._validate_execution(execution)
         updated_at = dt.datetime.now(dt.UTC).isoformat()
         payload = execution.model_dump_json()
         with self._lock, self._connection:
@@ -169,7 +192,9 @@ class SQLiteSiteResponseStore:
             ).fetchone()
         if row is None:
             return None
-        return ResponseExecution.model_validate_json(row["payload"])
+        execution = ResponseExecution.model_validate_json(row["payload"])
+        self._validate_execution(execution)
+        return execution
 
     def list_response_executions(
         self,
@@ -186,10 +211,13 @@ class SQLiteSiteResponseStore:
                 """,
                 (tenant_id, site_id),
             ).fetchall()
-        return [
+        executions = [
             ResponseExecution.model_validate_json(row["payload"])
             for row in rows
         ]
+        for execution in executions:
+            self._validate_execution(execution)
+        return executions
 
     def add_audit_record(self, record: AuditRecord) -> AuditRecord:
         self._require_scope(record.tenant_id, record.site_id)
