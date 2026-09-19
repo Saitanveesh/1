@@ -10,6 +10,7 @@ from mon.domain import (
     ActionType,
     EnforcementKind,
     EnforcementPoint,
+    EnforcementVerificationState,
     PolicyDecision,
     PolicyOutcome,
     ResponsePlan,
@@ -101,13 +102,17 @@ async def test_adapter_execute_and_rollback_are_idempotent(monkeypatch) -> None:
     )
 
     first = await adapter.execute(plan(), "exec-1")
+    present = await adapter.verify(plan(), "exec-1")
     second = await adapter.execute(plan(), "exec-1")
     rolled = await adapter.rollback(plan(), "exec-1")
+    absent = await adapter.verify(plan(), "exec-1")
     duplicate = await adapter.rollback(plan(), "exec-1")
 
     assert first.success
+    assert present.state is EnforcementVerificationState.PRESENT
     assert second.success and second.details["idempotent"] is True
     assert rolled.success
+    assert absent.state is EnforcementVerificationState.ABSENT
     assert duplicate.success and duplicate.details["idempotent"] is True
     assert all(
         call[0][1:4] == ["netns", "exec", "mon-ci-unit"]
