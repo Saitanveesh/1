@@ -45,10 +45,12 @@ Implemented foundations include:
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
 
-Known boundaries are reported explicitly rather than hidden. In particular, local
-detection/correlation windows remain memory-resident across a Site Controller restart, and
-the nftables adapter in this repository is disposable-sandbox-only rather than a production
-host firewall connector.
+Known boundaries are reported explicitly rather than hidden. Local evidence objects
+(events, assets, findings, and incidents) are durable and detector/correlation/graph windows
+are warm-restored from that evidence after restart. Per-event persistence is not yet one
+atomic unit of work, so interrupted local analysis is tracked as the next crash-consistency
+tranche. The nftables adapter in this repository remains disposable-sandbox-only rather than
+a production host firewall connector.
 
 See:
 
