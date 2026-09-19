@@ -20,6 +20,9 @@ dependencies = [
   "uvicorn[standard]>=0.35,<1",
 ]
 
+[project.scripts]
+mon-site = "mon.site_service:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.4,<9",
