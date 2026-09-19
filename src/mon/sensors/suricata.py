@@ -357,11 +357,14 @@ class SuricataEveNormalizer:
         )
         protocol = text(record.get("proto"), limit=32)
         flow_id = integer(record.get("flow_id"))
-        raw_reference = (
-            f"suricata:{event_type}:flow:{flow_id}"
-            if flow_id is not None
-            else f"suricata:{event_type}:{event_id}"
-        )
+        pcap_count = integer(record.get("pcap_cnt"))
+        pcap_filename = text(record.get("pcap_filename"), limit=900)
+        if pcap_filename is not None and pcap_count is not None:
+            raw_reference = f"pcap:{pcap_filename}#packet={pcap_count}"
+        elif flow_id is not None:
+            raw_reference = f"suricata:{event_type}:flow:{flow_id}"
+        else:
+            raw_reference = f"suricata:{event_type}:{event_id}"
 
         if event_type == "alert":
             category = "suricata.alert"
