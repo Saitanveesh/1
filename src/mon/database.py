@@ -393,6 +393,25 @@ class DatabaseStore:
             {"tenant_id": tenant_id, "site_id": site_id},
         )
 
+    def _apply_enrollment_token_lookup(
+        self,
+        session: Session,
+        token_hash: str,
+    ) -> None:
+        """Permit exact opaque enrollment-token lookup without widening tenant scope."""
+        if self.engine.dialect.name != "postgresql":
+            return
+        if not token_hash:
+            raise ValueError("enrollment token hash is required")
+        session.execute(
+            text(
+                "SELECT set_config("
+                "'mon.enrollment_token_hash', :token_hash, true"
+                ")"
+            ),
+            {"token_hash": token_hash},
+        )
+
     @contextmanager
     def transaction(self) -> Iterator[None]:
         if self._active_session() is not None:
@@ -863,6 +882,7 @@ class DatabaseStore:
 
     def get_enrollment_token(self, token_hash: str) -> EnrollmentTokenRecord | None:
         with self._session_factory() as session:
+            self._apply_enrollment_token_lookup(session, token_hash)
             row = session.get(EnrollmentTokenRow, token_hash)
         return EnrollmentTokenRecord.model_validate(row.payload) if row else None
 
@@ -877,12 +897,14 @@ class DatabaseStore:
             .with_for_update()
         )
         with self._session_factory.begin() as session:
+            self._apply_enrollment_token_lookup(session, token_hash)
             row = session.scalar(statement)
             if row is None:
                 return None
             record = EnrollmentTokenRecord.model_validate(row.payload)
             if record.used_at is not None or record.expires_at <= now:
                 return None
+            self._apply_rls_scope(session, record.tenant_id, record.site_id)
             consumed = record.model_copy(update={"used_at": now})
             row.used_at = now
             row.payload = consumed.model_dump(mode="json")
@@ -937,6 +959,7 @@ class DatabaseStore:
         token_hash: str,
     ) -> SensorEnrollmentTokenRecord | None:
         with self._session_factory() as session:
+            self._apply_enrollment_token_lookup(session, token_hash)
             row = session.get(SensorEnrollmentTokenRow, token_hash)
         return (
             SensorEnrollmentTokenRecord.model_validate(row.payload)
@@ -957,6 +980,7 @@ class DatabaseStore:
             .with_for_update()
         )
         with self._session_factory.begin() as session:
+            self._apply_enrollment_token_lookup(session, token_hash)
             token_row = session.scalar(statement)
             if token_row is None:
                 return False
