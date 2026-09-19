@@ -17,8 +17,16 @@ from mon.domain import (
 )
 from mon.pipeline import SecurityPipeline
 from mon.recovery import RecoveryEngine
+from mon.sensor_fleet_client import SensorFleetClient
+from mon.sensor_fleet_models import (
+    SensorHeartbeat,
+    SensorRenewalRequest,
+    SensorRenewalResult,
+    SensorTrustIdentity,
+)
 from mon.site_command_client import SiteCommandClient
 from mon.site_response import SiteResponseExecutor
+from mon.site_sensor_trust import SQLiteSensorTrustStore
 
 
 class SiteScopeViolation(ValueError):
@@ -514,6 +522,8 @@ class SiteController:
         recovery_engine: RecoveryEngine | None = None,
         command_client: SiteCommandClient | None = None,
         response_executor: SiteResponseExecutor | None = None,
+        sensor_fleet_client: SensorFleetClient | None = None,
+        sensor_trust_store: SQLiteSensorTrustStore | None = None,
     ) -> None:
         self.tenant_id = tenant_id
         self.site_id = site_id
@@ -522,6 +532,15 @@ class SiteController:
         self.sender = sender
         self.pipeline = pipeline or SecurityPipeline()
         self.command_client = command_client
+        self.sensor_fleet_client = sensor_fleet_client
+        self.sensor_trust_store = sensor_trust_store
+        if sensor_trust_store is not None and (
+            sensor_trust_store.tenant_id != tenant_id
+            or sensor_trust_store.site_id != site_id
+        ):
+            raise ValueError(
+                "sensor trust store scope does not match site-controller identity"
+            )
         if response_executor is not None and (
             response_executor.tenant_id != tenant_id
             or response_executor.site_id != site_id
@@ -535,6 +554,101 @@ class SiteController:
             if response_executor is not None
             else None
         )
+
+    def authorize_sensor_identity(
+        self,
+        sensor_id: str,
+        fingerprint_sha256: str,
+        *,
+        now: dt.datetime | None = None,
+    ) -> SensorTrustIdentity | None:
+        if self.sensor_trust_store is None:
+            return None
+        return self.sensor_trust_store.authorize(
+            sensor_id,
+            fingerprint_sha256,
+            now=now,
+        )
+
+    async def sync_sensor_trust(self) -> dict[str, object]:
+        if self.sensor_trust_store is None:
+            return {"state": "DISABLED", "accepted_identities": 0}
+        if self.sensor_fleet_client is None:
+            diagnostics = self.sensor_trust_store.diagnostics()
+            return {
+                "state": (
+                    "OFFLINE"
+                    if diagnostics["initialized"]
+                    else "DEGRADED"
+                ),
+                "accepted_identities": diagnostics["accepted_identities"],
+                "initialized": diagnostics["initialized"],
+            }
+        try:
+            snapshot = await self.sensor_fleet_client.fetch_trust_snapshot(
+                self.tenant_id,
+                self.site_id,
+            )
+            self.sensor_trust_store.replace(snapshot)
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+            diagnostics = self.sensor_trust_store.diagnostics()
+            return {
+                "state": "DEGRADED",
+                "accepted_identities": diagnostics["accepted_identities"],
+                "initialized": diagnostics["initialized"],
+                "error": str(exc)[:1000],
+            }
+        diagnostics = self.sensor_trust_store.diagnostics()
+        return {
+            "state": "SYNCED",
+            "accepted_identities": diagnostics["accepted_identities"],
+            "initialized": True,
+            "generated_at": diagnostics["generated_at"],
+        }
+
+    async def relay_sensor_heartbeat(
+        self,
+        heartbeat: SensorHeartbeat,
+    ) -> None:
+        if (
+            heartbeat.tenant_id != self.tenant_id
+            or heartbeat.site_id != self.site_id
+        ):
+            raise SiteScopeViolation(
+                "sensor heartbeat scope does not match this site-controller identity"
+            )
+        if self.authorize_sensor_identity(
+            heartbeat.sensor_id,
+            heartbeat.fingerprint_sha256,
+        ) is None:
+            raise SiteScopeViolation(
+                "sensor certificate is not accepted by the local trust snapshot"
+            )
+        if self.sensor_fleet_client is None:
+            raise RuntimeError("sensor fleet cloud client is unavailable")
+        await self.sensor_fleet_client.submit_heartbeat(heartbeat)
+
+    async def relay_sensor_renewal(
+        self,
+        request: SensorRenewalRequest,
+    ) -> SensorRenewalResult:
+        if request.tenant_id != self.tenant_id or request.site_id != self.site_id:
+            raise SiteScopeViolation(
+                "sensor renewal scope does not match this site-controller identity"
+            )
+        if self.authorize_sensor_identity(
+            request.sensor_id,
+            request.current_fingerprint_sha256,
+        ) is None:
+            raise SiteScopeViolation(
+                "sensor certificate is not accepted by the local trust snapshot"
+            )
+        if self.sensor_fleet_client is None:
+            raise RuntimeError("sensor fleet cloud client is unavailable")
+        result = await self.sensor_fleet_client.renew_sensor(request)
+        if self.sensor_trust_store is not None:
+            self.sensor_trust_store.replace(result.trust_snapshot)
+        return result
 
     def ingest(self, event: SecurityEvent) -> EventProcessingResult:
         if event.tenant_id != self.tenant_id or event.site_id != self.site_id:
@@ -752,11 +866,22 @@ class SiteController:
                     for item in executions
                 ),
             }
+        sensor_trust = (
+            self.sensor_trust_store.diagnostics()
+            if self.sensor_trust_store is not None
+            else None
+        )
         degraded = bool(
             diagnostics["last_error"]
             or diagnostics["analysis_last_error"]
             or diagnostics["analysis_pending"]
         )
+        if (
+            sensor_trust is not None
+            and self.sensor_fleet_client is not None
+            and not sensor_trust["initialized"]
+        ):
+            degraded = True
         if response_state is not None and response_state["executing_uncertain"]:
             degraded = True
         return {
@@ -768,6 +893,8 @@ class SiteController:
             "command_channel_configured": (
                 self.command_client is not None and self.response_executor is not None
             ),
+            "sensor_fleet_configured": self.sensor_fleet_client is not None,
+            "sensor_trust": sensor_trust,
             "spool": diagnostics,
             "response_state": response_state,
             "local_pipeline_state_persistence": self.pipeline.persistence_mode.value,
