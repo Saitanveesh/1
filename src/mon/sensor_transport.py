@@ -353,7 +353,7 @@ class MtlsSensorIngress:
 
     async def ingest_zeek(self, request: web.Request) -> web.Response:
         try:
-            identity = self._authorize(request)
+            identity = await self._authorize(request)
         except SensorCertificateError as exc:
             raise web.HTTPUnauthorized(text=str(exc)) from exc
         except SensorCertificateScopeError as exc:
@@ -453,7 +453,7 @@ class MtlsSensorIngress:
 
     async def ingest_suricata(self, request: web.Request) -> web.Response:
         try:
-            identity = self._authorize(request)
+            identity = await self._authorize(request)
         except SensorCertificateError as exc:
             raise web.HTTPUnauthorized(text=str(exc)) from exc
         except SensorCertificateScopeError as exc:
