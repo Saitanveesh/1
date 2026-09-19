@@ -50,42 +50,50 @@ class SQLiteEventSpool:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._connection = sqlite3.connect(self.path, check_same_thread=False)
+        self._connection = sqlite3.connect(
+            self.path,
+            check_same_thread=False,
+            timeout=busy_timeout_seconds,
+        )
         self._connection.row_factory = sqlite3.Row
         self.tenant_id: str | None = None
         self.site_id: str | None = None
 
-        with self._lock:
-            self._connection.execute("PRAGMA journal_mode=WAL")
-            self._connection.execute("PRAGMA synchronous=FULL")
-            self._connection.execute("PRAGMA foreign_keys=ON")
-            self._connection.execute(
-                f"PRAGMA busy_timeout={int(busy_timeout_seconds * 1000)}"
-            )
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS event_spool (
-                    event_id TEXT PRIMARY KEY,
-                    tenant_id TEXT NOT NULL,
-                    site_id TEXT NOT NULL,
-                    observed_at TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    attempts INTEGER NOT NULL DEFAULT 0,
-                    last_error TEXT,
-                    created_at TEXT NOT NULL
+        try:
+            with self._lock:
+                self._connection.execute("PRAGMA journal_mode=WAL")
+                self._connection.execute("PRAGMA synchronous=FULL")
+                self._connection.execute("PRAGMA foreign_keys=ON")
+                self._connection.execute(
+                    f"PRAGMA busy_timeout={int(busy_timeout_seconds * 1000)}"
                 )
-                """
-            )
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS event_spool_metadata (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
+                self._connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS event_spool (
+                        event_id TEXT PRIMARY KEY,
+                        tenant_id TEXT NOT NULL,
+                        site_id TEXT NOT NULL,
+                        observed_at TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
                 )
-                """
-            )
-            self._connection.commit()
-            self._initialize_scope(tenant_id, site_id)
+                self._connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS event_spool_metadata (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    )
+                    """
+                )
+                self._connection.commit()
+                self._initialize_scope(tenant_id, site_id)
+        except Exception:
+            self._connection.close()
+            raise
 
     def close(self) -> None:
         with self._lock:
@@ -378,6 +386,13 @@ class SiteController:
         self.sender = sender
         self.pipeline = pipeline or SecurityPipeline()
         self.command_client = command_client
+        if response_executor is not None and (
+            response_executor.tenant_id != tenant_id
+            or response_executor.site_id != site_id
+        ):
+            raise ValueError(
+                "response executor scope does not match site-controller identity"
+            )
         self.response_executor = response_executor
         self.recovery_engine = recovery_engine or (
             RecoveryEngine(response_executor.orchestrator)
