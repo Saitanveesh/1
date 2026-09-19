@@ -347,6 +347,15 @@ class EnforcementBinding(BaseModel):
     priority_bias: int = Field(default=0, ge=-500, le=500)
     attributes: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def reject_inline_connector_credentials(self) -> EnforcementBinding:
+        path = _inline_credential_path(self.attributes)
+        if path is not None:
+            raise ValueError(
+                f"inline connector credential at {path} is forbidden"
+            )
+        return self
+
 
 class ContainmentCapability(BaseModel):
     model_config = ConfigDict(extra="forbid")
