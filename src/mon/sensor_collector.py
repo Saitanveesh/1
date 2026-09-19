@@ -348,9 +348,10 @@ class JsonLineFileReader:
         skipped = 0
         checkpoint_offset = offset
 
+        scanned = 0
         with actual_path.open("rb") as handle:
             handle.seek(offset)
-            while len(records) < limit:
+            while scanned < limit:
                 line_start = handle.tell()
                 line = handle.readline()
                 if not line:
@@ -360,6 +361,7 @@ class JsonLineFileReader:
                     handle.seek(line_start)
                     break
                 checkpoint_offset = handle.tell()
+                scanned += 1
                 try:
                     decoded = line.decode("utf-8")
                     raw = json.loads(decoded)
@@ -386,18 +388,16 @@ class JsonLineFileReader:
             updated_at=dt.datetime.now(dt.UTC),
         )
 
-        # If we drained a rotated sibling to EOF, commit its EOF first. On the
-        # next poll transition to the current path only after that durable commit.
-        if actual_path != path and checkpoint_offset == actual_path.stat().st_size:
-            return FileReadBatch(
-                records=records,
-                checkpoint=checkpoint,
-                skipped_records=skipped,
-            )
-
-        # If the prior inode has been drained and the current path is now a new
-        # inode, a no-record poll can safely transition to byte zero.
-        if not records and skipped == 0 and actual_path != path:
+        # If a prior inode was already durably drained, a later empty
+        # poll can transition to the replacement path at byte zero. When this
+        # poll still contains records from the old inode, keep the old EOF
+        # checkpoint until those records have been acknowledged.
+        if (
+            actual_path != path
+            and checkpoint_offset == actual_path.stat().st_size
+            and not records
+            and skipped == 0
+        ):
             current_stat = path.stat() if path.is_file() else None
             if current_stat is not None:
                 checkpoint = SensorCursor(
