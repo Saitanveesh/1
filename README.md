@@ -33,6 +33,7 @@ Implemented foundations include:
 - typed tenant/site-scoped domain models and APIs;
 - PostgreSQL control-plane persistence and migrations;
 - RBAC/authentication boundaries and site enrollment identities;
+- rotatable RS256 JWKS trust sets with fail-closed hot reload;
 - mTLS site ingress;
 - durable at-least-once site command delivery and result receipts;
 - durable site response state, audit, TTL recovery, and autonomous recovery reporting;
