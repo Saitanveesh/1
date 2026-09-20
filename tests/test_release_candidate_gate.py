@@ -424,7 +424,7 @@ def test_release_candidate_certifies_the_shipped_packages_before_attesting() -> 
     assert "needs: [windows-collector, linux-collector]" in workflow
     assert "tests/test_package_lifecycle_windows.py" in workflow
     assert "tests/test_package_lifecycle_linux.py" in workflow
-    assert "tools\package\build_msi.ps1" in workflow
+    assert r"tools\package\build_msi.ps1" in workflow
     assert "tools/package/build_deb.sh" in workflow
     assert workflow.index("test_package_lifecycle_linux.py") < workflow.index(
         "actions/attest@"
