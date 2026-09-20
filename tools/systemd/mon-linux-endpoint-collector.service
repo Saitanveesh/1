@@ -59,6 +59,9 @@ TimeoutStopSec=30
 # AmbientCapabilities=CAP_DAC_READ_SEARCH here instead of running as root if
 # your platform supports scoping audit log access that way.
 NoNewPrivileges=true
+# ProtectSystem=strict makes /tmp read-only; a private writable /tmp is required by
+# one-file (PyInstaller) builds, which unpack themselves at start-up.
+PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/mon-linux-endpoint-collector
