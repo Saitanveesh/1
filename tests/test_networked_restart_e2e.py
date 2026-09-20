@@ -741,7 +741,30 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
                     for item in response.json()
                 )
 
-            wait_until(applied_execution, timeout=30)
+            try:
+                wait_until(applied_execution, timeout=30)
+            except AssertionError as exc:
+                responses = httpx.get(
+                    f"{control_url}/api/v1/responses",
+                    headers=admin_headers,
+                    params={"tenant_id": tenant_id, "site_id": site_id},
+                    timeout=5,
+                )
+                responses.raise_for_status()
+                commands = httpx.get(
+                    f"{control_url}/api/v1/site-commands",
+                    headers=admin_headers,
+                    params={"tenant_id": tenant_id, "site_id": site_id},
+                    timeout=5,
+                )
+                commands.raise_for_status()
+                site_status = httpx.get(f"{site_url}/health", timeout=2).json()
+                raise AssertionError(
+                    "site command did not reach APPLIED; "
+                    f"responses={responses.json()} "
+                    f"site_commands={commands.json()} "
+                    f"site_health={site_status}"
+                ) from exc
             first_status = httpx.get(f"{site_url}/health", timeout=2).json()
             assert first_status["command_result_outbox"]["receipts"] == 1
             report["command"]["result_reported_before_restart"] = True
