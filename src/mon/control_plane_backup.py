@@ -192,27 +192,55 @@ def _table_count(database_url: str, table: str) -> int:
         engine.dispose()
 
 
-def verify(database_url: str) -> None:
+def verify(
+    database_url: str,
+    *,
+    tenant_id: str = "backup-tenant-a",
+    site_id: str = "backup-site-1",
+    event_id: str | None = "backup-event-a",
+    asset_id: str | None = "asset-a",
+    incident_id: str | None = None,
+) -> None:
+    default_seed_scope = (
+        tenant_id == "backup-tenant-a"
+        and site_id == "backup-site-1"
+        and event_id == "backup-event-a"
+        and asset_id == "asset-a"
+        and incident_id is None
+    )
     store = DatabaseStore(database_url)
     try:
-        if len(store.list_events("backup-tenant-a", "backup-site-1")) != 1:
+        events = store.list_events(tenant_id, site_id)
+        if event_id is not None:
+            if store.get_event(tenant_id, site_id, event_id) is None:
+                raise BackupRestoreError("restored event missing")
+        elif not events:
             raise BackupRestoreError("restored event count mismatch")
-        if store.get_event("backup-tenant-b", "backup-site-1", "backup-event-a") is not None:
+        if default_seed_scope and len(events) != 1:
+            raise BackupRestoreError("restored event count mismatch")
+        if default_seed_scope and store.get_event(
+            "backup-tenant-b", "backup-site-1", "backup-event-a"
+        ) is not None:
             raise BackupRestoreError("tenant isolation failed after restore")
-        if store.get_asset("backup-tenant-a", "backup-site-1", "asset-a") is None:
+        if asset_id is not None and store.get_asset(tenant_id, site_id, asset_id) is None:
             raise BackupRestoreError("restored asset identity missing")
-        if not store.list_findings("backup-tenant-a", "backup-site-1"):
+        if default_seed_scope and not store.list_findings(tenant_id, site_id):
             raise BackupRestoreError("restored finding missing")
-        if not store.list_incidents("backup-tenant-a", "backup-site-1"):
+        if incident_id is not None:
+            if store.get_incident(tenant_id, site_id, incident_id) is None:
+                raise BackupRestoreError("restored incident missing")
+        elif not store.list_incidents(tenant_id, site_id):
             raise BackupRestoreError("restored incident missing")
-        if not store.get_fabric_receipt("backup-tenant-a", "backup-site-1", "backup-event-a"):
+        if event_id is not None and not store.get_fabric_receipt(tenant_id, site_id, event_id):
             raise BackupRestoreError("restored fabric receipt missing")
         try:
-            records = store.list_audit_records("backup-tenant-a", "backup-site-1")
+            records = store.list_audit_records(tenant_id, site_id)
         except AuditIntegrityError as exc:
             raise BackupRestoreError(str(exc)) from exc
-        if len(records) != 1:
+        if default_seed_scope and len(records) != 1:
             raise BackupRestoreError("restored audit record count mismatch")
+        if not default_seed_scope and not records:
+            raise BackupRestoreError("restored audit record missing")
     finally:
         store.close()
 
