@@ -152,6 +152,18 @@ def envelope_json(event) -> dict[str, Any]:
     )
 
 
+def canon(value):
+    """Order-insensitive view: set-derived lists serialize in per-process hash order."""
+    if isinstance(value, dict):
+        return {k: canon(v) for k, v in value.items()}
+    if isinstance(value, list):
+        items = [canon(v) for v in value]
+        if all(isinstance(v, str) for v in items):
+            return sorted(items)
+        return items
+    return value
+
+
 class Client:
     """HTTP client with bounded retry, recording every outcome."""
 
@@ -347,7 +359,7 @@ def test_control_plane_ha_failover(tmp_path: Path) -> None:
         incidents_a = via_a.request("GET", "/api/v1/incidents", params=scope).json()
         auth_findings = [f for f in findings_b if f["detector_id"] == "endpoint-auth-failure-pressure"]
         assert len(auth_findings) == 1 and len(incidents_b) == 1
-        assert incidents_a == incidents_b
+        assert canon(incidents_a) == canon(incidents_b)
         incident_id = incidents_b[0]["incident_id"]
         events_in_db = {e.event_id for e in store.list_events(tenant, site)}
         assert {e.event_id for e in burst} <= events_in_db
@@ -460,11 +472,11 @@ def test_control_plane_ha_failover(tmp_path: Path) -> None:
         )
         read_a = via_a.request("GET", "/api/v1/responses", params=scope).json()
         read_b = via_b.request("GET", "/api/v1/responses", params=scope).json()
-        assert read_a == read_b and len(read_a) == 1
+        assert canon(read_a) == canon(read_b) and len(read_a) == 1
         audit_a = via_a.request("GET", "/api/v1/audit", params=scope)
         audit_b = via_b.request("GET", "/api/v1/audit", params=scope)
         assert audit_a.status_code == audit_b.status_code == 200  # hash verified per record
-        assert audit_a.json() == audit_b.json() and len(audit_a.json()) > 0
+        assert canon(audit_a.json()) == canon(audit_b.json()) and len(audit_a.json()) > 0
         record(
             "06_response_and_audit_consistent_across_instances",
             True,
@@ -557,8 +569,8 @@ def test_control_plane_ha_failover(tmp_path: Path) -> None:
             seen.add(str(r.headers.get("x-upstream")))
         a_served = any(str(ports["a"]) in u for u in seen)
         assert (
-            httpx.get(f"{direct['a']}/api/v1/incidents", params=scope, headers=admin, timeout=5, trust_env=False).json()
-            == via_b.request("GET", "/api/v1/incidents", params=scope).json()
+            canon(httpx.get(f"{direct['a']}/api/v1/incidents", params=scope, headers=admin, timeout=5, trust_env=False).json())
+            == canon(via_b.request("GET", "/api/v1/incidents", params=scope).json())
         )
         record("09_restarted_instance_A_rejoins", a_served, upstreams=sorted(seen))
 
