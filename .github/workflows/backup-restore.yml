@@ -1,0 +1,89 @@
+name: backup-restore
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/backup/**"
+      - "tests/test_control_plane_backup.py"
+      - ".github/workflows/backup-restore.yml"
+      - "docs/adr/0064-postgresql-backup-restore.md"
+      - "docs/backup-recovery.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-logical-restore:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mon
+          POSTGRES_PASSWORD: mon
+          POSTGRES_DB: mon_source
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGPASSWORD: mon
+      SOURCE_URL: postgresql://mon:mon@localhost:5432/mon_source
+      RESTORE_URL: postgresql://mon:mon@localhost:5432/mon_restore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Focused backup tool tests
+        run: pytest -q tests/test_control_plane_backup.py
+      - name: Prepare source database
+        run: |
+          MON_DATABASE_URL="$SOURCE_URL" alembic upgrade head
+          python tools/backup/control_plane.py seed --database-url "$SOURCE_URL"
+      - name: Create backup and metadata
+        run: |
+          mkdir -p "$RUNNER_TEMP/mon-backup"
+          python tools/backup/control_plane.py backup \
+            --database-url "$SOURCE_URL" \
+            --output "$RUNNER_TEMP/mon-backup/control-plane.dump"
+          test -f "$RUNNER_TEMP/mon-backup/control-plane.dump.metadata.json"
+          ! grep -q "mon:mon" "$RUNNER_TEMP/mon-backup/control-plane.dump.metadata.json"
+      - name: Verify unsafe restore refusal
+        run: |
+          if python tools/backup/control_plane.py restore \
+            --database-url "$SOURCE_URL" \
+            --backup "$RUNNER_TEMP/mon-backup/control-plane.dump"; then
+            echo "restore unexpectedly allowed non-empty target" >&2
+            exit 1
+          fi
+      - name: Restore into fresh database and verify
+        run: |
+          createdb -h localhost -U mon mon_restore
+          python tools/backup/control_plane.py restore \
+            --database-url "$RESTORE_URL" \
+            --backup "$RUNNER_TEMP/mon-backup/control-plane.dump"
+          python tools/backup/control_plane.py verify --database-url "$RESTORE_URL"
+      - name: Verify corrupted backup rejection
+        run: |
+          cp "$RUNNER_TEMP/mon-backup/control-plane.dump" "$RUNNER_TEMP/mon-backup/corrupt.dump"
+          cp "$RUNNER_TEMP/mon-backup/control-plane.dump.metadata.json" "$RUNNER_TEMP/mon-backup/corrupt.dump.metadata.json"
+          printf x >> "$RUNNER_TEMP/mon-backup/corrupt.dump"
+          createdb -h localhost -U mon mon_corrupt
+          if python tools/backup/control_plane.py restore \
+            --database-url postgresql://mon:mon@localhost:5432/mon_corrupt \
+            --backup "$RUNNER_TEMP/mon-backup/corrupt.dump"; then
+            echo "restore unexpectedly accepted corrupted backup" >&2
+            exit 1
+          fi
