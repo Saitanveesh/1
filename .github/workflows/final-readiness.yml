@@ -1,0 +1,48 @@
+name: final-readiness
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/production-readiness.json"
+      - "docs/production-readiness.md"
+      - "src/mon/production_readiness.py"
+      - "tools/final_readiness_report.py"
+      - "tests/test_production_readiness.py"
+      - ".github/workflows/**"
+      - "docs/adr/0073-final-production-readiness-gate.md"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  final-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install MON
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Validate ledger evidence references and rendered ledger
+        run: |
+          python tools/final_readiness_report.py --check-md
+          pytest -q tests/test_production_readiness.py
+      - name: Generate final readiness report (with latest main workflow conclusions)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/final_readiness_report.py --report final-readiness-report.json --github-repo "${{ github.repository }}"
+      - name: Upload final readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-readiness-report
+          path: final-readiness-report.json
+          if-no-files-found: warn
+          retention-days: 30
