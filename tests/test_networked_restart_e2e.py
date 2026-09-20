@@ -31,7 +31,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from mon.database import DatabaseStore
-from mon.domain import EnforcementVerificationState, ResponseExecutionStatus
+from mon.domain import EnforcementVerificationState, ResponseExecutionStatus, SecurityEvent
+from mon.event_fabric import security_event_envelope
 from mon.site_identity import CertificateAuthority, generate_site_key_and_csr
 
 pytestmark = pytest.mark.skipif(
@@ -550,17 +551,12 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
             assert missing_bearer.status_code == 401
             wrong_scope = http_post(
                 f"{ingress_url}/api/v1/site/fabric/events",
-                content=json.dumps(
-                    {
-                        "event_id": f"{scenario_id}-wrong-scope",
-                        "tenant_id": tenant_id,
-                        "site_id": site_id,
-                        "source": "sensor-1",
-                        "payload_type": "security_event",
-                        "payload": event_body,
-                        "produced_at": dt.datetime.now(dt.UTC).isoformat(),
-                    }
-                ).encode(),
+                content=security_event_envelope(
+                    SecurityEvent.model_validate(
+                        event_body | {"event_id": f"{scenario_id}-wrong-scope"}
+                    ),
+                    produced_at=dt.datetime.now(dt.UTC),
+                ).canonical_json().encode(),
                 headers=site_headers | {"Content-Type": "application/json"},
                 verify=str(ca_path),
                 cert=(str(wrong_scope_cert), str(wrong_scope_key)),
