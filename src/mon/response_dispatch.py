@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import datetime as dt
 import uuid
+from collections.abc import AsyncIterator
 
 from mon.domain import (
     AuditRecord,
@@ -175,7 +178,39 @@ class ResponseDispatcher:
             )
         )
 
+    @contextlib.asynccontextmanager
+    async def _scope(self, tenant_id: str, site_id: str) -> AsyncIterator[None]:
+        """Serialize check-then-create sequences for one tenant/site across instances.
+
+        The lock is taken and released on a worker thread so a wait for another
+        instance's lock (or for another coroutine of this process) never blocks
+        the event loop.
+        """
+
+        scope_lock = getattr(self.store, "scope_lock", None)
+        if scope_lock is None:
+            yield
+            return
+        manager = scope_lock(tenant_id, site_id)
+        try:
+            await asyncio.to_thread(manager.__enter__)
+        except TimeoutError as exc:
+            raise ResponseStateError(str(exc)) from exc
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(manager.__exit__, None, None, None)
+
     async def dispatch(
+        self,
+        request: ResponseRequest,
+        *,
+        approval: ResponseApproval | None = None,
+    ) -> ResponseExecution:
+        async with self._scope(request.tenant_id, request.site_id):
+            return await self._dispatch_locked(request, approval=approval)
+
+    async def _dispatch_locked(
         self,
         request: ResponseRequest,
         *,
@@ -257,6 +292,20 @@ class ResponseDispatcher:
         return execution
 
     async def rollback(
+        self,
+        tenant_id: str,
+        site_id: str,
+        execution_id: str,
+        *,
+        actor_id: str,
+        reason: str,
+    ) -> ResponseExecution:
+        async with self._scope(tenant_id, site_id):
+            return await self._rollback_locked(
+                tenant_id, site_id, execution_id, actor_id=actor_id, reason=reason
+            )
+
+    async def _rollback_locked(
         self,
         tenant_id: str,
         site_id: str,

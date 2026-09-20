@@ -50,3 +50,42 @@ def test_scope_lock_timeout_becomes_pipeline_state_error() -> None:
     except PipelineStateError:
         return
     raise AssertionError("expected PipelineStateError")
+
+
+def test_response_dispatcher_serializes_dispatch_and_rollback_per_scope() -> None:
+    import asyncio
+
+    from mon.domain import ResponseRequest, ResponseTarget
+    from mon.response import ResponseStateError
+    from mon.response_dispatch import ResponseDispatcher
+
+    store = _LockingStore()
+    dispatcher = ResponseDispatcher(store, None, None)  # type: ignore[arg-type]
+
+    async def run() -> None:
+        request = ResponseRequest(
+            request_id="r1",
+            tenant_id="t",
+            site_id="s",
+            incident_id="i",
+            target=ResponseTarget(ip_address="203.0.113.1"),
+            action="BLOCK_IP",
+            enforcement_point_id="fw",
+            ttl_seconds=60,
+            reason="x",
+        )
+        for call in (
+            dispatcher.dispatch(request),
+            dispatcher.rollback("t", "s", "r1", actor_id="a", reason="x"),
+        ):
+            with contextlib.suppress(Exception):  # only the lock acquisition is under test
+                await call
+
+    asyncio.run(run())
+    assert store.scopes == [("t", "s"), ("t", "s")]
+    store.fail = True
+    try:
+        asyncio.run(dispatcher.rollback("t", "s", "r1", actor_id="a", reason="x"))
+    except ResponseStateError:
+        return
+    raise AssertionError("lock timeout must surface as ResponseStateError")

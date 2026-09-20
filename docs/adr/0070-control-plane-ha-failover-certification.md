@@ -49,6 +49,11 @@ primary key and returned HTTP 500. `DatabaseStore` now provides
 `scope_lock(tenant, site)`, a per-scope PostgreSQL session advisory lock
 (released automatically if its holder dies, bounded by a 20 s lock timeout that
 surfaces as `PipelineStateError`/503). It is per tenant/site, not global.
+A second instance of the same race existed in `ResponseDispatcher`: two
+instances executing the same idempotent request both created the execution and
+the loser raised "command_id already exists with different content" (HTTP 500,
+duplicate audit). `dispatch` and `rollback` now run under the same per-scope lock,
+acquired on a worker thread so waiting never blocks the event loop.
 Regression: the HA gate plus `tests/test_pipeline_scope_lock.py`.
 
 ## Known limitation (reported, not hidden)
