@@ -1,0 +1,70 @@
+name: nftables-host-certification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/mon/connectors/nftables_endpoint.py"
+      - "src/mon/enforcement.py"
+      - "tests/test_nftables_privileged_host.py"
+      - ".github/workflows/nftables-host-certification.yml"
+      - "docs/adr/0068-linux-privileged-host-nftables-certification.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nftables-host-certification:
+    # A GitHub-hosted runner is a fresh, single-use VM. Privileged nftables
+    # tests must never run anywhere else.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install MON and firewall tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+          sudo apt-get update
+          sudo apt-get install -y nftables iptables procps
+      - name: Record host firewall baseline
+        run: |
+          uname -a
+          cat /etc/os-release
+          sudo nft --version
+          sudo iptables --version || true
+          sudo nft -s list ruleset > nftables-baseline.txt || true
+          wc -l nftables-baseline.txt
+          command -v ufw firewalld || echo "ufw/firewalld not present on runner"
+      - name: Run privileged host certification
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          sudo -E env \
+            PATH="$PATH" \
+            MON_TEST_PRIVILEGED_HOST=1 \
+            MON_ENABLE_ENDPOINT_NFTABLES_ENFORCEMENT=1 \
+            "$(command -v python)" -m pytest -q -rs tests/test_nftables_privileged_host.py
+      - name: Final safety check and cleanup
+        if: always()
+        run: |
+          sudo nft delete table inet mon_endpoint 2>/dev/null || true
+          sudo nft delete table inet operator_ci_owned 2>/dev/null || true
+          sudo nft delete table ip operator_ci_owned 2>/dev/null || true
+          sudo nft -s list ruleset > nftables-after.txt || true
+          diff nftables-baseline.txt nftables-after.txt && echo "host ruleset unchanged"
+      - name: Upload certification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nftables-host-certification-report
+          path: |
+            nftables-host-certification-report.json
+            nftables-baseline.txt
+            nftables-after.txt
+          if-no-files-found: warn
+          retention-days: 30
