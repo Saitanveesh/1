@@ -27,6 +27,12 @@ def test_sanitize_database_url_removes_password() -> None:
     assert "mon:****@example.test:5432" in url
 
 
+def test_native_postgres_url_strips_sqlalchemy_psycopg_driver() -> None:
+    assert control_plane_backup.native_postgres_url(
+        "postgresql+psycopg://mon:secret@example.test/mon"
+    ) == "postgresql://mon:secret@example.test/mon"
+
+
 def test_pg_dump_failure_returns_nonzero_without_printing_password(
     tmp_path,
     monkeypatch,

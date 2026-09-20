@@ -50,6 +50,12 @@ def require_postgres_url(database_url: str) -> None:
         raise BackupRestoreError("explicit PostgreSQL URL is required")
 
 
+def native_postgres_url(database_url: str) -> str:
+    if database_url.startswith("postgresql+psycopg://"):
+        return "postgresql://" + database_url.removeprefix("postgresql+psycopg://")
+    return database_url
+
+
 def require_backup_path(path: Path) -> None:
     if str(path).strip() in {"", ".", "./"}:
         raise BackupRestoreError("backup destination must be an explicit file path")
@@ -74,7 +80,15 @@ def run_command(argv: list[str]) -> None:
 
 def query_scalar(database_url: str, sql: str) -> str:
     completed = subprocess.run(
-        ["psql", database_url, "--no-password", "--tuples-only", "--no-align", "-c", sql],
+        [
+            "psql",
+            native_postgres_url(database_url),
+            "--no-password",
+            "--tuples-only",
+            "--no-align",
+            "-c",
+            sql,
+        ],
         check=False,
         text=True,
         capture_output=True,
@@ -112,7 +126,7 @@ def backup(database_url: str, output: Path) -> Path:
             "--no-acl",
             "--file",
             str(output),
-            database_url,
+            native_postgres_url(database_url),
         ]
     )
     metadata = {
@@ -163,7 +177,7 @@ def restore(database_url: str, backup_path: Path, *, allow_nonempty: bool = Fals
             "--no-owner",
             "--no-acl",
             "--dbname",
-            database_url,
+            native_postgres_url(database_url),
             str(backup_path),
         ]
     )
