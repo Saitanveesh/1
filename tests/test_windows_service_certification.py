@@ -180,8 +180,12 @@ def _processes_under(root: Path) -> list[dict[str, object]]:
 
 
 def _authenticode(path: Path) -> str:
-    ps = f"(Get-AuthenticodeSignature -LiteralPath '{path}').Status.ToString()"
-    return _run(["powershell.exe", "-NoProfile", "-Command", ps], timeout=60).stdout.strip()
+    ps = (
+        "$ErrorActionPreference = 'Stop'; "
+        f"(Get-AuthenticodeSignature -LiteralPath '{path}').Status.ToString()"
+    )
+    result = _run(["powershell.exe", "-NoProfile", "-Command", ps], timeout=60)
+    return result.stdout.strip() or f"error: {result.stderr.strip()[:300]}"
 
 
 def _seed_state(state: Path) -> str:
