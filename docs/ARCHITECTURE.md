@@ -88,6 +88,23 @@ local buffer, and cancellation-aware systemd-managed foreground runtime, but it 
 production-complete Linux EDR agent, DEB/RPM package, or eBPF/kernel-level collector, and it
 does not implement rotation-safe audit log tracking yet.
 
+## Enforcement adapter capability contract
+
+`EnforcementRegistry` pairs each registered adapter with a typed
+`EnforcementAdapterCapabilities` declaration (supported actions, execution plane, verify/
+rollback/reconcile support, idempotency, credential requirement, timeout bound, local-vs-remote
+execution, target types). Response planning checks a selected enforcement point's *configured*
+`EnforcementPoint.capabilities` against what the *registered adapter* actually declares, and
+denies the plan with an explicit reason on mismatch rather than downgrading silently. A reusable
+`certify_enforcement_adapter()` harness exercises apply/verify/idempotent-reapply/reconcile/
+rollback/idempotent-rollback plus negative cases for any adapter meeting the contract, intended
+for future firewall/NAC/cloud connectors as well as the current nftables adapters.
+`LinuxNftablesEndpointAdapter` (BLOCK_IP only, MON-owned `inet mon_endpoint` table) is the first
+adapter built against this contract for eventual endpoint-host use; it is certified only in
+disposable network namespaces so far, gated behind
+`MON_ENABLE_ENDPOINT_NFTABLES_ENFORCEMENT=1` (disabled by default), and is separate from the
+pre-existing `DisposableNftablesAdapter`, which remains netns-only.
+
 ## Non-negotiable properties
 
 - multi-tenant isolation

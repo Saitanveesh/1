@@ -558,6 +558,21 @@ class EnforcementVerification(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class EnforcementReconciliation(BaseModel):
+    """Observation-first comparison of desired containment state against what an
+    adapter actually observes externally. This never implies reconcile() repaired
+    anything; it only reports what was found."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observed_state: EnforcementVerificationState
+    expected_state: EnforcementVerificationState
+    drifted: bool
+    message: str = Field(min_length=1, max_length=1000)
+    external_reference: str | None = Field(default=None, max_length=500)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResponseApproval(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
