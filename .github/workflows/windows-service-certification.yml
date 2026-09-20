@@ -1,0 +1,76 @@
+name: windows-service-certification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/mon/windows_endpoint_collector.py"
+      - "tools/windows/mon-windows-service.ps1"
+      - "tests/test_windows_service_certification.py"
+      - ".github/workflows/windows-service-certification.yml"
+      - "docs/adr/0069-windows-service-lifecycle-certification.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-service-certification:
+    # Disposable GitHub-hosted Windows VM only. Registers a real SCM service.
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+          pip install "pyinstaller>=6.10,<7"
+      - name: Build candidate A (unsigned)
+        shell: pwsh
+        run: |
+          pyinstaller --clean --noconfirm --onefile --name MONWindows `
+            --collect-all mon -c src/mon/windows_endpoint_collector.py
+          $hash = (Get-FileHash .\dist\MONWindows.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "MON_CERT_EXE_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build candidate B (same source, byte-distinct marker)
+        shell: pwsh
+        run: |
+          "certification upgrade candidate" | Set-Content -Encoding ascii .\upgrade-marker.txt
+          pyinstaller --clean --noconfirm --onefile --name MONWindows `
+            --distpath .\dist-b --workpath .\build-b --specpath .\build-b `
+            --collect-all mon --add-data "$PWD\upgrade-marker.txt;." `
+            -c src/mon/windows_endpoint_collector.py
+      - name: Run service lifecycle certification
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          MON_WINDOWS_CERT: "1"
+        run: |
+          $env:MON_CERT_EXE = (Resolve-Path .\dist\MONWindows.exe).Path
+          $env:MON_CERT_EXE_B = (Resolve-Path .\dist-b\MONWindows.exe).Path
+          pytest -q -rs tests/test_windows_service_certification.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Final cleanup and residue check
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Service -Name "mon-cert-*" -ErrorAction SilentlyContinue | ForEach-Object {
+            sc.exe stop $_.Name | Out-Null
+            sc.exe delete $_.Name | Out-Null
+          }
+          Get-Process -Name MONWindows -ErrorAction SilentlyContinue | Stop-Process -Force
+          $left = Get-Service -Name "mon-cert-*" -ErrorAction SilentlyContinue
+          if ($left) { throw "residual certification service present" }
+      - name: Upload certification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-service-certification-report
+          path: windows-service-certification-report.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -90,6 +90,11 @@ function Install-MONWindowsService {
   try {
     Invoke-Sc -Arguments @("create", $ServiceName, "binPath=", $binPath, "start=", "demand", "DisplayName=", $ServiceName) | Out-Null
     $created = $true
+    # Certification-only fault injection: inert unless the env var is set AND the
+    # service name carries the disposable "mon-cert-" prefix.
+    if ($env:MON_TEST_FAIL_AFTER_SCM_CREATE -eq "1" -and $ServiceName -like "mon-cert-*") {
+      throw "injected certification failure after SCM registration"
+    }
     Invoke-Sc -Arguments @("description", $ServiceName, "MON Windows endpoint collector") | Out-Null
     Write-Output "installed $ServiceName"
   }
