@@ -123,7 +123,8 @@ def tail(path: Path) -> str:
 
 
 def build_events(
-    tenant: str, site: str, prefix: str, src_ip: str, count: int, asset_id: str
+    tenant: str, site: str, prefix: str, src_ip: str, count: int, asset_id: str,
+    user: str = "root",
 ):
     base = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=60)
     out = []
@@ -138,7 +139,7 @@ def build_events(
             asset_id=asset_id,
             hostname="ha-host-01",
             src_ip=src_ip,
-            user_name="root",
+            user_name=user,
             outcome="failure",
             source="sshd",
         )
@@ -398,7 +399,7 @@ def test_control_plane_ha_failover(tmp_path: Path) -> None:
         )
 
         # ---- split burst: detection must not depend on which instance saw events ----
-        split = build_events(tenant, site, f"{scenario}-split", "203.0.113.99", 8, asset_id)
+        split = build_events(tenant, site, f"{scenario}-split", "203.0.113.99", 8, "linux-host:ha-split-host", user="svc-split")
         for index, event in enumerate(split):
             (ingest_a if index % 2 == 0 else ingest_b).request(
                 "POST", "/api/v1/fabric/events", json=envelope_json(event)
@@ -407,6 +408,7 @@ def test_control_plane_ha_failover(tmp_path: Path) -> None:
             f
             for f in via_a.request("GET", "/api/v1/findings", params=scope).json()
             if f["detector_id"] == "endpoint-auth-failure-pressure"
+            and any(f"{scenario}-split" in str(e.get("raw_reference")) for e in f["evidence"])
         ]
         split_ids = [f["finding_id"] for f in split_findings]
         # Detector windows live in each instance's memory. Splitting one burst
