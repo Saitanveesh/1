@@ -273,9 +273,9 @@ def test_windows_service_lifecycle_certification(tmp_path: Path) -> None:
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "0")
     name = f"mon-cert-{run_id}-{attempt}"
     partial_name = f"mon-cert-partial-{run_id}-{attempt}"
-    work = tmp_path / "cert"
+    work = tmp_path / "MON Cert"  # spaces exercise the quoting contract
     install_dir, state, cand_a, cand_b = (
-        work / "install", work / "state", work / "candidate-a", work / "candidate-b",
+        work / "install dir", work / "state dir", work / "candidate-a", work / "candidate-b",
     )  # fmt: skip
     for directory in (install_dir, state, cand_a, cand_b):
         directory.mkdir(parents=True)
