@@ -9,7 +9,64 @@ permissions:
   id-token: write
 
 jobs:
+  windows-collector:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Windows collector build inputs
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . cyclonedx-bom "pyinstaller>=6.10,<7"
+          pip check
+
+      - name: Build unsigned Windows collector
+        shell: pwsh
+        run: |
+          pyinstaller --clean --noconfirm --onefile --name MONWindows `
+            --collect-all mon `
+            -c src/mon/windows_endpoint_collector.py
+
+      - name: Validate unsigned Windows collector in disposable CI
+        shell: pwsh
+        run: |
+          .\dist\MONWindows.exe --help
+
+      - name: Generate and validate Windows collector SBOM
+        shell: pwsh
+        run: |
+          cyclonedx-py environment `
+            --pyproject pyproject.toml `
+            --spec-version 1.6 `
+            --output-reproducible `
+            --output-format JSON `
+            --output-file dist\mon-windows-collector.cdx.json `
+            --validate
+
+      - name: Stage Windows collector release artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path windows-release\windows | Out-Null
+          Copy-Item dist\MONWindows.exe windows-release\windows\MONWindows.exe
+          Copy-Item dist\mon-windows-collector.cdx.json windows-release\mon-windows-collector.cdx.json
+
+      - name: Upload internal Windows collector release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mon-windows-release-input-${{ github.sha }}
+          path: windows-release
+          if-no-files-found: error
+          retention-days: 1
+
   release-candidate:
+    needs: windows-collector
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +131,12 @@ jobs:
             --output-file ../release-artifacts/mon-console.cdx.json \
             --validate package.json
 
+      - name: Download internal Windows collector release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mon-windows-release-input-${{ github.sha }}
+          path: release-artifacts
+
       - name: Gate release-candidate evidence
         run: |
           python tools/release_candidate_gate.py release-artifacts
@@ -96,6 +159,8 @@ jobs:
             release-artifacts/console/mon-operator-console.zip
             release-artifacts/mon-python.cdx.json
             release-artifacts/mon-console.cdx.json
+            release-artifacts/mon-windows-collector.cdx.json
+            release-artifacts/windows/MONWindows.exe
             release-artifacts/manifest.json
 
       - name: Verify release-candidate attestations
@@ -109,6 +174,8 @@ jobs:
             release-artifacts/console/mon-operator-console.zip \
             release-artifacts/mon-python.cdx.json \
             release-artifacts/mon-console.cdx.json \
+            release-artifacts/mon-windows-collector.cdx.json \
+            release-artifacts/windows/MONWindows.exe \
             release-artifacts/manifest.json
           do
             for attempt in 1 2 3 4 5
