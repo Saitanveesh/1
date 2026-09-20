@@ -39,6 +39,43 @@ jobs:
         run: |
           .\dist\MONWindows.exe --help
 
+      - name: Build byte-distinct upgrade candidate and MSIs (unsigned)
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+          "release candidate upgrade candidate" | Set-Content -Encoding ascii .\upgrade-marker.txt
+          pyinstaller --clean --noconfirm --onefile --name MONWindows `
+            --distpath .\dist-b --workpath .\build-b --specpath .\build-b `
+            --collect-all mon --add-data "$PWD\upgrade-marker.txt;." `
+            -c src/mon/windows_endpoint_collector.py
+          .\tools\package\build_msi.ps1 -Exe .\dist\MONWindows.exe -Version 0.1.0 -Out .\dist\MONWindows-0.1.0.msi
+          .\tools\package\build_msi.ps1 -Exe .\dist-b\MONWindows.exe -Version 0.1.1 -Out .\dist-b\MONWindows-0.1.1.msi
+
+      - name: Certify the shipped MSI lifecycle (install, upgrade, rollback, uninstall)
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          MON_PKG_WIN: "1"
+        run: |
+          $env:MON_PKG_MSI_A = (Resolve-Path .\dist\MONWindows-0.1.0.msi).Path
+          $env:MON_PKG_MSI_B = (Resolve-Path .\dist-b\MONWindows-0.1.1.msi).Path
+          $env:MON_PKG_EXE_A = (Resolve-Path .\dist\MONWindows.exe).Path
+          $env:MON_PKG_EXE_B = (Resolve-Path .\dist-b\MONWindows.exe).Path
+          pip install pytest pytest-asyncio
+          pytest -q -rs tests/test_package_lifecycle_windows.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows package lifecycle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mon-windows-package-lifecycle-report-${{ github.sha }}
+          path: windows-package-lifecycle-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Generate and validate Windows collector SBOM
         shell: pwsh
         run: |
@@ -55,6 +92,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path windows-release\windows | Out-Null
           Copy-Item dist\MONWindows.exe windows-release\windows\MONWindows.exe
+          Copy-Item dist\MONWindows-0.1.0.msi windows-release\windows\MONWindows-0.1.0.msi
           Copy-Item dist\mon-windows-collector.cdx.json windows-release\mon-windows-collector.cdx.json
 
       - name: Upload internal Windows collector release artifacts
@@ -65,8 +103,85 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  linux-collector:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux collector build inputs
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]' cyclonedx-bom "pyinstaller>=6.10,<7"
+          pip check
+
+      - name: Build unsigned Linux collector and upgrade candidate
+        run: |
+          pyinstaller --clean --noconfirm --onefile --name mon-linux-endpoint-collector \
+            --collect-all mon src/mon/linux_endpoint_collector.py
+          echo "release candidate upgrade candidate" > upgrade-marker.txt
+          pyinstaller --clean --noconfirm --onefile --name mon-linux-endpoint-collector \
+            --distpath dist-b --workpath build-b --specpath build-b \
+            --collect-all mon --add-data "$PWD/upgrade-marker.txt:." \
+            src/mon/linux_endpoint_collector.py
+          dist/mon-linux-endpoint-collector --help
+
+      - name: Build unsigned .deb packages
+        run: |
+          sh tools/package/build_deb.sh dist/mon-linux-endpoint-collector 0.1.0 debs
+          sh tools/package/build_deb.sh dist-b/mon-linux-endpoint-collector 0.1.1 debs
+
+      - name: Certify the shipped .deb lifecycle (install, upgrade, rollback, remove, purge)
+        timeout-minutes: 15
+        run: |
+          sudo -E env PATH="$PATH" \
+            MON_PKG_LINUX=1 \
+            MON_PKG_DEB_A="$PWD/debs/mon-linux-endpoint-collector_0.1.0_amd64.deb" \
+            MON_PKG_DEB_B="$PWD/debs/mon-linux-endpoint-collector_0.1.1_amd64.deb" \
+            MON_PKG_BIN_A="$PWD/dist/mon-linux-endpoint-collector" \
+            MON_PKG_BIN_B="$PWD/dist-b/mon-linux-endpoint-collector" \
+            "$(command -v python)" -m pytest -q -rs tests/test_package_lifecycle_linux.py
+
+      - name: Upload Linux package lifecycle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mon-linux-package-lifecycle-report-${{ github.sha }}
+          path: linux-package-lifecycle-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Generate and validate Linux collector SBOM
+        run: |
+          cyclonedx-py environment \
+            --pyproject pyproject.toml \
+            --spec-version 1.6 \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file dist/mon-linux-collector.cdx.json \
+            --validate
+
+      - name: Stage Linux collector release artifacts
+        run: |
+          mkdir -p linux-release/linux
+          cp debs/mon-linux-endpoint-collector_0.1.0_amd64.deb linux-release/linux/
+          cp dist/mon-linux-collector.cdx.json linux-release/mon-linux-collector.cdx.json
+
+      - name: Upload internal Linux collector release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mon-linux-release-input-${{ github.sha }}
+          path: linux-release
+          if-no-files-found: error
+          retention-days: 1
+
   release-candidate:
-    needs: windows-collector
+    needs: [windows-collector, linux-collector]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -137,6 +252,12 @@ jobs:
           name: mon-windows-release-input-${{ github.sha }}
           path: release-artifacts
 
+      - name: Download internal Linux collector release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mon-linux-release-input-${{ github.sha }}
+          path: release-artifacts
+
       - name: Gate release-candidate evidence
         run: |
           python tools/release_candidate_gate.py release-artifacts
@@ -161,6 +282,9 @@ jobs:
             release-artifacts/mon-console.cdx.json
             release-artifacts/mon-windows-collector.cdx.json
             release-artifacts/windows/MONWindows.exe
+            release-artifacts/windows/MONWindows-0.1.0.msi
+            release-artifacts/mon-linux-collector.cdx.json
+            release-artifacts/linux/mon-linux-endpoint-collector_0.1.0_amd64.deb
             release-artifacts/manifest.json
 
       - name: Verify release-candidate attestations
@@ -176,6 +300,9 @@ jobs:
             release-artifacts/mon-console.cdx.json \
             release-artifacts/mon-windows-collector.cdx.json \
             release-artifacts/windows/MONWindows.exe \
+            release-artifacts/windows/MONWindows-0.1.0.msi \
+            release-artifacts/mon-linux-collector.cdx.json \
+            release-artifacts/linux/mon-linux-endpoint-collector_0.1.0_amd64.deb \
             release-artifacts/manifest.json
           do
             for attempt in 1 2 3 4 5

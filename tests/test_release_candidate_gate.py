@@ -49,9 +49,13 @@ def write_candidate(path: Path, source_sha: str = SOURCE_SHA) -> None:
     (path / "console" / "mon-operator-console.zip").write_bytes(b"console")
     (path / "windows").mkdir()
     (path / "windows" / "MONWindows.exe").write_bytes(b"windows-exe")
+    (path / "windows" / "MONWindows-0.1.0.msi").write_bytes(b"windows-msi")
+    (path / "linux").mkdir()
+    (path / "linux" / "mon-linux-endpoint-collector_0.1.0_amd64.deb").write_bytes(b"linux-deb")
     write_sbom(path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(path / "mon-console.cdx.json", name="mon-operator-console")
     write_sbom(path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
+    write_sbom(path / "mon-linux-collector.cdx.json", name="mon-linux-collector")
     write_manifest(path, source_sha)
 
 
@@ -93,6 +97,7 @@ def test_release_candidate_directory_accepts_required_sbom_evidence(tmp_path: Pa
     write_sbom(tmp_path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(tmp_path / "mon-console.cdx.json", name="mon-operator-console")
     write_sbom(tmp_path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
+    write_sbom(tmp_path / "mon-linux-collector.cdx.json", name="mon-linux-collector")
 
     validate_release_candidate_directory(tmp_path)
 
@@ -101,6 +106,7 @@ def test_cli_wrapper_validates_after_installable_import(tmp_path: Path) -> None:
     write_sbom(tmp_path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(tmp_path / "mon-console.cdx.json", name="mon-operator-console")
     write_sbom(tmp_path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
+    write_sbom(tmp_path / "mon-linux-collector.cdx.json", name="mon-linux-collector")
     wrapper = Path("tools/release_candidate_gate.py").resolve()
 
     subprocess.run(
@@ -120,20 +126,27 @@ def test_manifest_generated_after_sboms_covers_sbom_evidence(tmp_path: Path) -> 
     (tmp_path / "console" / "mon-operator-console.zip").write_bytes(b"console")
     (tmp_path / "windows").mkdir()
     (tmp_path / "windows" / "MONWindows.exe").write_bytes(b"windows-exe")
+    (tmp_path / "windows" / "MONWindows-0.1.0.msi").write_bytes(b"windows-msi")
+    (tmp_path / "linux").mkdir()
+    (tmp_path / "linux" / "mon-linux-endpoint-collector_0.1.0_amd64.deb").write_bytes(b"linux-deb")
     write_sbom(tmp_path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(tmp_path / "mon-console.cdx.json", name="mon-operator-console")
     write_sbom(tmp_path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
+    write_sbom(tmp_path / "mon-linux-collector.cdx.json", name="mon-linux-collector")
 
     validate_release_candidate_directory(tmp_path)
     manifest = build_manifest(tmp_path, SOURCE_SHA)
 
     assert [entry["path"] for entry in manifest["files"]] == [
         "console/mon-operator-console.zip",
+        "linux/mon-linux-endpoint-collector_0.1.0_amd64.deb",
         "mon-console.cdx.json",
+        "mon-linux-collector.cdx.json",
         "mon-python.cdx.json",
         "mon-windows-collector.cdx.json",
         "python/mon_security_fabric-0.1.0-py3-none-any.whl",
         "python/mon_security_fabric-0.1.0.tar.gz",
+        "windows/MONWindows-0.1.0.msi",
         "windows/MONWindows.exe",
     ]
 
@@ -141,12 +154,15 @@ def test_manifest_generated_after_sboms_covers_sbom_evidence(tmp_path: Path) -> 
 def test_required_release_artifact_set_is_explicit() -> None:
     assert required_release_artifacts() == (
         "console/mon-operator-console.zip",
+        "linux/mon-linux-endpoint-collector_0.1.0_amd64.deb",
         "manifest.json",
         "mon-console.cdx.json",
+        "mon-linux-collector.cdx.json",
         "mon-python.cdx.json",
         "mon-windows-collector.cdx.json",
         "python/mon_security_fabric-0.1.0-py3-none-any.whl",
         "python/mon_security_fabric-0.1.0.tar.gz",
+        "windows/MONWindows-0.1.0.msi",
         "windows/MONWindows.exe",
     )
 
@@ -400,3 +416,16 @@ def test_verification_workflow_downloads_existing_candidate_without_rebuild() ->
     assert "python -m build" not in workflow
     assert "npm run build" not in workflow
     assert "upload-artifact" not in workflow
+
+
+def test_release_candidate_certifies_the_shipped_packages_before_attesting() -> None:
+    workflow = Path(".github/workflows/release-candidate.yml").read_text(encoding="utf-8")
+
+    assert "needs: [windows-collector, linux-collector]" in workflow
+    assert "tests/test_package_lifecycle_windows.py" in workflow
+    assert "tests/test_package_lifecycle_linux.py" in workflow
+    assert "tools\package\build_msi.ps1" in workflow
+    assert "tools/package/build_deb.sh" in workflow
+    assert workflow.index("test_package_lifecycle_linux.py") < workflow.index(
+        "actions/attest@"
+    )

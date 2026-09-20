@@ -18,18 +18,22 @@ CYCLONEDX_FORMAT = "CycloneDX"
 SUPPORTED_CYCLONEDX_VERSIONS = {"1.5", "1.6", "1.7"}
 REQUIRED_RELEASE_ARTIFACTS = (
     "console/mon-operator-console.zip",
+    "linux/mon-linux-endpoint-collector_0.1.0_amd64.deb",
     "manifest.json",
     "mon-console.cdx.json",
+    "mon-linux-collector.cdx.json",
     "mon-python.cdx.json",
     "mon-windows-collector.cdx.json",
     "python/mon_security_fabric-0.1.0-py3-none-any.whl",
     "python/mon_security_fabric-0.1.0.tar.gz",
+    "windows/MONWindows-0.1.0.msi",
     "windows/MONWindows.exe",
 )
 REQUIRED_SBOMS = (
     "mon-python.cdx.json",
     "mon-console.cdx.json",
     "mon-windows-collector.cdx.json",
+    "mon-linux-collector.cdx.json",
 )
 
 
