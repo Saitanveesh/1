@@ -101,7 +101,6 @@ def wait_http(
                 verify=verify,
                 cert=cert,
                 timeout=2.0,
-                trust_env=False,
             )
             if response.status_code < 500:
                 return
