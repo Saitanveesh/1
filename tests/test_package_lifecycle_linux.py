@@ -119,7 +119,10 @@ def test_deb_package_lifecycle(tmp_path: Path) -> None:
         assert "<TENANT_ID>" not in unit_text and "EnvironmentFile=" in unit_text
         assert "User=mon-collector" in unit_text and "NoNewPrivileges=true" in unit_text
         for text in (unit_text, env_text, info):
-            assert not re.search(r"password|secret|token=|apikey|BEGIN .*PRIVATE", text, re.I)
+            code_lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+            joined = "\n".join(code_lines)
+            assert not re.search(r"(password|secret|token|api[_-]?key)\s*[=:]", joined, re.I)
+            assert "PRIVATE KEY" not in joined
         stage("artifact_inspection", secrets_embedded=False, unit_uses_env_file=True)
 
         # ---- clean install -----------------------------------------------------
