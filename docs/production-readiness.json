@@ -1,0 +1,252 @@
+{
+  "schema": "mon.production-readiness-ledger.v1",
+  "statement": "Evidence-based ledger. PROVEN means exercised by the cited automated gate in the stated environment, for the stated scope only. It is not a production certification.",
+  "subsystems": [
+    {
+      "id": "detection-correlation-investigation",
+      "category": "repository_controllable",
+      "capability": "Endpoint telemetry to finding, incident, evidence, asset/identity resolution and investigation graph",
+      "evidence": ["tests/test_e2e_acceptance.py", ".github/workflows/e2e-acceptance.yml", "docs/adr/0066-end-to-end-acceptance-gate.md"],
+      "environment": "GitHub-hosted ubuntu-latest, PostgreSQL 17, Python 3.12",
+      "status": "PROVEN",
+      "limitation": "One detector scenario (repeated authentication failures). Detector, graph and correlator windows are per-process memory."
+    },
+    {
+      "id": "tenant-isolation-rls",
+      "category": "repository_controllable",
+      "capability": "Tenant/site isolation in API, fabric ingest and PostgreSQL row-level security",
+      "evidence": ["tests/test_e2e_acceptance.py", "tests/test_event_fabric_adversarial_isolation.py", "tests/test_control_plane_ha.py", ".github/workflows/e2e-acceptance.yml", ".github/workflows/ci.yml"],
+      "environment": "ubuntu-latest, PostgreSQL 17 with a NOSUPERUSER NOBYPASSRLS application role",
+      "status": "PROVEN",
+      "limitation": "RLS provides no backstop for a superuser connection; production must connect as a non-bypass role."
+    },
+    {
+      "id": "authentication-jwks",
+      "category": "repository_controllable",
+      "capability": "JWKS/JWT bearer authentication and cookie session, identical across control-plane instances",
+      "evidence": ["tests/test_control_plane_ha.py", "e2e/soc/tests/soc.spec.ts", "docs/authentication.md"],
+      "environment": "ubuntu-latest, disposable RSA JWKS",
+      "status": "PARTIALLY_PROVEN",
+      "limitation": "No real external identity provider, key rotation in production, or SSO flow was exercised."
+    },
+    {
+      "id": "site-to-control-plane-mtls-restart",
+      "category": "repository_controllable",
+      "capability": "Site Controller to control plane over real mTLS, outage, restart and durable replay",
+      "evidence": ["tests/test_networked_restart_e2e.py", ".github/workflows/networked-restart-e2e.yml", "docs/adr/0067-networked-mtls-restart-acceptance.md"],
+      "environment": "ubuntu-latest, PostgreSQL 17, loopback",
+      "status": "PROVEN",
+      "limitation": "Loopback network; no WAN latency, packet loss or real certificate authority operations."
+    },
+    {
+      "id": "event-fabric-failure-recovery",
+      "category": "repository_controllable",
+      "capability": "Durable outbox, duplicate safety and failure/recovery of the event fabric",
+      "evidence": ["tests/test_event_fabric_failure_recovery.py", "tests/test_event_fabric_outbox.py", "tests/test_fabric_ingress.py", ".github/workflows/ci.yml"],
+      "environment": "ubuntu-latest, Python 3.12 and 3.13",
+      "status": "PROVEN",
+      "limitation": "Failure injection is in-process; no chaos testing of real networks."
+    },
+    {
+      "id": "control-plane-application-ha",
+      "category": "repository_controllable",
+      "capability": "Two control-plane instances behind a reverse proxy on shared PostgreSQL; failover, rejoin, concurrent-duplicate safety",
+      "evidence": ["tests/test_control_plane_ha.py", ".github/workflows/control-plane-ha.yml", "docs/adr/0070-control-plane-ha-failover-certification.md"],
+      "environment": "ubuntu-latest, nginx, uvicorn x2, PostgreSQL 17",
+      "status": "PARTIALLY_PROVEN",
+      "limitation": "Detector windows are per-instance memory, so a burst split across instances can under-detect. Two instances only."
+    },
+    {
+      "id": "postgresql-ha-failover",
+      "category": "external",
+      "capability": "Automatic PostgreSQL failover and replication",
+      "evidence": ["docs/adr/0070-control-plane-ha-failover-certification.md"],
+      "environment": "not exercised",
+      "status": "NOT_PROVEN",
+      "limitation": "No PostgreSQL cluster, replica promotion or connection failover was tested."
+    },
+    {
+      "id": "multi-region-disaster-recovery",
+      "category": "external",
+      "capability": "Multi-region replication and disaster recovery",
+      "evidence": ["docs/backup-recovery.md"],
+      "environment": "not exercised",
+      "status": "NOT_PROVEN",
+      "limitation": "Only single-site logical backup/restore is exercised; no cross-region infrastructure exists."
+    },
+    {
+      "id": "postgresql-backup-restore",
+      "category": "repository_controllable",
+      "capability": "PostgreSQL logical backup, restore into a fresh database and integrity verification",
+      "evidence": ["tests/test_control_plane_backup.py", ".github/workflows/backup-restore.yml", "docs/adr/0064-postgresql-backup-restore.md"],
+      "environment": "ubuntu-latest, PostgreSQL 16",
+      "status": "PROVEN",
+      "limitation": "Logical dump only; no point-in-time recovery or encrypted off-site storage."
+    },
+    {
+      "id": "site-controller-state-snapshot",
+      "category": "repository_controllable",
+      "capability": "Site Controller durable-state snapshot, verify and restore",
+      "evidence": ["tests/test_site_state_snapshot.py", "docs/adr/0065-site-controller-state-snapshot.md"],
+      "environment": "ubuntu-latest and windows-latest unit environments",
+      "status": "PROVEN",
+      "limitation": "Snapshots are files; no automated scheduling, retention or off-host copy."
+    },
+    {
+      "id": "linux-nftables-enforcement",
+      "category": "repository_controllable",
+      "capability": "BLOCK_IP apply, verify, rollback, reconcile with nftables in a disposable namespace and on a disposable privileged host, IPv4 and IPv6",
+      "evidence": ["tests/test_nftables_netns_integration.py", "tests/test_nftables_privileged_host.py", ".github/workflows/nftables-host-certification.yml", ".github/workflows/ci.yml", "docs/adr/0068-linux-privileged-host-nftables-certification.md"],
+      "environment": "ubuntu-latest (Ubuntu 24.04, kernel 6.17 azure, nftables 1.0.9)",
+      "status": "PARTIALLY_PROVEN",
+      "limitation": "Rule state is verified, not packet flow. firewalld and ufw were not exercised. Only the runner Ubuntu image and iptables-nft coexistence were tested."
+    },
+    {
+      "id": "windows-defender-firewall-enforcement",
+      "category": "repository_controllable",
+      "capability": "BLOCK_IP apply, verify, rollback, reconcile with Windows Defender Firewall, IPv4 and IPv6",
+      "evidence": ["src/mon/connectors/windows_firewall_endpoint.py", "tests/test_windows_firewall_endpoint_adapter.py", "tests/test_windows_firewall_certification.py", ".github/workflows/windows-firewall-certification.yml", "docs/adr/0071-windows-defender-firewall-enforcement.md"],
+      "environment": "windows-latest (Windows Server 2025, 10.0.26100)",
+      "status": "PARTIALLY_PROVEN",
+      "limitation": "Rule state is verified through Get-NetFirewallRule, not packet flow. No Group Policy or third-party firewall coexistence."
+    },
+    {
+      "id": "enterprise-firewall-nac-appliances",
+      "category": "external",
+      "capability": "Real enterprise firewall / NAC appliance enforcement",
+      "evidence": ["docs/adr/0063-enforcement-adapter-capability-contract.md"],
+      "environment": "not exercised",
+      "status": "NOT_PROVEN",
+      "limitation": "No vendor appliance, appliance API credential or lab was available."
+    },
+    {
+      "id": "cloud-provider-enforcement",
+      "category": "external",
+      "capability": "Cloud security-group / firewall enforcement",
+      "evidence": ["docs/adr/0063-enforcement-adapter-capability-contract.md"],
+      "environment": "not exercised",
+      "status": "NOT_PROVEN",
+      "limitation": "No cloud account, credentials or environment were used."
+    },
+    {
+      "id": "upstream-isp-ddos-mitigation",
+      "category": "external",
+      "capability": "Upstream ISP or DDoS-provider mitigation integration",
+      "evidence": ["docs/adr/0063-enforcement-adapter-capability-contract.md"],
+      "environment": "not exercised",
+      "status": "NOT_PROVEN",
+      "limitation": "No provider integration exists or was tested."
+    },
+    {
+      "id": "windows-collector-service-lifecycle",
+      "category": "repository_controllable",
+      "capability": "Windows collector as an SCM service: install, start, stop, restart, crash observation, uninstall, state preservation, upgrade/rollback",
+      "evidence": ["tests/test_windows_service_certification.py", ".github/workflows/windows-service-certification.yml", "docs/adr/0069-windows-service-lifecycle-certification.md"],
+      "environment": "windows-latest (Windows Server 2025, 10.0.26100)",
+      "status": "PROVEN",
+      "limitation": "No automatic crash recovery is configured. Security-log reading was observed on the runner but volume and event coverage are not certified."
+    },
+    {
+      "id": "linux-collector-service",
+      "category": "repository_controllable",
+      "capability": "Linux endpoint collector under a hardened systemd unit",
+      "evidence": ["tests/test_linux_endpoint_collector.py", "tests/test_package_lifecycle_linux.py", ".github/workflows/package-lifecycle.yml", "tools/systemd/mon-linux-endpoint-collector.service"],
+      "environment": "ubuntu-latest with systemd",
+      "status": "PARTIALLY_PROVEN",
+      "limitation": "auditd process-execution evidence under the packaged unit was not exercised end to end."
+    },
+    {
+      "id": "deployable-packages",
+      "category": "repository_controllable",
+      "capability": "Windows MSI and Linux .deb install, start, stop, upgrade, rollback, uninstall, state preservation",
+      "evidence": ["tests/test_package_lifecycle_windows.py", "tests/test_package_lifecycle_linux.py", ".github/workflows/package-lifecycle.yml", ".github/workflows/release-candidate.yml", "docs/adr/0072-deployable-packages-release-chain.md"],
+      "environment": "windows-latest and ubuntu-latest",
+      "status": "PROVEN",
+      "limitation": "Unsigned. No apt repository, RPM, GPO/SCCM/Intune tooling, or in-place downgrade."
+    },
+    {
+      "id": "release-manifest-sbom-provenance",
+      "category": "repository_controllable",
+      "capability": "Deterministic manifest, CycloneDX SBOMs, GitHub attestations and independent verification of the exact artifact set",
+      "evidence": ["src/mon/release_candidate.py", "tests/test_release_candidate_gate.py", ".github/workflows/release-candidate.yml", ".github/workflows/verify-release-candidate.yml", "docs/adr/0059-windows-collector-release-chain.md"],
+      "environment": "GitHub Actions, GitHub artifact attestations",
+      "status": "PROVEN",
+      "limitation": "Attestations prove build provenance, not code-signing trust. PyInstaller output is not bit-reproducible."
+    },
+    {
+      "id": "production-code-signing",
+      "category": "external",
+      "capability": "Production Authenticode and package signing",
+      "evidence": ["tools/package/sign_msi.ps1", "docs/adr/0072-deployable-packages-release-chain.md"],
+      "environment": "not exercised",
+      "status": "NOT_PROVEN",
+      "limitation": "No production signing certificate or GPG key exists; every artifact is unsigned and CI asserts NotSigned."
+    },
+    {
+      "id": "soc-operator-console",
+      "category": "repository_controllable",
+      "capability": "Operator console: authenticated context, incident, evidence, asset/identity, investigation path, containment capability, response/policy/recovery state, audit history, tenant-scoped navigation",
+      "evidence": ["e2e/soc/tests/soc.spec.ts", "tools/soc_acceptance_seed.py", ".github/workflows/soc-browser-acceptance.yml", "console/src/IncidentDetail.tsx"],
+      "environment": "ubuntu-latest, Chromium (Playwright), real backend, real nftables in a namespace",
+      "status": "PARTIALLY_PROVEN",
+      "limitation": "The scenario enrolls no sensor, so the fleet view is proven only for its honest empty state. There is no Network Health metric with a documented source, and independent verification state is not displayed in the console."
+    },
+    {
+      "id": "load-resource-restart",
+      "category": "repository_controllable",
+      "capability": "Bounded ingest load, latency percentiles, process CPU/RAM samples, restart recovery",
+      "evidence": ["tools/load_resource_gate.py", "tools/fabric_load_probe.py", ".github/workflows/load-resource-gate.yml"],
+      "environment": "ubuntu-latest, one uvicorn instance over TLS, PostgreSQL 17",
+      "status": "PARTIALLY_PROVEN",
+      "limitation": "Evidence for the tested event count, concurrency and 30 s duration on one runner only; no SLO or capacity claim."
+    },
+    {
+      "id": "linux-distro-kernel-matrix",
+      "category": "external",
+      "capability": "Broad Linux distribution and kernel coverage",
+      "evidence": [".github/workflows/nftables-host-certification.yml"],
+      "environment": "only the runner Ubuntu image was tested",
+      "status": "NOT_PROVEN",
+      "limitation": "No other distribution, kernel, or firewall manager combination was exercised."
+    },
+    {
+      "id": "windows-version-matrix",
+      "category": "external",
+      "capability": "Broad Windows version coverage",
+      "evidence": [".github/workflows/windows-service-certification.yml"],
+      "environment": "only Windows Server 2025 (10.0.26100) was tested",
+      "status": "NOT_PROVEN",
+      "limitation": "No Windows client or older server version was exercised."
+    },
+    {
+      "id": "customer-production-networks",
+      "category": "external",
+      "capability": "Operation on real customer production networks",
+      "evidence": ["docs/production-readiness.md"],
+      "environment": "not exercised",
+      "status": "NOT_PROVEN",
+      "limitation": "No customer pilot or production deployment exists."
+    }
+  ],
+  "required_gates": [
+    {"name": "python 3.12/3.13", "workflow": ".github/workflows/ci.yml"},
+    {"name": "console build/tests", "workflow": ".github/workflows/ci.yml"},
+    {"name": "PostgreSQL integration / RLS", "workflow": ".github/workflows/ci.yml"},
+    {"name": "adversarial tenant isolation", "workflow": ".github/workflows/ci.yml"},
+    {"name": "mTLS", "workflow": ".github/workflows/networked-restart-e2e.yml"},
+    {"name": "E2E lifecycle", "workflow": ".github/workflows/e2e-acceptance.yml"},
+    {"name": "networked restart E2E", "workflow": ".github/workflows/networked-restart-e2e.yml"},
+    {"name": "Linux privileged nftables certification", "workflow": ".github/workflows/nftables-host-certification.yml"},
+    {"name": "Windows service certification", "workflow": ".github/workflows/windows-service-certification.yml"},
+    {"name": "Windows Firewall certification", "workflow": ".github/workflows/windows-firewall-certification.yml"},
+    {"name": "backup/restore", "workflow": ".github/workflows/backup-restore.yml"},
+    {"name": "site-state snapshot/restore", "workflow": ".github/workflows/ci.yml"},
+    {"name": "event-fabric failure/recovery", "workflow": ".github/workflows/ci.yml"},
+    {"name": "control-plane HA", "workflow": ".github/workflows/control-plane-ha.yml"},
+    {"name": "load/resource gate", "workflow": ".github/workflows/load-resource-gate.yml"},
+    {"name": "release manifest, SBOM, provenance", "workflow": ".github/workflows/release-candidate.yml"},
+    {"name": "independent artifact verification", "workflow": ".github/workflows/verify-release-candidate.yml"},
+    {"name": "Windows/Linux package lifecycle", "workflow": ".github/workflows/package-lifecycle.yml"},
+    {"name": "SOC browser acceptance", "workflow": ".github/workflows/soc-browser-acceptance.yml"}
+  ]
+}
