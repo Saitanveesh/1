@@ -143,42 +143,14 @@ jobs:
           $stateDir = Join-Path $env:RUNNER_TEMP $serviceName
           New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
           $exe = (Resolve-Path ".\dist\MONWindows.exe").Path
-          $binPath = "`"$exe`" service-run --tenant-id ci-tenant --site-id ci-site --sensor-id ci-sensor --state-dir `"$stateDir`" --site-url http://127.0.0.1:9 --poll-interval-seconds 1 --service-name $serviceName"
-          $created = $false
           try {
-            & sc.exe create $serviceName binPath= $binPath start= demand
-            if ($LASTEXITCODE -ne 0) { throw "service create failed" }
-            $created = $true
-            & sc.exe start $serviceName
-            if ($LASTEXITCODE -ne 0) { throw "service start failed" }
-            $running = $false
-            for ($i = 0; $i -lt 30; $i++) {
-              $query = (& sc.exe query $serviceName) -join "`n"
-              if ($query -match "RUNNING") {
-                $running = $true
-                break
-              }
-              Start-Sleep -Seconds 1
-            }
-            if (-not $running) { throw "service did not reach RUNNING" }
-            & sc.exe stop $serviceName
-            if ($LASTEXITCODE -ne 0) { throw "service stop failed" }
-            $stopped = $false
-            for ($i = 0; $i -lt 30; $i++) {
-              $query = (& sc.exe query $serviceName) -join "`n"
-              if ($query -match "STOPPED") {
-                $stopped = $true
-                break
-              }
-              Start-Sleep -Seconds 1
-            }
-            if (-not $stopped) { throw "service did not stop" }
+            tools\windows\mon-windows-service.ps1 install -ServiceName $serviceName -ExecutablePath $exe -StateDir $stateDir -TenantId ci-tenant -SiteId ci-site -SensorId ci-sensor -SiteUrl http://127.0.0.1:9 -PollIntervalSeconds 1 -TimeoutSeconds 30
+            tools\windows\mon-windows-service.ps1 start -ServiceName $serviceName -TimeoutSeconds 30
+            tools\windows\mon-windows-service.ps1 status -ServiceName $serviceName
+            tools\windows\mon-windows-service.ps1 stop -ServiceName $serviceName -TimeoutSeconds 30
           }
           finally {
-            if ($created) {
-              & sc.exe stop $serviceName | Out-Null
-              & sc.exe delete $serviceName | Out-Null
-            }
+            tools\windows\mon-windows-service.ps1 uninstall -ServiceName $serviceName -TimeoutSeconds 30
           }
 
   linux-enforcement-sandbox:

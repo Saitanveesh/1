@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "src/mon/windows_endpoint_collector.py"
+      - "tools/windows/mon-windows-service.ps1"
       - "pyproject.toml"
       - ".github/workflows/windows-collector-candidate.yml"
   workflow_dispatch:
