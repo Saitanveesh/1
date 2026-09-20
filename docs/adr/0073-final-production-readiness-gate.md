@@ -47,6 +47,15 @@ and "MON is production-certified" are easy to confuse.
    separate conclusions: `repository_engineering` and
    `external_production_certification`, the latter never complete.
 
+## How to read the load measurements
+
+The soak replays a corpus of unique envelopes cyclically. The first interval is
+therefore unique ingestion (new rows, the meaningful latency figure); later
+intervals mostly exercise the idempotent duplicate path and are faster. The
+report keeps every interval separately and states the tested scale
+(1,500 unique events, concurrency 8, 30 s, one instance, one runner). It is
+evidence for that scale only.
+
 ## Honest limits recorded in the ledger
 
 The browser scenario enrolls no sensor, so fleet health is proven only as an
