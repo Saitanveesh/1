@@ -1,0 +1,117 @@
+name: networked-restart-e2e
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/mon/event_fabric_transport.py"
+      - "src/mon/mtls_ingress.py"
+      - "src/mon/production_site_controller.py"
+      - "src/mon/site_command_client.py"
+      - "src/mon/site_runtime.py"
+      - "src/mon/site_service.py"
+      - "src/mon/event_fabric_outbox.py"
+      - "src/mon/site_command_outbox.py"
+      - "src/mon/site_response_outbox.py"
+      - "tests/test_networked_restart_e2e.py"
+      - ".github/workflows/networked-restart-e2e.yml"
+      - "docs/adr/0067-networked-mtls-restart-acceptance.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  networked-restart-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: mon_networked_e2e
+          POSTGRES_USER: mon
+          POSTGRES_PASSWORD: mon-networked-e2e-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mon -d mon_networked_e2e"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      MON_ADMIN_DATABASE_URL: postgresql+psycopg://mon:mon-networked-e2e-test@127.0.0.1:5432/mon_networked_e2e
+      PGPASSWORD: mon-networked-e2e-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install MON and disposable-network tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl gnupg iproute2 nftables
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Apply control-plane schema migrations
+        env:
+          MON_DATABASE_URL: ${{ env.MON_ADMIN_DATABASE_URL }}
+        run: alembic upgrade head
+      - name: Create non-bypass application database role
+        run: |
+          python - <<'PY'
+          import psycopg
+
+          with psycopg.connect(
+              "postgresql://mon:mon-networked-e2e-test@127.0.0.1:5432/mon_networked_e2e"
+          ) as connection:
+              connection.execute(
+                  "CREATE ROLE mon_app_networked_e2e LOGIN PASSWORD 'mon-app-networked-e2e-test' "
+                  "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+              connection.execute("GRANT CONNECT ON DATABASE mon_networked_e2e TO mon_app_networked_e2e")
+              connection.execute("GRANT USAGE ON SCHEMA public TO mon_app_networked_e2e")
+              connection.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO mon_app_networked_e2e"
+              )
+              connection.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO mon_app_networked_e2e"
+              )
+          PY
+          echo "MON_TEST_DATABASE_URL=postgresql+psycopg://mon_app_networked_e2e:mon-app-networked-e2e-test@127.0.0.1:5432/mon_networked_e2e" >> "$GITHUB_ENV"
+      - name: Run networked mTLS restart acceptance gate
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          NS="mon-ci-networked-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          PYTHON="$(command -v python)"
+          cleanup() {
+            sudo ip netns del "$NS" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sudo ip netns add "$NS"
+          sudo ip netns exec "$NS" ip link set lo up
+          sudo -E env \
+            PATH="$PATH" \
+            MON_TEST_DATABASE_URL="$MON_TEST_DATABASE_URL" \
+            MON_DATABASE_URL="$MON_TEST_DATABASE_URL" \
+            MON_ENABLE_DISPOSABLE_NETNS_ENFORCEMENT=1 \
+            MON_TEST_NETNS="$NS" \
+            "$PYTHON" -m pytest -q tests/test_networked_restart_e2e.py
+      - name: Upload networked restart acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: networked-restart-acceptance-report
+          path: networked-restart-acceptance-report.json
+          if-no-files-found: warn
+          retention-days: 30

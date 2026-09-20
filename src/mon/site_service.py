@@ -11,7 +11,14 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 
-from mon.enforcement import EnforcementRegistry
+from mon.domain import ActionType, EnforcementKind
+from mon.enforcement import (
+    CredentialRequirement,
+    EnforcementAdapterCapabilities,
+    EnforcementExecutionPlane,
+    EnforcementRegistry,
+    TargetType,
+)
 from mon.event_fabric_outbox import DurableFabricOutbox
 from mon.event_fabric_transport import HttpFabricPublisher
 from mon.pipeline import PipelinePersistenceMode, SecurityPipeline
@@ -434,7 +441,38 @@ def create_site_service_app(
 
 def main() -> None:
     config = SiteServiceConfig.from_environment()
-    app = create_site_service_app(config)
+    registry = EnforcementRegistry()
+    disposable_netns = os.environ.get("MON_SITE_DISPOSABLE_NETNS", "").strip()
+    disposable_vendor = os.environ.get(
+        "MON_SITE_DISPOSABLE_NFTABLES_VENDOR",
+        "linux-nftables-e2e",
+    ).strip()
+    if disposable_netns:
+        from mon.connectors.nftables_netns import DisposableNftablesAdapter
+
+        adapter = DisposableNftablesAdapter(disposable_netns)
+        registry.register(
+            EnforcementKind.FIREWALL,
+            disposable_vendor,
+            adapter,
+            capabilities=EnforcementAdapterCapabilities(
+                supported_actions={ActionType.BLOCK_IP},
+                execution_plane=EnforcementExecutionPlane.SITE,
+                supports_verify=True,
+                supports_rollback=True,
+                supports_reconcile=False,
+                apply_idempotent=True,
+                rollback_idempotent=True,
+                credential_requirement=CredentialRequirement.NONE,
+                supports_credential_ref=False,
+                external_timeout_seconds=3.0,
+                remote_api=False,
+                critical_asset_approval_recommended=False,
+                supported_target_types={TargetType.IP_ADDRESS},
+            ),
+        )
+
+    app = create_site_service_app(config, registry=registry)
     uvicorn.run(
         app,
         host=config.listen_host,

@@ -80,6 +80,8 @@ Implemented foundations include:
   the current durable outbox, idempotent ingress, and exact-envelope replay path;
 - durable event-fabric exponential retry/backoff with persisted next retry times,
   bounded jitter, restart-stable attempts, and sanitized delivery errors;
+- a dedicated networked mTLS/restart acceptance gate for real loopback Site Controller,
+  mTLS ingress, Control Plane, durable replay, command/result, and rollback recovery;
 - deterministic release manifests plus a controlled release-candidate workflow that builds
   current Python/console artifacts and the unsigned Windows collector executable, generates
   validated CycloneDX SBOM evidence, gates that evidence, verifies the final manifest,

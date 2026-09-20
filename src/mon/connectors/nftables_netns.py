@@ -8,6 +8,7 @@ import re
 import shutil
 import signal
 import sys
+import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -124,11 +125,33 @@ class DisposableNftablesAdapter:
         *nft_args: str,
         stdin_text: str | None = None,
     ) -> CommandResult:
-        return await self._runner(
-            self._command(*nft_args),
-            stdin_text,
-            self.timeout_seconds,
-        )
+        if stdin_text is None:
+            return await self._runner(
+                self._command(*nft_args),
+                None,
+                self.timeout_seconds,
+            )
+
+        script_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                prefix="mon-nft-",
+                suffix=".nft",
+                delete=False,
+            ) as script:
+                script.write(stdin_text)
+                script_path = script.name
+            return await self._runner(
+                self._command(*(script_path if arg == "-" else arg for arg in nft_args)),
+                None,
+                self.timeout_seconds,
+            )
+        finally:
+            if script_path is not None:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(script_path)
 
     async def _ensure_table(self) -> None:
         existing = await self._run("list", "table", "inet", self.table_name)

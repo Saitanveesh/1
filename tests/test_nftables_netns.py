@@ -1,4 +1,6 @@
 import os
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +21,11 @@ from mon.domain import (
 )
 from mon.enforcement import EnforcementError
 
+pytestmark = pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="disposable nftables adapter requires Linux network namespaces",
+)
+
 
 class FakeRunner:
     def __init__(self) -> None:
@@ -31,12 +38,15 @@ class FakeRunner:
             return CommandResult(0 if self.rules else 1, "", "")
         if command[-6:] == ["-a", "list", "chain", "inet", "mon_ci", "input"]:
             return CommandResult(0, self.rules, "")
-        if stdin_text and "add rule" in stdin_text:
-            marker = stdin_text.split('comment "', 1)[1].split('"', 1)[0]
+        script_text = stdin_text
+        if len(command) >= 2 and command[-2] == "-f":
+            script_text = Path(command[-1]).read_text(encoding="utf-8")
+        if script_text and "add rule" in script_text:
+            marker = script_text.split('comment "', 1)[1].split('"', 1)[0]
             self.rules = (
                 f'ip saddr 198.51.100.7 drop comment "{marker}" # handle 7\n'
             )
-        if stdin_text and "delete rule" in stdin_text:
+        if script_text and "delete rule" in script_text:
             self.rules = ""
         return CommandResult(0, "", "")
 
