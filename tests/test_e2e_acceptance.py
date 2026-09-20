@@ -888,7 +888,14 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
                 + f"/{restore_db_name}"
             )
             control_plane_backup.restore(restore_url, dump_path)
-            control_plane_backup.verify(restore_url)
+            control_plane_backup.verify(
+                restore_url,
+                tenant_id=tenant_a,
+                site_id=site_a,
+                event_id=security_events[0].event_id,
+                asset_id=None,
+                incident_id=incident.incident_id,
+            )
 
             from mon.database import DatabaseStore
 
