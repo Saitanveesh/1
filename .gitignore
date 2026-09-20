@@ -9,3 +9,10 @@ build/
 .idea/
 .vscode/
 .DS_Store
+node_modules/
+*.tsbuildinfo
+package-lock.json
+e2e/soc/test-results/
+e2e/soc/playwright-report/
+soc-browser-acceptance-report.json
+soc-run/

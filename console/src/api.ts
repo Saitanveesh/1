@@ -1,4 +1,10 @@
-import type { LiveSnapshot } from "./types";
+import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, SensorFleetView } from "./types";
+
+export class ApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
 
 const jsonHeaders = { Accept: "application/json" };
 
@@ -18,9 +24,35 @@ export async function fetchSnapshot(
     { credentials: "include", headers: jsonHeaders }
   );
   if (!response.ok) {
-    throw new Error(`snapshot failed: HTTP ${response.status}`);
+    throw new ApiError(response.status, `snapshot failed: HTTP ${response.status}`);
   }
   return response.json() as Promise<LiveSnapshot>;
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, { credentials: "include", headers: jsonHeaders });
+  if (!response.ok) {
+    throw new ApiError(response.status, `${path} failed: HTTP ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function fetchOperator(): Promise<OperatorPrincipal> {
+  return getJson<OperatorPrincipal>("/api/v1/me");
+}
+
+export function fetchInvestigation(
+  incidentId: string,
+  tenantId: string,
+  siteId: string
+): Promise<IncidentInvestigation> {
+  return getJson<IncidentInvestigation>(
+    `/api/v1/incidents/${encodeURIComponent(incidentId)}/investigation?${query({ tenantId, siteId })}`
+  );
+}
+
+export function fetchSensorFleet(tenantId: string, siteId: string): Promise<SensorFleetView[]> {
+  return getJson<SensorFleetView[]>(`/api/v1/sensors?${query({ tenantId, siteId })}`);
 }
 
 export function liveWebSocketUrl(tenantId: string, siteId: string): string {

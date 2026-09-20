@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
+import IncidentDetail from "./IncidentDetail";
 import { LiveClient, type LiveState } from "./live";
 import type {
   Asset,
@@ -7,7 +9,9 @@ import type {
   EnforcementPoint,
   Finding,
   Incident,
+  OperatorPrincipal,
   ResponseExecution,
+  SensorFleetView,
   Severity
 } from "./types";
 import "./styles.css";
@@ -21,6 +25,7 @@ type View =
   | "Enforcement"
   | "Response"
   | "Audit"
+  | "Fleet"
   | "Sites"
   | "System";
 
@@ -33,6 +38,7 @@ const views: View[] = [
   "Enforcement",
   "Response",
   "Audit",
+  "Fleet",
   "Sites",
   "System"
 ];
@@ -78,7 +84,15 @@ function Metric({
   );
 }
 
-function IncidentTable({ incidents }: { incidents: Incident[] }) {
+function IncidentTable({
+  incidents,
+  selectedId,
+  onSelect
+}: {
+  incidents: Incident[];
+  selectedId?: string;
+  onSelect?: (incident: Incident) => void;
+}) {
   return (
     <div className="table-wrap">
       <table>
@@ -89,9 +103,15 @@ function IncidentTable({ incidents }: { incidents: Incident[] }) {
         </thead>
         <tbody>
           {latest(incidents).map((incident) => (
-            <tr key={incident.incident_id}>
+            <tr
+              key={incident.incident_id}
+              data-testid="incident-row"
+              className={selectedId === incident.incident_id ? "selected" : ""}
+              onClick={onSelect ? () => onSelect(incident) : undefined}
+              style={onSelect ? { cursor: "pointer" } : undefined}
+            >
               <td><span className={`severity ${severityBand(incident.severity)}`}>{incident.severity}</span></td>
-              <td>{incident.title}</td>
+              <td>{onSelect ? <button className="link" onClick={() => onSelect(incident)}>{incident.title}</button> : incident.title}</td>
               <td>{incident.status}</td>
               <td>{Math.round(incident.confidence * 100)}%</td>
               <td>{incident.entities?.slice(0, 3).join(", ") || "—"}</td>
@@ -280,6 +300,49 @@ function AuditTable({ records }: { records: AuditRecord[] }) {
   );
 }
 
+function FleetPanel({ tenantId, siteId }: { tenantId: string; siteId: string }) {
+  const [sensors, setSensors] = useState<SensorFleetView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSensorFleet(tenantId, siteId)
+      .then((value) => !cancelled && setSensors(value))
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof ApiError ? `HTTP ${reason.status}` : "unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, siteId]);
+  return (
+    <section className="panel full" data-testid="fleet-panel">
+      <div className="panel-head">
+        <div><span className="eyebrow">SENSOR FLEET</span><h2>Enrolled sensors</h2></div>
+        <span className="mono">HEARTBEAT-DERIVED STATE ONLY</span>
+      </div>
+      {error && <div className="empty" role="alert">Fleet unavailable: {error}</div>}
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>SENSOR</th><th>STATE</th><th>LAST SEEN</th><th>KIND</th><th>VERSION</th><th>ERROR</th></tr></thead>
+          <tbody>
+            {(sensors ?? []).map((sensor) => (
+              <tr key={sensor.sensor_id} data-testid="fleet-row">
+                <td>{sensor.sensor_id}</td>
+                <td>{sensor.state}</td>
+                <td>{sensor.last_seen_at ? new Date(sensor.last_seen_at).toLocaleString() : "never"}</td>
+                <td>{sensor.collector_kind ?? "—"}</td>
+                <td>{sensor.version ?? "—"}</td>
+                <td>{sensor.last_error ?? "—"}</td>
+              </tr>
+            ))}
+            {sensors && !sensors.length && <tr><td colSpan={6} className="empty">No sensors enrolled for this site.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function AttackGraph({ state }: { state: LiveState }) {
   const nodes = state.graph.nodes.slice(0, 18);
   const edges = state.graph.edges.slice(0, 30);
@@ -309,6 +372,9 @@ export default function App() {
   const tenantId = params.get("tenant") || "default";
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
+  const [operator, setOperator] = useState<OperatorPrincipal | null>(null);
+  const [authState, setAuthState] = useState<"CHECKING" | "OK" | "UNAUTHENTICATED" | "DENIED">("CHECKING");
+  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [state, setState] = useState<LiveState>({
     tenant_id: tenantId,
     site_id: siteId,
@@ -346,6 +412,33 @@ export default function App() {
     };
   }, [tenantId, siteId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setAuthState("CHECKING");
+    fetchOperator()
+      .then(async (principal) => {
+        if (cancelled) return;
+        setOperator(principal);
+        try {
+          await fetchSnapshot(tenantId, siteId);
+          if (!cancelled) setAuthState("OK");
+        } catch (reason: unknown) {
+          if (!cancelled) {
+            setAuthState(reason instanceof ApiError && reason.status === 403 ? "DENIED" : "UNAUTHENTICATED");
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOperator(null);
+          setAuthState("UNAUTHENTICATED");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, siteId]);
+
   const metrics = useMemo(() => {
     const active = state.incidents.filter((item) => item.status !== "CLOSED");
     const highest = active.reduce<Severity>(
@@ -376,6 +469,9 @@ export default function App() {
         </nav>
         <div className="sidebar-foot">
           <div className={`connection ${state.connection.toLowerCase()}`}><span />{state.connection}</div>
+          <small data-testid="operator-context">
+            {operator ? `${operator.subject} · ${operator.roles.join(", ")}` : "not authenticated"}
+          </small>
           <small>{tenantId} / {siteId}</small>
           <small>SEQ {state.sequence}</small>
         </div>
@@ -390,6 +486,18 @@ export default function App() {
           </div>
         </header>
 
+        {authState === "DENIED" && (
+          <section className="panel full" role="alert" data-testid="access-denied">
+            <h2>ACCESS DENIED</h2>
+            <p>Your credentials do not grant access to tenant {tenantId} / site {siteId}. No data is shown.</p>
+          </section>
+        )}
+        {authState === "UNAUTHENTICATED" && (
+          <section className="panel full" role="alert" data-testid="unauthenticated">
+            <h2>AUTHENTICATION REQUIRED</h2>
+            <p>No valid operator session was found. Sign in through your identity provider and reload.</p>
+          </section>
+        )}
         {view === "Overview" && (
           <>
             <section className="metric-grid">
@@ -413,7 +521,21 @@ export default function App() {
           </>
         )}
 
-        {view === "Incidents" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CASE QUEUE</span><h2>Incident lifecycle</h2></div></div><IncidentTable incidents={state.incidents} /></section>}
+        {view === "Incidents" && (
+          <>
+            <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CASE QUEUE</span><h2>Incident lifecycle</h2></div></div><IncidentTable incidents={state.incidents} selectedId={selectedIncident?.incident_id} onSelect={setSelectedIncident} /></section>
+            {selectedIncident && (
+              <IncidentDetail
+                incident={selectedIncident}
+                tenantId={tenantId}
+                siteId={siteId}
+                executions={state.response_executions}
+                auditRecords={state.audit_records}
+              />
+            )}
+          </>
+        )}
+        {view === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
         {view === "Attack Graph" && <AttackGraph state={state} />}
         {view === "Telemetry" && <TelemetryPanel state={state} />}
         {view === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}

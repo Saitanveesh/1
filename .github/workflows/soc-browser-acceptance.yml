@@ -1,0 +1,127 @@
+name: soc-browser-acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "console/**"
+      - "e2e/soc/**"
+      - "tools/soc_acceptance_seed.py"
+      - "src/mon/**"
+      - ".github/workflows/soc-browser-acceptance.yml"
+      - "docs/adr/0073-final-production-readiness-gate.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  soc-browser-acceptance:
+    # Disposable runner: real PostgreSQL, real control plane, real Site Controller
+    # executor + nftables in a disposable network namespace, real Chromium.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: mon_soc
+          POSTGRES_USER: mon
+          POSTGRES_PASSWORD: mon-soc-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mon -d mon_soc"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      MON_ADMIN_DATABASE_URL: postgresql+psycopg://mon:mon-soc-test@127.0.0.1:5432/mon_soc
+      SOC_DIR: ${{ github.workspace }}/soc-run
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install MON and tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+          sudo apt-get update
+          sudo apt-get install -y iproute2 nftables
+          npm install --no-audit --no-fund --prefix console
+          npm install --no-audit --no-fund --prefix e2e/soc
+          (cd e2e/soc && npx playwright install --with-deps chromium)
+      - name: Apply schema and create non-bypass application role
+        env:
+          MON_DATABASE_URL: ${{ env.MON_ADMIN_DATABASE_URL }}
+        run: |
+          alembic upgrade head
+          python - <<'PY'
+          import psycopg
+
+          with psycopg.connect("postgresql://mon:mon-soc-test@127.0.0.1:5432/mon_soc") as c:
+              c.execute(
+                  "CREATE ROLE mon_app_soc LOGIN PASSWORD 'mon-app-soc-test' "
+                  "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+              c.execute("GRANT CONNECT ON DATABASE mon_soc TO mon_app_soc")
+              c.execute("GRANT USAGE ON SCHEMA public TO mon_app_soc")
+              c.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO mon_app_soc")
+              c.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO mon_app_soc")
+          PY
+          echo "MON_APP_DATABASE_URL=postgresql+psycopg://mon_app_soc:mon-app-soc-test@127.0.0.1:5432/mon_soc" >> "$GITHUB_ENV"
+      - name: Generate disposable JWKS and start the real control plane
+        run: |
+          mkdir -p "$SOC_DIR"
+          python tools/soc_acceptance_seed.py keys --dir "$SOC_DIR"
+          MON_DATABASE_URL="$MON_APP_DATABASE_URL" \
+          MON_AUTH_JWKS_FILE="$SOC_DIR/jwks.json" \
+          MON_AUTH_ISSUER=mon-soc-acceptance \
+          MON_AUTH_AUDIENCE=mon-control-plane \
+          nohup python -m uvicorn mon.api:app --host 127.0.0.1 --port 8080 --log-level warning \
+            > "$SOC_DIR/control-plane.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8080/health && exit 0
+            sleep 1
+          done
+          cat "$SOC_DIR/control-plane.log"
+          exit 1
+      - name: Seed the deterministic incident through real MON APIs and real nftables
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          NS="mon-ci-soc-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          PYTHON="$(command -v python)"
+          cleanup() { sudo ip netns del "$NS" 2>/dev/null || true; }
+          trap cleanup EXIT
+          sudo ip netns add "$NS"
+          sudo ip netns exec "$NS" ip link set lo up
+          sudo -E env PATH="$PATH" MON_ENABLE_ENDPOINT_NFTABLES_ENFORCEMENT=1 \
+            "$PYTHON" tools/soc_acceptance_seed.py seed \
+              --dir "$SOC_DIR" --backend http://127.0.0.1:8080 --namespace "$NS"
+      - name: Browser acceptance (Playwright, real console + real backend)
+        timeout-minutes: 12
+        working-directory: e2e/soc
+        env:
+          SOC_SEED_FILE: ${{ github.workspace }}/soc-run/seed.json
+        run: npx playwright test
+      - name: Stop control plane
+        if: always()
+        run: |
+          pkill -f "uvicorn mon.api:app" || true
+          pkill -f vite || true
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soc-browser-acceptance-report
+          path: |
+            e2e/soc/soc-browser-acceptance-report.json
+            e2e/soc/test-results
+            soc-run/control-plane.log
+          if-no-files-found: warn
+          retention-days: 30

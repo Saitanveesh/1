@@ -80,6 +80,9 @@ export interface ResponseExecution {
   expires_at?: string;
   rollback_at?: string;
   error?: string;
+  approval?: { actor_id: string; reason: string };
+  result?: { success: boolean; message: string };
+  rollback_result?: { success: boolean; message: string };
   plan: {
     request: {
       incident_id: string;
@@ -181,4 +184,46 @@ export interface LiveEnvelope {
   sequence: number;
   emitted_at: string;
   payload: Record<string, unknown>;
+}
+
+export interface OperatorPrincipal {
+  subject: string;
+  tenant_id: string;
+  roles: string[];
+  site_ids: string[];
+}
+
+export interface ContainmentCapability {
+  asset_id: string;
+  binding_id: string;
+  enforcement_point_id: string;
+  kind: string;
+  vendor: string;
+  health: string;
+  capabilities: string[];
+  distance: number;
+  blast_radius_estimate?: string;
+  notes: string[];
+}
+
+export interface IncidentInvestigation {
+  incident: Incident;
+  findings: Finding[];
+  affected_assets: Asset[];
+  graph: GraphSnapshot;
+  containment_capabilities: ContainmentCapability[];
+  evidence: EvidenceRef[];
+}
+
+export interface SensorFleetView {
+  tenant_id: string;
+  site_id: string;
+  sensor_id: string;
+  state: string;
+  last_seen_at?: string;
+  heartbeat_age_seconds?: number;
+  stale_after_seconds: number;
+  collector_kind?: string;
+  version?: string;
+  last_error?: string;
 }
