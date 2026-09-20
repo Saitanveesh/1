@@ -495,3 +495,12 @@ def test_windows_service_lifecycle_certification(tmp_path: Path) -> None:
             report.not_proven(item)
         report.write()
     assert cleanup["services_absent"] and cleanup["collector_processes_remaining"] == 0
+
+
+def test_invoke_sc_builds_native_command_line_explicitly() -> None:
+    """Regression: PS 5.1 stripped the quotes in binPath, breaking paths with spaces."""
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "function ConvertTo-NativeArg" in script
+    assert "System.Diagnostics.ProcessStartInfo" in script
+    assert "$startInfo.Arguments" in script
+    assert "& sc.exe @Arguments" not in script

@@ -59,3 +59,15 @@ versions beyond the runner image; the user's physical laptop; Security Event
 Log read on the runner unless the report's `event_source_read` says PROVEN
 (it is recorded from a real one-shot pass and does not gate the run).
 Binary replacement is a lifecycle certification, not an updater.
+
+## Defect found and fixed
+
+Certifying with install and state paths containing spaces showed that
+`mon-windows-service.ps1` could not register such a service: Windows
+PowerShell 5.1 does not escape embedded quotes when invoking native
+executables, so `sc.exe create binPath=` received a mangled command line
+(earlier runs only worked because the quotes were silently dropped from
+space-free paths, leaving the registered path unquoted). `Invoke-Sc` now builds
+the `sc.exe` command line explicitly using `CommandLineToArgvW` quoting rules.
+The lifecycle certification keeps space-containing paths as the regression
+assertion, plus a static regression test.
