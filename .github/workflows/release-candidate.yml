@@ -1,0 +1,92 @@
+name: release-candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: console/package.json
+
+      - name: Install Python release tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]' build cyclonedx-bom
+          pip check
+
+      - name: Build Python release artifacts
+        run: |
+          python -m build --sdist --wheel --outdir release-artifacts/python
+
+      - name: Build console release artifact
+        working-directory: console
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path("dist")
+          output = Path("../release-artifacts/console/mon-operator-console.zip")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+              for path in sorted(item for item in root.rglob("*") if item.is_file()):
+                  archive.write(path, path.relative_to(root).as_posix())
+          PY
+
+      - name: Generate and validate Python SBOM
+        run: |
+          cyclonedx-py environment \
+            --pyproject pyproject.toml \
+            --spec-version 1.6 \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file release-artifacts/mon-python.cdx.json \
+            --validate
+
+      - name: Generate and validate console SBOM
+        working-directory: console
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm \
+            --spec-version 1.6 \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file ../release-artifacts/mon-console.cdx.json \
+            --validate package.json
+
+      - name: Gate release-candidate evidence
+        run: |
+          python tools/release_candidate_gate.py release-artifacts
+
+      - name: Generate final release manifest
+        run: |
+          mon-release-manifest release-artifacts --source-sha "$GITHUB_SHA"
+
+      - name: Verify final release manifest
+        run: |
+          mon-release-manifest release-artifacts --verify
+
+      - name: Upload release-candidate evidence bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mon-release-candidate-${{ github.sha }}
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 14
+
