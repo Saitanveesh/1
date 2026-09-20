@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy import JSON, DateTime, Index, LargeBinary, String, Text, create_engine, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from mon.audit_integrity import AuditIntegrityError, audit_record_sha256
@@ -558,6 +558,40 @@ class DatabaseStore:
             ),
             {"token_hash": token_hash},
         )
+
+    @contextmanager
+    def scope_lock(self, tenant_id: str, site_id: str) -> Iterator[None]:
+        """Serialize event processing for one tenant/site across control-plane instances.
+
+        Uses a PostgreSQL session-level advisory lock (released automatically if
+        the holding process dies). It is per-scope, not global, and bounded by a
+        lock timeout so a stuck holder cannot hang callers forever. No-op for
+        non-PostgreSQL stores.
+        """
+
+        if self.engine.dialect.name != "postgresql":
+            yield
+            return
+        key = f"mon-scope{tenant_id}{site_id}"
+        with self.engine.connect() as connection:
+            try:
+                connection.execute(text("SET LOCAL lock_timeout = '20s'"))
+                connection.execute(
+                    text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
+                    {"key": key},
+                )
+            except OperationalError as exc:
+                connection.rollback()
+                raise TimeoutError("timed out waiting for the tenant/site processing lock") from exc
+            connection.commit()
+            try:
+                yield
+            finally:
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                    {"key": key},
+                )
+                connection.commit()
 
     @contextmanager
     def transaction(self) -> Iterator[None]:

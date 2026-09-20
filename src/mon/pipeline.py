@@ -207,6 +207,19 @@ class SecurityPipeline:
         )
 
     def process_event(self, event: SecurityEvent) -> EventProcessingResult:
+        # Stores shared by several control-plane instances expose a per-scope
+        # cross-process lock; without it two instances can both pass the
+        # duplicate check and one fails on the primary-key insert.
+        scope_lock = getattr(self.store, "scope_lock", None)
+        if scope_lock is None:
+            return self._process_event_serialized(event)
+        try:
+            with scope_lock(event.tenant_id, event.site_id):
+                return self._process_event_serialized(event)
+        except TimeoutError as exc:
+            raise PipelineStateError(str(exc)) from exc
+
+    def _process_event_serialized(self, event: SecurityEvent) -> EventProcessingResult:
         with self._lock:
             if self.store.event_exists(event.tenant_id, event.site_id, event.event_id):
                 if (
