@@ -131,6 +131,7 @@ def _candidate_files(root: Path) -> set[str]:
 def verify_release_candidate_offline(artifact_dir: Path, expected_source_sha: str) -> None:
     root = _artifact_root(artifact_dir)
     source_sha = validate_source_sha(expected_source_sha)
+    files = _candidate_files(root)
     try:
         verify_manifest(root)
     except (ReleaseManifestError, ReleaseManifestVerificationError) as exc:
@@ -140,7 +141,6 @@ def verify_release_candidate_offline(artifact_dir: Path, expected_source_sha: st
     if manifest.get("source_sha") != source_sha:
         raise ReleaseCandidateVerificationError("release manifest source_sha mismatch")
 
-    files = _candidate_files(root)
     required = set(REQUIRED_RELEASE_ARTIFACTS)
     if files != required:
         missing = sorted(required - files)
