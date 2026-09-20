@@ -5,6 +5,8 @@ import datetime as dt
 from mon.domain import (
     AuditRecord,
     EnforcementBinding,
+    EnforcementPoint,
+    PolicyDecision,
     PolicyOutcome,
     ResponseApproval,
     ResponseExecution,
@@ -223,6 +225,10 @@ class ResponseOrchestrator:
             asset,
             blast_radius_known=blast_radius is not None,
         )
+        if decision.outcome is not PolicyOutcome.DENY:
+            mismatch = self._capability_mismatch_reason(request, selection.point)
+            if mismatch is not None:
+                decision = PolicyDecision(outcome=PolicyOutcome.DENY, reasons=[mismatch])
         return ResponsePlan(
             request=request,
             decision=decision,
@@ -230,6 +236,27 @@ class ResponseOrchestrator:
             selection_reasons=selection.reasons,
             blast_radius_estimate=blast_radius,
         )
+
+    def _capability_mismatch_reason(
+        self,
+        request: ResponseRequest,
+        point: EnforcementPoint,
+    ) -> str | None:
+        """Compare the *configured* EnforcementPoint.capabilities against what the
+        *registered adapter implementation* actually declares it supports. Returns
+        None (no mismatch) when no adapter is registered yet at all, so the
+        existing "no enforcement adapter" failure at execute() time is unchanged.
+        """
+        capabilities = self.registry.get_capabilities(point.kind, point.vendor)
+        if capabilities is None:
+            return None
+        if request.action not in capabilities.supported_actions:
+            return (
+                f"enforcement point {point.enforcement_point_id} configured capabilities "
+                f"claim {request.action.value}, but the registered "
+                f"{point.kind.value}/{point.vendor} adapter does not support it"
+            )
+        return None
 
     def _audit(
         self,

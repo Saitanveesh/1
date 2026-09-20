@@ -229,3 +229,22 @@ jobs:
             MON_ENABLE_DISPOSABLE_NETNS_ENFORCEMENT=1 \
             MON_TEST_NETNS="$NS" \
             "$PYTHON" -m pytest -q tests/test_nftables_netns_integration.py
+      - name: Validate Linux endpoint nftables adapter candidate (disposable namespace only)
+        run: |
+          set -euo pipefail
+          NS="mon-sandbox-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          PYTHON="$(command -v python)"
+          cleanup() {
+            sudo ip netns del "$NS" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sudo ip netns add "$NS"
+          sudo ip netns exec "$NS" ip link set lo up
+          # This still targets a disposable namespace, never the runner's own
+          # host firewall, even though the adapter under test is designed for
+          # eventual endpoint-host use. See docs/adr for the certification
+          # scope this does and does not prove.
+          sudo -E env \
+            MON_ENABLE_ENDPOINT_NFTABLES_ENFORCEMENT=1 \
+            MON_TEST_NETNS="$NS" \
+            "$PYTHON" -m pytest -q tests/test_nftables_endpoint_integration.py

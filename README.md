@@ -44,6 +44,11 @@ Implemented foundations include:
 - evidence-based reconciliation of crash-interrupted enforcement;
 - late response-state convergence after site command expiry;
 - disposable Linux network-namespace/nftables enforcement validation;
+- a typed enforcement-adapter capability/certification contract (declared capabilities,
+  verify/rollback/reconcile support, idempotency, credential requirement, execution plane)
+  integrated into response planning, plus a reusable adapter certification harness;
+- a Linux endpoint nftables BLOCK_IP enforcement adapter candidate, MON-table-owned and
+  certified only in disposable network namespaces so far;
 - local event buffering and a production site-controller service composition;
 - Zeek JSON and Suricata EVE normalization into scoped, deterministic MON evidence;
 - mTLS-authenticated sensor ingress plus durable Zeek/Suricata file collectors;
@@ -90,7 +95,13 @@ warm-restored after restart from integrity-checked analysis checkpoints plus pos
 event replay; and one event plus its derived durable state is committed as an atomic local
 analysis unit before the event becomes cloud-deliverable. Local forensic history is not
 silently pruned by checkpoint maintenance. The nftables adapter in this repository remains
-disposable-sandbox-only rather than a production host firewall connector. Threat-intelligence
+disposable-sandbox-only rather than a production host firewall connector. The newer Linux
+endpoint nftables adapter (`LinuxNftablesEndpointAdapter`, BLOCK_IP only) is a separate,
+MON-table-owned candidate that is likewise certified only in disposable network namespaces so
+far; it is not yet certified on arbitrary production hosts, does not integrate with or certify
+against firewalld/ufw/vendor firewall tooling, and no network appliance/NAC/cloud connector is
+production-certified yet. Disposable-namespace success does not prove every Linux distribution
+or kernel behaves identically. Threat-intelligence
 support currently covers direct STIX bundle ingestion and exact indicator matching; TAXII
 feed synchronization is read-only and client-side. MON does not yet implement a TAXII server,
 TAXII write/publish APIs, or complex STIX pattern evaluation. Endpoint support currently
