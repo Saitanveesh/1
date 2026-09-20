@@ -170,7 +170,7 @@ def _processes_under(root: Path) -> list[dict[str, object]]:
         "Get-CimInstance Win32_Process -Filter \"Name='MONWindows.exe'\" | "
         "Select-Object ProcessId,ParentProcessId,ExecutablePath | ConvertTo-Json -Compress"
     )
-    out = _run(["powershell.exe", "-NoProfile", "-Command", ps], timeout=60).stdout.strip()
+    out = _ps5(ps).stdout.strip()
     if not out:
         return []
     data = json.loads(out)
@@ -179,12 +179,18 @@ def _processes_under(root: Path) -> list[dict[str, object]]:
     return [r for r in rows if str(r.get("ExecutablePath") or "").lower().startswith(prefix)]
 
 
+def _ps5(command: str) -> subprocess.CompletedProcess:
+    # The runner's pwsh 7 PSModulePath breaks Windows PowerShell 5.1 module autoload.
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    return _run(["powershell.exe", "-NoProfile", "-Command", command], timeout=60, env=env)
+
+
 def _authenticode(path: Path) -> str:
     ps = (
         "$ErrorActionPreference = 'Stop'; "
         f"(Get-AuthenticodeSignature -LiteralPath '{path}').Status.ToString()"
     )
-    result = _run(["powershell.exe", "-NoProfile", "-Command", ps], timeout=60)
+    result = _ps5(ps)
     return result.stdout.strip() or f"error: {result.stderr.strip()[:300]}"
 
 
