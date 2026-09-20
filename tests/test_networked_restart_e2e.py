@@ -14,6 +14,7 @@ import json
 import os
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -119,8 +120,13 @@ def http_get(
     cert: tuple[str, str] | None = None,
     timeout: float = 2.0,
 ) -> httpx.Response:
+    verify_value = (
+        ssl.create_default_context(cafile=verify)
+        if isinstance(verify, str)
+        else verify
+    )
     with httpx.Client(
-        verify=verify,
+        verify=verify_value,
         cert=cert,
         timeout=timeout,
         trust_env=False,
@@ -138,8 +144,13 @@ def http_post(
     cert: tuple[str, str] | None = None,
     timeout: float = 2.0,
 ) -> httpx.Response:
+    verify_value = (
+        ssl.create_default_context(cafile=verify)
+        if isinstance(verify, str)
+        else verify
+    )
     with httpx.Client(
-        verify=verify,
+        verify=verify_value,
         cert=cert,
         timeout=timeout,
         trust_env=False,
@@ -301,6 +312,13 @@ def start_process(
     )
 
 
+def bounded_log(path: Path) -> str:
+    if not path.exists():
+        return "<log file missing>"
+    content = path.read_text(encoding="utf-8", errors="replace")
+    return content[-2000:]
+
+
 def count_event(store: DatabaseStore, tenant_id: str, site_id: str, event_id: str) -> int:
     return sum(1 for event in store.list_events(tenant_id, site_id) if event.event_id == event_id)
 
@@ -405,6 +423,7 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
     store = DatabaseStore(database_url)
 
     def start_control() -> subprocess.Popen[str]:
+        log_path = tmp_path / "control-plane.log"
         process = start_process(
             [
                 sys.executable,
@@ -419,10 +438,13 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
                 "warning",
             ],
             env=base_env,
-            log_path=tmp_path / "control-plane.log",
+            log_path=log_path,
         )
         processes.append(process)
-        wait_http(f"{control_url}/health")
+        try:
+            wait_http(f"{control_url}/health")
+        except AssertionError as exc:
+            raise AssertionError(f"{exc}\ncontrol-plane log:\n{bounded_log(log_path)}") from exc
         return process
 
     def start_ingress() -> subprocess.Popen[str]:
@@ -437,17 +459,21 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
                 "MON_MTLS_PORT": str(ingress_port),
             }
         )
+        log_path = tmp_path / f"mtls-ingress-{len(processes)}.log"
         process = start_process(
             [sys.executable, "-m", "mon.mtls_ingress"],
             env=env,
-            log_path=tmp_path / f"mtls-ingress-{len(processes)}.log",
+            log_path=log_path,
         )
         processes.append(process)
-        wait_http(
-            f"{ingress_url}/health",
-            verify=str(ca_path),
-            cert=(str(good_cert), str(good_key)),
-        )
+        try:
+            wait_http(
+                f"{ingress_url}/health",
+                verify=str(ca_path),
+                cert=(str(good_cert), str(good_key)),
+            )
+        except AssertionError as exc:
+            raise AssertionError(f"{exc}\nmtls-ingress log:\n{bounded_log(log_path)}") from exc
         return process
 
     def start_site() -> subprocess.Popen[str]:
@@ -475,13 +501,17 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
                 "MON_SITE_DISPOSABLE_NFTABLES_VENDOR": SITE_VENDOR,
             }
         )
+        log_path = tmp_path / f"site-{len(processes)}.log"
         process = start_process(
             [sys.executable, "-m", "mon.site_service"],
             env=env,
-            log_path=tmp_path / f"site-{len(processes)}.log",
+            log_path=log_path,
         )
         processes.append(process)
-        wait_http(f"{site_url}/health")
+        try:
+            wait_http(f"{site_url}/health")
+        except AssertionError as exc:
+            raise AssertionError(f"{exc}\nsite log:\n{bounded_log(log_path)}") from exc
         return process
 
     try:
