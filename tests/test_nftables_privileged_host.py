@@ -58,7 +58,6 @@ pytestmark = [
 
 MON_TABLE = "mon_endpoint"
 FOREIGN_TABLE = "operator_ci_owned"
-PV = "PRESENT"
 
 REPORT: dict[str, object] = {}
 
@@ -320,8 +319,7 @@ async def test_conflicting_and_ambiguous_owned_rules_fail_closed(host) -> None:
         "-",
         stdin=(
             f"add rule inet {MON_TABLE} mon_block_ip "
-            f'ip saddr 198.51.100.32 drop comment "{comment}"
-'
+            f'ip saddr 198.51.100.32 drop comment "{comment}"\n'
         ),
     )
     with pytest.raises(EnforcementError, match="multiple"):
@@ -408,7 +406,9 @@ async def test_restart_reconcile_observes_actual_host_state(host) -> None:
     del first  # simulated process restart: a brand-new adapter has no memory
 
     second = _fresh()
-    same = await second.reconcile(plan, "restart", expected_state=EnforcementVerificationState.PRESENT)
+    same = await second.reconcile(
+        plan, "restart", expected_state=EnforcementVerificationState.PRESENT
+    )
     assert not same.drifted and same.observed_state is EnforcementVerificationState.PRESENT
 
     # Out-of-band removal (operator or crash) must be observed, not repaired.
