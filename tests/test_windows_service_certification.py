@@ -194,6 +194,21 @@ def _authenticode(path: Path) -> str:
     return result.stdout.strip() or f"error: {result.stderr.strip()[:300]}"
 
 
+def _replace_binary(src: Path, dst: Path, seconds: float = 30) -> int:
+    """Replace a stopped service's executable; bounded retry for post-exit handle release."""
+    deadline = time.monotonic() + seconds
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            shutil.copy2(src, dst)
+            return attempts
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(1)
+
+
 def _seed_state(state: Path) -> str:
     """Seed durable state via existing MON classes (synthetic, not telemetry)."""
     xml = (
@@ -426,7 +441,7 @@ def test_windows_service_lifecycle_certification(tmp_path: Path) -> None:
 
         # Upgrade / rollback (binary replacement only; never replace a running exe)
         assert _status(name) == f"stopped {name}"
-        shutil.copy2(exe_b, installed)
+        upgrade_attempts = _replace_binary(exe_b, installed)
         assert _sha256(installed) == sha_b != sha_a
         assert _script("start", name).returncode == 0
         assert _status(name) == f"running {name}"
@@ -434,7 +449,7 @@ def test_windows_service_lifecycle_certification(tmp_path: Path) -> None:
         assert _script("stop", name).returncode == 0
         upgraded_state = _state_readable(state, seed_id)
         assert upgraded_state["seed_event_present"] is True
-        shutil.copy2(exe_a, installed)
+        rollback_attempts = _replace_binary(exe_a, installed)
         assert _sha256(installed) == sha_a
         assert _script("start", name).returncode == 0
         assert _status(name) == f"running {name}"
@@ -443,6 +458,7 @@ def test_windows_service_lifecycle_certification(tmp_path: Path) -> None:
         assert rolled_back_state["seed_event_present"] is True
         report.stage("upgrade_and_rollback", upgraded_sha256=sha_b, rolled_back_sha256=sha_a,
                      upgrade_start="running", rollback_start="running",
+                     replace_attempts={"upgrade": upgrade_attempts, "rollback": rollback_attempts},
                      state_after_upgrade=upgraded_state,
                      state_after_rollback=rolled_back_state)  # fmt: skip
         assert _script("uninstall", name).returncode == 0
