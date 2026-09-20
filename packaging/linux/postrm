@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+# Durable collector state (/var/lib/mon-linux-endpoint-collector) is intentionally
+# preserved on remove AND purge; it is evidence-bearing. Delete it manually.
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+fi
+exit 0

@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+  if ! getent passwd mon-collector >/dev/null; then
+    adduser --system --group --no-create-home --home /var/lib/mon-linux-endpoint-collector \
+      --shell /usr/sbin/nologin mon-collector >/dev/null
+  fi
+  if getent group systemd-journal >/dev/null; then
+    usermod -a -G systemd-journal mon-collector || true
+  fi
+  # Existing durable state (from a previous install) is re-owned, never deleted.
+  if [ -d /var/lib/mon-linux-endpoint-collector ]; then
+    chown -R mon-collector:mon-collector /var/lib/mon-linux-endpoint-collector
+  fi
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    if systemctl is-active --quiet mon-linux-endpoint-collector; then
+      systemctl restart mon-linux-endpoint-collector || true
+    fi
+  fi
+fi
+exit 0

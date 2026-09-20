@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MON Windows endpoint collector installer (WiX v5).
+
+  Unsigned. Signing is a separate, explicit stage (tools/package/sign_msi.ps1)
+  that requires operator-supplied credentials and is never run in CI here.
+  No tenant secret, token or credential is embedded: the only configurable
+  values are non-secret identifiers and the site controller URL.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="MON Windows Endpoint Collector"
+      Manufacturer="MON Security Fabric"
+      Version="$(ProductVersion)"
+      UpgradeCode="6F2C3D7A-3B1E-4C57-9B7E-0A1D5E9C4F10"
+      Scope="perMachine"
+      InstallerVersion="500"
+      Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer MON Windows Endpoint Collector is already installed. Uninstall it first to roll back." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="TENANT_ID" Value="local-tenant" />
+    <Property Id="SITE_ID" Value="local-site" />
+    <Property Id="SENSOR_ID" Value="local-sensor" />
+    <Property Id="SITE_URL" Value="http://127.0.0.1:9" />
+    <Property Id="POLL_INTERVAL_SECONDS" Value="5" />
+    <Property Id="STATE_PATH" Secure="yes" />
+    <SetProperty Id="STATE_PATH" Value="[CommonAppDataFolder]MON\WindowsCollectorState"
+                 Before="CostFinalize" Sequence="both" Condition="STATE_PATH=&quot;&quot;" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="MON Windows Collector" />
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="MONDATA" Name="MON">
+        <Directory Id="STATEDIR" Name="WindowsCollectorState" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="MON Windows Endpoint Collector" Level="1">
+      <ComponentGroupRef Id="CollectorComponents" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="CollectorComponents">
+      <Component Id="CollectorBinary" Directory="INSTALLFOLDER" Bitness="always64">
+        <File Id="MONWindowsExe" Source="$(SourceExe)" Name="MONWindows.exe" KeyPath="yes" />
+        <ServiceInstall
+            Id="MONWindowsService"
+            Name="MONWindows"
+            DisplayName="MON Windows Endpoint Collector"
+            Description="MON Windows endpoint collector"
+            Type="ownProcess"
+            Start="demand"
+            ErrorControl="normal"
+            Arguments="service-run --tenant-id [TENANT_ID] --site-id [SITE_ID] --sensor-id [SENSOR_ID] --state-dir [STATE_PATH] --site-url [SITE_URL] --poll-interval-seconds [POLL_INTERVAL_SECONDS] --service-name MONWindows" />
+        <ServiceControl Id="MONWindowsServiceControl" Name="MONWindows" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+
+      <!-- Durable collector state: created if missing, NEVER removed by upgrade or uninstall. -->
+      <Component Id="CollectorState" Directory="STATEDIR" Permanent="yes" Guid="8C0E1D55-6F7C-4C0B-8D53-2B0B3A6E7A11">
+        <CreateFolder />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
