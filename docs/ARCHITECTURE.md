@@ -81,6 +81,13 @@ rather than creating a second event path. The current collector has a durable re
 and bounded local buffer, but it is not a production-complete EDR agent, installer, signed
 Windows service, or Linux collector.
 
+A separate Linux collector adapter (`mon-linux-endpoint-collector`) reads systemd journal
+`sshd` authentication messages and Linux audit `execve` records, feeding the same endpoint
+normalization and `SecurityEvent` pipeline. It has its own durable per-source cursor, bounded
+local buffer, and cancellation-aware systemd-managed foreground runtime, but it is not a
+production-complete Linux EDR agent, DEB/RPM package, or eBPF/kernel-level collector, and it
+does not implement rotation-safe audit log tracking yet.
+
 ## Non-negotiable properties
 
 - multi-tenant isolation

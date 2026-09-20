@@ -63,6 +63,10 @@ Implemented foundations include:
 - first Windows Event Log endpoint collector adapter with deterministic event IDs,
   durable cursoring, bounded local buffering into the existing endpoint pipeline, and a
   service-oriented foreground/runtime loop boundary;
+- a Linux endpoint collector adapter (systemd journal sshd auth evidence, Linux audit
+  execve process-execution evidence) into the same endpoint pipeline, with deterministic
+  event IDs, durable per-source cursoring, bounded local buffering, a cancellation-aware
+  systemd-managed foreground runtime, and a repository-owned example systemd unit;
 - identity/process attack-graph relationships for authentication, execution,
   parent/child process, and process-network evidence;
 - opt-in event-fabric load/soak evidence CLI for caller-supplied canonical envelope
@@ -96,10 +100,16 @@ process/process-network records when present. The Windows collector now has a bo
 foreground/service runtime loop and a real SCM service-host lifecycle validated on
 `windows-latest` with temporary service registration/start/query/stop/delete. A repository-owned
 PowerShell wrapper now provides deterministic install/start/status/stop/uninstall commands for
-an already-built `MONWindows.exe`, but it is not yet a production-complete Windows EDR agent or
-Linux endpoint agent and does not yet provide Authenticode signing, MSI packaging,
-install/uninstall certification, upgrade/rollback certification, privileged
-service-registration certification outside disposable CI, or tamper protection. Load/soak
+an already-built `MONWindows.exe`. A separate Linux endpoint collector (`mon-linux-endpoint-collector`)
+now normalizes systemd journal sshd authentication evidence and Linux audit execve process
+evidence into the same endpoint pipeline, with a bounded systemd-managed foreground runtime,
+graceful SIGINT/SIGTERM shutdown, and a repository-owned example systemd unit; it does not yet
+implement rotation-safe audit log tracking, an eBPF/kernel collector, or DEB/RPM packaging, and
+does not guarantee process-network association unless a native source explicitly supplies it.
+Neither collector is yet a production-complete Windows or Linux EDR agent, and neither provides
+Authenticode/package signing, MSI/DEB/RPM packaging, install/uninstall certification,
+upgrade/rollback certification, privileged service-registration certification outside disposable
+CI, or tamper protection. Load/soak
 measurements are deployment-specific evidence, not universal performance, resilience, or
 tenant-isolation proof. Event-fabric recovery validation currently covers deterministic local
 outage, crash/restart, duplicate replay, and scope-isolation scenarios; it is not yet a

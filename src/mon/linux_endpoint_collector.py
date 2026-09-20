@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import argparse
+import asyncio
 import datetime as dt
 import hashlib
 import json
 import os
 import re
+import signal
+import socket
 import sqlite3
 import sys
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -25,8 +30,11 @@ _BUFFER_SCHEMA_VERSION = "1"
 _MAX_JOURNAL_ENTRY_BYTES = 32_000
 _MAX_JOURNAL_MESSAGE_CHARS = 2000
 _MAX_AUDIT_LINE_BYTES = 16_000
+_MAX_AUDIT_READ_BYTES = 2_000_000
 _MAX_FIELD_CHARS = 1000
 _AUDIT_UNSET_UID = 4_294_967_295
+_MIN_POLL_INTERVAL_SECONDS = 0.01
+_MAX_POLL_INTERVAL_SECONDS = 3600.0
 
 
 class LinuxEndpointCollectorError(RuntimeError):
@@ -405,14 +413,20 @@ class JournalReader(Protocol):
 
 
 class AuditLogReader(Protocol):
-    """Returns up to `limit` complete audit events, each as its raw lines.
+    """Returns up to `limit` complete audit events, each as its raw lines,
+    plus the reader's own opaque resumption token for the position after the
+    last returned event.
 
     Implementations own boundary detection: an event whose EOE record has not
     yet arrived must not be returned, so a caller never observes a partial
-    execve group.
+    execve group. The resumption token is opaque to callers: an in-memory
+    reader may use the audit event id, while a real file-backed reader uses
+    a durable byte offset.
     """
 
-    def read_after(self, checkpoint_token: str | None, *, limit: int) -> list[list[str]]: ...
+    def read_after(
+        self, checkpoint_token: str | None, *, limit: int
+    ) -> tuple[list[list[str]], str | None]: ...
 
 
 class SecurityEventSender(Protocol):
@@ -498,15 +512,13 @@ class AuditProcessSource:
     def read_after(self, checkpoint_token: str | None, *, limit: int) -> LinuxSourceReadResult:
         if limit < 1 or limit > 1000:
             raise ValueError("limit must be between 1 and 1000")
-        raw_groups = self.reader.read_after(checkpoint_token, limit=limit)
+        raw_groups, new_token = self.reader.read_after(checkpoint_token, limit=limit)
         events: list[EndpointTelemetryEvent] = []
         rejected = 0
-        last_token = checkpoint_token
         for lines in raw_groups:
             complete, _pending, group_rejected = group_audit_lines(lines)
             rejected += group_rejected
             for group in complete:
-                last_token = group.audit_id
                 try:
                     telemetry = normalize_linux_audit_execve(
                         group,
@@ -522,7 +534,7 @@ class AuditProcessSource:
                     events.append(telemetry)
         return LinuxSourceReadResult(
             events=events,
-            checkpoint_token=last_token,
+            checkpoint_token=new_token if new_token is not None else checkpoint_token,
             records_read=len(raw_groups),
             rejected_records=rejected,
         )
@@ -559,14 +571,81 @@ class InMemoryAuditLogReader:
     def __init__(self, groups: Sequence[list[str]]) -> None:
         self._groups = list(groups)
 
-    def read_after(self, checkpoint_token: str | None, *, limit: int) -> list[list[str]]:
+    def read_after(
+        self, checkpoint_token: str | None, *, limit: int
+    ) -> tuple[list[list[str]], str | None]:
         start = 0
         if checkpoint_token is not None:
             for index, lines in enumerate(self._groups):
                 if _first_audit_id(lines) == checkpoint_token:
                     start = index + 1
                     break
-        return self._groups[start : start + limit]
+        selected = self._groups[start : start + limit]
+        new_token = checkpoint_token
+        if selected:
+            new_token = _first_audit_id(selected[-1]) or checkpoint_token
+        return selected, new_token
+
+
+class FileAuditLogReader:
+    """Reads real auditd-log-formatted lines from a file.
+
+    Checkpointing here is a durable, restart-safe byte offset into the audit
+    log: an event whose EOE record has not yet been written is held back and
+    re-read on the next call. Rotation-safe inode/anchor tracking (as
+    JsonLineFileReader in sensor_collector.py provides for Zeek/Suricata) is
+    not implemented for audit logs in this milestone; see docs/adr for the
+    documented limitation.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+
+    def read_after(
+        self, checkpoint_token: str | None, *, limit: int
+    ) -> tuple[list[list[str]], str | None]:
+        if limit < 1 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        if not self.path.is_file():
+            raise LinuxSourceUnavailable(f"audit log source is missing: {self.path}")
+        offset = 0
+        if checkpoint_token:
+            try:
+                offset = int(checkpoint_token)
+            except ValueError as exc:
+                raise LinuxEndpointCollectorError(
+                    "audit log checkpoint token is not a valid byte offset"
+                ) from exc
+            if offset < 0:
+                raise LinuxEndpointCollectorError("audit log checkpoint offset is negative")
+
+        try:
+            with self.path.open("r", encoding="utf-8", errors="strict") as handle:
+                handle.seek(offset)
+                raw_lines = handle.readlines(_MAX_AUDIT_READ_BYTES)
+        except PermissionError as exc:
+            raise LinuxSourcePermissionDenied(
+                f"insufficient permissions to read {self.path}"
+            ) from exc
+        except OSError as exc:
+            raise LinuxSourceUnavailable(f"audit log read failed: {exc}") from exc
+        except UnicodeDecodeError as exc:
+            raise LinuxSourceUnavailable(f"audit log is not valid UTF-8: {exc}") from exc
+
+        groups: list[list[str]] = []
+        pending: list[str] = []
+        consumed_bytes = 0
+        new_offset = offset
+        for raw in raw_lines:
+            pending.append(raw)
+            consumed_bytes += len(raw.encode("utf-8"))
+            if raw.strip().startswith("type=EOE"):
+                groups.append(pending)
+                pending = []
+                new_offset = offset + consumed_bytes
+                if len(groups) >= limit:
+                    break
+        return groups, str(new_offset)
 
 
 class SystemdJournalReader:
@@ -993,3 +1072,266 @@ class LinuxEndpointCollector:
             sources=source_healths,
             last_error=self._last_error,
         )
+
+
+# --------------------------------------------------------------------------
+# Long-running, cancellation-aware service runtime
+# --------------------------------------------------------------------------
+
+
+class LinuxCollectorServiceState(StrEnum):
+    STARTING = "STARTING"
+    RUNNING = "RUNNING"
+    STOPPING = "STOPPING"
+    STOPPED = "STOPPED"
+    FAILED = "FAILED"
+
+
+class LinuxCollectorServiceStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    service_state: LinuxCollectorServiceState
+    collector_health: LinuxCollectorHealth | None = None
+    fatal_error: str | None = None
+
+
+class LinuxCollectorRuntime(Protocol):
+    async def collect_once(self) -> LinuxCollectorHealth: ...
+
+
+def validate_poll_interval(value: float) -> float:
+    if value < _MIN_POLL_INTERVAL_SECONDS or value > _MAX_POLL_INTERVAL_SECONDS:
+        raise ValueError("poll interval must be between 0.01 and 3600 seconds")
+    return value
+
+
+class LinuxCollectorServiceRuntime:
+    """A cancellation-aware run loop around LinuxEndpointCollector.collect_once().
+
+    This is a plain asyncio loop suitable for a systemd-managed foreground
+    process (systemd supervises the process; there is no SCM-style API to
+    integrate with on Linux). It performs one collection pass before
+    reporting RUNNING, waits through a stop event rather than busy looping,
+    and closes registered resources exactly once on the way out.
+    """
+
+    def __init__(
+        self,
+        *,
+        collector: LinuxCollectorRuntime,
+        poll_interval_seconds: float,
+        resources: Iterable[Closable] = (),
+    ) -> None:
+        self.collector = collector
+        self.poll_interval_seconds = validate_poll_interval(poll_interval_seconds)
+        self.resources = tuple(resources)
+        self._stop_event = asyncio.Event()
+        self.status = LinuxCollectorServiceStatus(
+            service_state=LinuxCollectorServiceState.STARTING
+        )
+
+    def request_stop(self) -> None:
+        if self.status.service_state not in {
+            LinuxCollectorServiceState.STOPPED,
+            LinuxCollectorServiceState.FAILED,
+        }:
+            self.status = LinuxCollectorServiceStatus(
+                service_state=LinuxCollectorServiceState.STOPPING,
+                collector_health=self.status.collector_health,
+                fatal_error=self.status.fatal_error,
+            )
+        self._stop_event.set()
+
+    async def run_forever(self) -> LinuxCollectorServiceStatus:
+        try:
+            health = await self.collector.collect_once()
+            self.status = LinuxCollectorServiceStatus(
+                service_state=LinuxCollectorServiceState.RUNNING,
+                collector_health=health,
+            )
+            while not self._stop_event.is_set():
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=self.poll_interval_seconds,
+                    )
+                    break
+                except TimeoutError:
+                    pass
+                health = await self.collector.collect_once()
+                self.status = LinuxCollectorServiceStatus(
+                    service_state=LinuxCollectorServiceState.RUNNING,
+                    collector_health=health,
+                )
+            if self.status.service_state is not LinuxCollectorServiceState.FAILED:
+                self.status = LinuxCollectorServiceStatus(
+                    service_state=LinuxCollectorServiceState.STOPPED,
+                    collector_health=self.status.collector_health,
+                )
+            return self.status
+        except LinuxCollectorCheckpointError as exc:
+            self.status = LinuxCollectorServiceStatus(
+                service_state=LinuxCollectorServiceState.FAILED,
+                collector_health=self.status.collector_health,
+                fatal_error=str(exc)[:1000],
+            )
+            raise
+        finally:
+            for resource in reversed(self.resources):
+                resource.close()
+
+
+# --------------------------------------------------------------------------
+# CLI / systemd-managed foreground entry point
+# --------------------------------------------------------------------------
+
+
+class _StaticFailureSource:
+    """A source whose read_after always reports the same construction-time
+    failure. This keeps the collector able to start (and correctly report
+    SOURCE_UNAVAILABLE/PERMISSION_DENIED health) even when a native adapter
+    could not be constructed at all, instead of crashing the whole process.
+    """
+
+    def __init__(
+        self,
+        source_id: str,
+        source_kind: LinuxSourceKind,
+        error: LinuxEndpointCollectorError,
+    ) -> None:
+        self.source_id = source_id
+        self.source_kind = source_kind
+        self._error = error
+
+    def read_after(self, checkpoint_token: str | None, *, limit: int) -> LinuxSourceReadResult:
+        raise self._error
+
+
+def _build_journal_source(args: argparse.Namespace) -> LinuxTelemetrySource:
+    source_id = f"journal:{args.ssh_unit}"
+    try:
+        reader = SystemdJournalReader(unit=args.ssh_unit)
+    except (LinuxSourceUnavailable, LinuxSourcePermissionDenied) as exc:
+        return _StaticFailureSource(source_id, LinuxSourceKind.JOURNAL, exc)
+    return JournalAuthSource(
+        source_id,
+        reader,
+        tenant_id=args.tenant_id,
+        site_id=args.site_id,
+        sensor_id=args.sensor_id,
+    )
+
+
+def _build_audit_source(args: argparse.Namespace, hostname: str | None) -> LinuxTelemetrySource:
+    reader = FileAuditLogReader(args.audit_log_file)
+    return AuditProcessSource(
+        "audit:execve",
+        reader,
+        tenant_id=args.tenant_id,
+        site_id=args.site_id,
+        sensor_id=args.sensor_id,
+        hostname=hostname,
+    )
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Collect Linux endpoint telemetry for MON")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("foreground",),
+        help="run continuously instead of performing one collection pass",
+    )
+    parser.add_argument("--tenant-id", required=True)
+    parser.add_argument("--site-id", required=True)
+    parser.add_argument("--sensor-id", required=True)
+    parser.add_argument("--state-dir", required=True, type=Path)
+    parser.add_argument("--site-url", default="http://127.0.0.1:8090")
+    parser.add_argument(
+        "--hostname",
+        default=None,
+        help="asset/identity-namespace hostname; defaults to the local hostname",
+    )
+    parser.add_argument(
+        "--audit-log-file",
+        default=Path("/var/log/audit/audit.log"),
+        type=Path,
+    )
+    parser.add_argument(
+        "--ssh-unit",
+        default="sshd",
+        help="SYSLOG_IDENTIFIER treated as SSH authentication evidence",
+    )
+    parser.add_argument("--batch-size", type=int, default=100)
+    parser.add_argument("--max-buffered-events", type=int, default=10_000)
+    parser.add_argument("--poll-interval-seconds", type=float, default=30.0)
+    return parser
+
+
+def build_collector_from_args(
+    args: argparse.Namespace,
+) -> tuple[LinuxEndpointCollector, tuple[Closable, ...]]:
+    hostname = args.hostname or socket.gethostname()
+    checkpoint_store = LinuxCollectorCheckpointStore(
+        Path(args.state_dir) / "checkpoints",
+        tenant_id=args.tenant_id,
+        site_id=args.site_id,
+        sensor_id=args.sensor_id,
+    )
+    buffer = SQLiteLinuxEventBuffer(
+        Path(args.state_dir) / "linux-endpoint-buffer.db",
+        tenant_id=args.tenant_id,
+        site_id=args.site_id,
+        sensor_id=args.sensor_id,
+        max_events=args.max_buffered_events,
+    )
+    sources: tuple[LinuxTelemetrySource, ...] = (
+        _build_journal_source(args),
+        _build_audit_source(args, hostname),
+    )
+    collector = LinuxEndpointCollector(
+        tenant_id=args.tenant_id,
+        site_id=args.site_id,
+        sensor_id=args.sensor_id,
+        sources=sources,
+        checkpoint_store=checkpoint_store,
+        buffer=buffer,
+        sender=LocalSiteEventSender(args.site_url),
+        batch_size=args.batch_size,
+    )
+    return collector, (buffer,)
+
+
+async def async_main(argv: Iterable[str] | None = None) -> int:
+    args = build_arg_parser().parse_args(list(argv) if argv is not None else None)
+    collector, resources = build_collector_from_args(args)
+
+    if args.command == "foreground":
+        runtime = LinuxCollectorServiceRuntime(
+            collector=collector,
+            poll_interval_seconds=args.poll_interval_seconds,
+            resources=resources,
+        )
+        loop = asyncio.get_running_loop()
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            with suppress(NotImplementedError, ValueError):
+                loop.add_signal_handler(signum, runtime.request_stop)
+        status = await runtime.run_forever()
+        print(status.model_dump_json())
+        return 0 if status.service_state is LinuxCollectorServiceState.STOPPED else 2
+
+    buffer = resources[0]
+    try:
+        health = await collector.collect_once()
+        print(health.model_dump_json())
+        return 0 if health.state is LinuxCollectorState.SYNCED else 2
+    finally:
+        buffer.close()
+
+
+def main() -> None:
+    raise SystemExit(asyncio.run(async_main()))
+
+
+if __name__ == "__main__":
+    main()
