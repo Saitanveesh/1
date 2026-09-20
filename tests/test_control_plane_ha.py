@@ -15,6 +15,7 @@ Kubernetes and consensus are explicitly out of scope and reported NOT_PROVEN.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import datetime as dt
 import json
 import os
@@ -587,8 +588,6 @@ def test_control_plane_ha_failover(tmp_path: Path) -> None:
             key = str(item.get("status"))
             report["request_status_counts"][key] = report["request_status_counts"].get(key, 0) + 1
         for proc in procs.values():
-            try:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
         REPORT_PATH.write_text(json.dumps(report, indent=2, sort_keys=True, default=str))
