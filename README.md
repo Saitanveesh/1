@@ -60,12 +60,16 @@ Implemented foundations include:
   behavior, pagination, added_after cursors, retry/backoff state, and tenant/site RLS;
 - typed endpoint process/auth/process-network telemetry normalization with durable
   tenant/site-scoped identity and process analysis state;
+- first Windows Event Log endpoint collector adapter with deterministic event IDs,
+  durable cursoring, and bounded local buffering into the existing endpoint pipeline;
 - identity/process attack-graph relationships for authentication, execution,
   parent/child process, and process-network evidence;
 - opt-in event-fabric load/soak evidence CLI for caller-supplied canonical envelope
   corpora and disposable performance environments;
 - deterministic event-fabric failure-injection and recovery regression coverage for
   the current durable outbox, idempotent ingress, and exact-envelope replay path;
+- durable event-fabric exponential retry/backoff with persisted next retry times,
+  bounded jitter, restart-stable attempts, and sanitized delivery errors;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
@@ -80,12 +84,14 @@ disposable-sandbox-only rather than a production host firewall connector. Threat
 support currently covers direct STIX bundle ingestion and exact indicator matching; TAXII
 feed synchronization is read-only and client-side. MON does not yet implement a TAXII server,
 TAXII write/publish APIs, or complex STIX pattern evaluation. Endpoint support currently
-normalizes typed endpoint telemetry into the pipeline and graph; it is not yet a production
-Windows or Linux endpoint agent. Load/soak measurements are deployment-specific evidence,
-not universal performance, resilience, or tenant-isolation proof. Event-fabric recovery
-validation currently covers deterministic local outage, crash/restart, duplicate replay,
-and scope-isolation scenarios; it is not yet a broker-backed HA, arbitrary network
-partition, or disaster-recovery proof.
+normalizes typed endpoint telemetry into the pipeline and graph and includes a narrow Windows
+Event Log collector adapter for Security 4624/4625/4688 plus optional Sysmon
+process/process-network records when present. It is not yet a production-complete Windows EDR
+agent or Linux endpoint agent. Load/soak measurements are deployment-specific evidence, not
+universal performance, resilience, or tenant-isolation proof. Event-fabric recovery validation
+currently covers deterministic local outage, crash/restart, duplicate replay, and
+scope-isolation scenarios; it is not yet a broker-backed HA, arbitrary network partition,
+multi-region failover, or disaster-recovery proof.
 
 See:
 

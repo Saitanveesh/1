@@ -25,6 +25,7 @@ mon-site = "mon.site_service:main"
 mon-sensor-ingress = "mon.sensor_transport:main"
 mon-zeek-collector = "mon.sensor_collector:zeek_main"
 mon-suricata-collector = "mon.sensor_collector:suricata_main"
+mon-windows-endpoint-collector = "mon.windows_endpoint_collector:main"
 mon-connector-secret = "mon.connector_secrets:main"
 
 [project.optional-dependencies]

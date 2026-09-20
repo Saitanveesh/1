@@ -138,6 +138,29 @@ def test_environment_loader_supports_token_file_without_exposing_secret(tmp_path
         )
 
 
+def test_site_service_loads_and_validates_fabric_retry_delays(tmp_path) -> None:
+    config = SiteServiceConfig.from_environment(
+        {
+            "MON_TENANT_ID": "tenant-a",
+            "MON_SITE_ID": "site-a",
+            "MON_SITE_STATE_DIR": str(tmp_path / "state"),
+            "MON_SITE_FABRIC_RETRY_BASE_DELAY_SECONDS": "2",
+            "MON_SITE_FABRIC_RETRY_MAX_DELAY_SECONDS": "30",
+        }
+    )
+    assert config.fabric_retry_base_delay_seconds == 2
+    assert config.fabric_retry_max_delay_seconds == 30
+
+    with pytest.raises(SiteServiceConfigurationError, match="cannot exceed"):
+        SiteServiceConfig(
+            tenant_id="tenant-a",
+            site_id="site-a",
+            state_dir=tmp_path,
+            fabric_retry_base_delay_seconds=60,
+            fabric_retry_max_delay_seconds=10,
+        ).validate()
+
+
 def test_site_service_app_runs_managed_runtime_and_exposes_status(tmp_path) -> None:
     app = create_site_service_app(offline_config(tmp_path))
     with TestClient(app) as client:

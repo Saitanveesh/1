@@ -62,8 +62,13 @@ Optional settings:
 - `MON_SITE_COMMAND_INTERVAL_SECONDS` — default 2
 - `MON_SITE_SENSOR_TRUST_INTERVAL_SECONDS` — default 15
 - `MON_SITE_REQUEST_TIMEOUT_SECONDS` — default 10
+- `MON_SITE_FABRIC_RETRY_BASE_DELAY_SECONDS` — default 1
+- `MON_SITE_FABRIC_RETRY_MAX_DELAY_SECONDS` — default 300
 
 Values must be positive and no greater than 3600 seconds.
+The fabric retry base delay cannot exceed the maximum delay. Delivery failures
+use durable exponential backoff with bounded jitter and a persisted next retry
+timestamp, so restart does not reset attempts or cause a tight retry loop.
 
 ## API
 
@@ -99,6 +104,11 @@ unauthenticated internal API cannot be exposed remotely through configuration.
 
 The runtime endpoint reports the last state/error for cloud flush, local recovery, command
 polling, and sensor-trust synchronization.
+
+Fabric flush health distinguishes pending synced state from offline and backoff
+state. When the oldest undelivered envelope is waiting for its next retry, later
+events in the same tenant/site ordering domain do not bypass it, and `/health`
+continues to report degraded delivery state rather than claiming cloud sync.
 
 Sensor authorization is evaluated from the durable local trust snapshot, not by a live SaaS
 lookup on every event. If SaaS is unavailable, the last known trust snapshot continues to
@@ -144,3 +154,8 @@ cutover unless historical control-plane event state has been explicitly reconcil
 Migration 0006 does not invent processing receipts for historical events. If an old event
 exists without proof that all derived state committed atomically, fabric redelivery returns an
 uncertain-state error instead of acknowledging success.
+
+Fabric outbox schema upgrades are in-place. Version 1 outboxes are upgraded to
+the retry-aware schema without deleting queued envelopes. If retry metadata is
+malformed, such as a corrupted retry timestamp, startup fails visibly rather
+than reporting healthy delivery.
