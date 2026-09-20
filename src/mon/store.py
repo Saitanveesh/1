@@ -3,7 +3,8 @@ from __future__ import annotations
 import datetime as dt
 import threading
 from collections import defaultdict
-from contextlib import AbstractContextManager
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from typing import Protocol, runtime_checkable
 
 from mon.analysis_checkpoint import AnalysisCheckpointPayload
@@ -362,6 +363,18 @@ class InMemoryStore:
         self.identities: dict[tuple[str, str, str], IdentityRecord] = {}
         self.processes: dict[tuple[str, str, str], ProcessRecord] = {}
         self._identity_lock = threading.RLock()
+        self._scope_locks: defaultdict[tuple[str, str], threading.Lock] = defaultdict(
+            threading.Lock
+        )
+
+    @contextmanager
+    def scope_lock(self, tenant_id: str, site_id: str) -> Iterator[None]:
+        lock = self._scope_locks[(tenant_id, site_id)]
+        lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
         return (tenant_id, site_id, event_id) in self.event_ids
@@ -1041,7 +1054,7 @@ class InMemoryStore:
                 for (scope_tenant, scope_site, _), record in self.audit_records.items()
                 if scope_tenant == tenant_id and scope_site == site_id
             ],
-            key=lambda item: (item.occurred_at, item.audit_id),
+            key=lambda item: item.occurred_at,
         )
 
 

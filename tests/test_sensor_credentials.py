@@ -1,4 +1,5 @@
 import datetime as dt
+import os
 import stat
 
 import pytest
@@ -219,7 +220,8 @@ def test_bootstrap_import_is_scope_bound_and_key_is_private(tmp_path) -> None:
         "spiffe://mon.local/tenant/tenant-a/site/site-a/sensor/sensor-1"
     )
     assert store.diagnostics()["durability"] == "FSYNC_ATOMIC_POINTER"
-    assert stat.S_IMODE(active.private_key_file.stat().st_mode) == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE(active.private_key_file.stat().st_mode) == 0o600
 
     with pytest.raises(SensorCredentialError, match="site_id mismatch"):
         SensorCredentialStore(
