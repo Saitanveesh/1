@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
 
 permissions:
+  attestations: write
   contents: read
+  id-token: write
 
 jobs:
   release-candidate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -81,6 +85,47 @@ jobs:
       - name: Verify final release manifest
         run: |
           mon-release-manifest release-artifacts --verify
+
+      - name: Attest final release-candidate artifacts
+        # actions/attest v4.2.2 pinned to immutable commit 1e69f48acb82d1966a394da916b4c1698aa569d6.
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            release-artifacts/python/mon_security_fabric-0.1.0-py3-none-any.whl
+            release-artifacts/python/mon_security_fabric-0.1.0.tar.gz
+            release-artifacts/console/mon-operator-console.zip
+            release-artifacts/mon-python.cdx.json
+            release-artifacts/mon-console.cdx.json
+            release-artifacts/manifest.json
+
+      - name: Verify release-candidate attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for artifact in \
+            release-artifacts/python/mon_security_fabric-0.1.0-py3-none-any.whl \
+            release-artifacts/python/mon_security_fabric-0.1.0.tar.gz \
+            release-artifacts/console/mon-operator-console.zip \
+            release-artifacts/mon-python.cdx.json \
+            release-artifacts/mon-console.cdx.json \
+            release-artifacts/manifest.json
+          do
+            for attempt in 1 2 3 4 5
+            do
+              if gh attestation verify "$artifact" \
+                --repo Saitanveesh/1 \
+                --signer-workflow github.com/Saitanveesh/1/.github/workflows/release-candidate.yml \
+                --source-digest "$GITHUB_SHA"
+              then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                exit 1
+              fi
+              sleep 6
+            done
+          done
 
       - name: Upload release-candidate evidence bundle
         uses: actions/upload-artifact@v4

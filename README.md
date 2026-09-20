@@ -72,7 +72,8 @@ Implemented foundations include:
   bounded jitter, restart-stable attempts, and sanitized delivery errors;
 - deterministic release manifests plus a controlled release-candidate workflow that builds
   current Python/console artifacts, generates validated CycloneDX SBOM evidence, gates that
-  evidence, and verifies the final manifest before artifact upload;
+  evidence, verifies the final manifest, creates keyless GitHub provenance attestations for
+  final candidate artifacts, and verifies those attestations before artifact upload;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
@@ -95,8 +96,9 @@ universal performance, resilience, or tenant-isolation proof. Event-fabric recov
 currently covers deterministic local outage, crash/restart, duplicate replay, and
 scope-isolation scenarios; it is not yet a broker-backed HA, arbitrary network partition,
 multi-region failover, or disaster-recovery proof. Release-candidate packaging now emits
-SBOM and manifest evidence, but it is not yet a signed artifact or provenance-attested
-production release boundary.
+SBOM, manifest, and GitHub provenance-attestation evidence for candidate bytes, but
+provenance does not prove vulnerability-free software, runtime safety, correct deployment
+configuration, or production readiness.
 
 See:
 

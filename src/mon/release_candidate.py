@@ -7,6 +7,15 @@ from typing import Any
 
 CYCLONEDX_FORMAT = "CycloneDX"
 SUPPORTED_CYCLONEDX_VERSIONS = {"1.5", "1.6", "1.7"}
+REQUIRED_RELEASE_ARTIFACTS = (
+    "console/mon-operator-console.zip",
+    "manifest.json",
+    "mon-console.cdx.json",
+    "mon-python.cdx.json",
+    "python/mon_security_fabric-0.1.0-py3-none-any.whl",
+    "python/mon_security_fabric-0.1.0.tar.gz",
+)
+REQUIRED_SBOMS = ("mon-python.cdx.json", "mon-console.cdx.json")
 
 
 class ReleaseCandidateError(ValueError):
@@ -44,7 +53,7 @@ def validate_cyclonedx_sbom(path: Path) -> None:
 def validate_release_candidate_directory(
     artifact_dir: Path,
     *,
-    required_sboms: tuple[str, ...] = ("mon-python.cdx.json", "mon-console.cdx.json"),
+    required_sboms: tuple[str, ...] = REQUIRED_SBOMS,
 ) -> None:
     root = artifact_dir.resolve()
     if not root.is_dir():
@@ -58,6 +67,10 @@ def validate_release_candidate_directory(
         if not sbom_path.is_file():
             raise ReleaseCandidateError(f"required SBOM is missing: {sbom_name}")
         validate_cyclonedx_sbom(sbom_path)
+
+
+def required_release_artifacts() -> tuple[str, ...]:
+    return REQUIRED_RELEASE_ARTIFACTS
 
 
 def main(argv: list[str] | None = None) -> int:
