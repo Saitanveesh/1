@@ -54,11 +54,35 @@ function Wait-ServiceState {
   throw "Service '$Name' did not reach '$DesiredState' within $TimeoutSeconds seconds."
 }
 
+function ConvertTo-NativeArg {
+  # Windows PowerShell 5.1 does not escape embedded quotes when calling native
+  # executables, so build the command line explicitly (CommandLineToArgvW rules).
+  param([string] $Value)
+  if ($Value -eq "") {
+    return '""'
+  }
+  if ($Value -notmatch '[\s"]') {
+    return $Value
+  }
+  $escaped = $Value -replace '(\\*)"', '$1$1\"'
+  $escaped = $escaped -replace '(\\+)$', '$1$1'
+  return '"' + $escaped + '"'
+}
+
 function Invoke-Sc {
   param([string[]] $Arguments)
-  $output = & sc.exe @Arguments 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    throw "sc.exe $($Arguments -join ' ') failed: $($output -join ' ')"
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = "sc.exe"
+  $startInfo.Arguments = ($Arguments | ForEach-Object { ConvertTo-NativeArg $_ }) -join " "
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.CreateNoWindow = $true
+  $process = [System.Diagnostics.Process]::Start($startInfo)
+  $output = $process.StandardOutput.ReadToEnd() + $process.StandardError.ReadToEnd()
+  $process.WaitForExit()
+  if ($process.ExitCode -ne 0) {
+    throw "sc.exe $($Arguments -join ' ') failed: $output"
   }
   return $output
 }
@@ -90,6 +114,11 @@ function Install-MONWindowsService {
   try {
     Invoke-Sc -Arguments @("create", $ServiceName, "binPath=", $binPath, "start=", "demand", "DisplayName=", $ServiceName) | Out-Null
     $created = $true
+    # Certification-only fault injection: inert unless the env var is set AND the
+    # service name carries the disposable "mon-cert-" prefix.
+    if ($env:MON_TEST_FAIL_AFTER_SCM_CREATE -eq "1" -and $ServiceName -like "mon-cert-*") {
+      throw "injected certification failure after SCM registration"
+    }
     Invoke-Sc -Arguments @("description", $ServiceName, "MON Windows endpoint collector") | Out-Null
     Write-Output "installed $ServiceName"
   }
