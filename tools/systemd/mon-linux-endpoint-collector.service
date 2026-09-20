@@ -1,0 +1,67 @@
+# Example/repository-owned systemd unit for the MON Linux endpoint collector.
+#
+# This is a template for later packaging, not a signed/certified installer
+# artifact. Copy it to /etc/systemd/system/, adjust the placeholders below,
+# then `systemctl daemon-reload && systemctl enable --now
+# mon-linux-endpoint-collector`.
+#
+# No secrets are embedded here: tenant/site/sensor identifiers and the
+# loopback site-controller URL are not credentials, and the collector does
+# not currently take any credential/token argument.
+#
+# Privileges: this unit runs as a dedicated non-root user by default.
+#   - Reading the systemd journal for SSH authentication evidence only needs
+#     membership in the `systemd-journal` group (granted below).
+#   - Reading /var/log/audit/audit.log for process-execution evidence
+#     commonly requires elevated access (the file is usually root:root 0600).
+#     Either grant the service user read access explicitly (a POSIX ACL such
+#     as `setfacl -m u:mon-collector:r /var/log/audit/audit.log`, refreshed
+#     by your audit log rotation config), or run this unit as root if your
+#     environment cannot grant that narrower access. Do not default to root
+#     just for convenience; only do so if your auditd deployment leaves no
+#     other option.
+
+[Unit]
+Description=MON Linux endpoint collector
+Documentation=https://github.com/Saitanveesh/1/blob/main/docs/sensor-collectors.md
+After=network-online.target auditd.service systemd-journald.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mon-linux-endpoint-collector foreground \
+  --tenant-id "<TENANT_ID>" \
+  --site-id "<SITE_ID>" \
+  --sensor-id "<SENSOR_ID>" \
+  --state-dir /var/lib/mon-linux-endpoint-collector \
+  --site-url http://127.0.0.1:8090 \
+  --poll-interval-seconds 30
+
+User=mon-collector
+Group=mon-collector
+SupplementaryGroups=systemd-journal
+StateDirectory=mon-linux-endpoint-collector
+StateDirectoryMode=0750
+
+# Conservative, bounded restart policy: retry on crash, but stop trying if
+# it keeps failing rather than restart-looping indefinitely.
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Graceful shutdown: the collector's asyncio SIGTERM handler drains the
+# current pass and closes the SQLite buffer before exiting.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Light sandboxing. Does not grant CAP_AUDIT_READ/CAP_DAC_READ_SEARCH; add
+# AmbientCapabilities=CAP_DAC_READ_SEARCH here instead of running as root if
+# your platform supports scoping audit log access that way.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mon-linux-endpoint-collector
+
+[Install]
+WantedBy=multi-user.target
