@@ -26,15 +26,6 @@ from mon.endpoint import (
     normalize_endpoint_event,
 )
 
-try:
-    import win32serviceutil as _win32serviceutil
-except ImportError:
-    _win32serviceutil = None
-
-_ServiceFrameworkBase = (
-    _win32serviceutil.ServiceFramework if _win32serviceutil is not None else object
-)
-
 _CHECKPOINT_SCHEMA_VERSION = 1
 _BUFFER_SCHEMA_VERSION = "1"
 _SUPPORTED_SECURITY_EVENT_IDS = {4624, 4625, 4688}
@@ -767,61 +758,133 @@ class NativeWindowsServiceControlBoundary:
         self._advapi32 = ctypes.WinDLL("advapi32.dll")
 
 
-def _service_status_to_win32(
-    status: WindowsCollectorServiceStatus,
-) -> int:
-    try:
-        import win32service
-    except ImportError as exc:
-        raise WindowsCollectorServiceError("pywin32 is required for SCM hosting") from exc
+_SERVICE_WIN32_OWN_PROCESS = 0x00000010
+_SERVICE_ACCEPT_STOP = NativeWindowsServiceControlBoundary.can_accept_stop
+_SERVICE_ACCEPT_SHUTDOWN = NativeWindowsServiceControlBoundary.can_accept_shutdown
+_SERVICE_STOPPED = 0x00000001
+_SERVICE_START_PENDING = 0x00000002
+_SERVICE_STOP_PENDING = 0x00000003
+_SERVICE_RUNNING = 0x00000004
+_SERVICE_CONTROL_STOP = 0x00000001
+_SERVICE_CONTROL_SHUTDOWN = 0x00000005
+_NO_ERROR = 0
+_ERROR_SERVICE_SPECIFIC_ERROR = 1066
+
+
+class _ServiceStatus(ctypes.Structure):
+    _fields_ = [
+        ("dwServiceType", ctypes.c_ulong),
+        ("dwCurrentState", ctypes.c_ulong),
+        ("dwControlsAccepted", ctypes.c_ulong),
+        ("dwWin32ExitCode", ctypes.c_ulong),
+        ("dwServiceSpecificExitCode", ctypes.c_ulong),
+        ("dwCheckPoint", ctypes.c_ulong),
+        ("dwWaitHint", ctypes.c_ulong),
+    ]
+
+
+class _ServiceTableEntry(ctypes.Structure):
+    _fields_ = [
+        ("lpServiceName", ctypes.c_wchar_p),
+        ("lpServiceProc", ctypes.c_void_p),
+    ]
+
+
+def _service_status_to_native(status: WindowsCollectorServiceStatus) -> int:
     return {
-        WindowsCollectorServiceState.STARTING: win32service.SERVICE_START_PENDING,
-        WindowsCollectorServiceState.RUNNING: win32service.SERVICE_RUNNING,
-        WindowsCollectorServiceState.STOPPING: win32service.SERVICE_STOP_PENDING,
-        WindowsCollectorServiceState.STOPPED: win32service.SERVICE_STOPPED,
-        WindowsCollectorServiceState.FAILED: win32service.SERVICE_STOPPED,
+        WindowsCollectorServiceState.STARTING: _SERVICE_START_PENDING,
+        WindowsCollectorServiceState.RUNNING: _SERVICE_RUNNING,
+        WindowsCollectorServiceState.STOPPING: _SERVICE_STOP_PENDING,
+        WindowsCollectorServiceState.STOPPED: _SERVICE_STOPPED,
+        WindowsCollectorServiceState.FAILED: _SERVICE_STOPPED,
     }[status.service_state]
 
 
-class MONWindowsServiceHost(_ServiceFrameworkBase):
-    _svc_name_ = "MONWindows"
-    _svc_display_name_ = "MON Windows Endpoint Collector"
-    _svc_description_ = "MON Windows endpoint collector service host."
+class NativeWindowsServiceProcess:
+    """Native service process host for the already-built MONWindows.exe."""
 
-    def __init__(self, args):
-        try:
-            import win32event
-            import win32service
-        except ImportError as exc:
-            raise WindowsCollectorServiceError("pywin32 is required for SCM hosting") from exc
-        self._win32event = win32event
-        self._win32service = win32service
-        super().__init__(args)
-        self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
+    def __init__(self, service_name: str, argv: list[str]) -> None:
+        if sys.platform != "win32":
+            raise WindowsCollectorServiceError("Windows SCM service host requires Windows")
+        if not service_name.strip():
+            raise WindowsCollectorServiceError("Windows SCM service name is required")
+        self.service_name = service_name
+        self.argv = argv
+        self._advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+        self._service_main_type = ctypes.WINFUNCTYPE(
+            None, ctypes.c_ulong, ctypes.POINTER(ctypes.c_wchar_p)
+        )
+        self._handler_type = ctypes.WINFUNCTYPE(
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        )
+        self._service_main_callback = self._service_main_type(self._service_main)
+        self._handler_callback = self._handler_type(self._control_handler)
+        self._status_handle: ctypes.c_void_p | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._runtime: WindowsCollectorServiceRuntime | None = None
         self._pending_stop = False
+        self._checkpoint = 1
+        self._configure_advapi32()
 
-    def SvcStop(self):
-        self.ReportServiceStatus(self._win32service.SERVICE_STOP_PENDING)
-        self._pending_stop = True
-        if self._loop is not None and self._runtime is not None:
-            self._loop.call_soon_threadsafe(self._runtime.request_stop)
-        self._win32event.SetEvent(self.hWaitStop)
+    def run(self) -> int:
+        service_table = (_ServiceTableEntry * 2)(
+            _ServiceTableEntry(
+                self.service_name,
+                ctypes.cast(self._service_main_callback, ctypes.c_void_p),
+            ),
+            _ServiceTableEntry(None, None),
+        )
+        if not self._advapi32.StartServiceCtrlDispatcherW(service_table):
+            error = ctypes.get_last_error()
+            raise WindowsCollectorServiceError(
+                f"StartServiceCtrlDispatcherW failed with win32 error {error}"
+            )
+        return 0
 
-    def SvcShutdown(self):
-        self.SvcStop()
+    def _configure_advapi32(self) -> None:
+        self._advapi32.StartServiceCtrlDispatcherW.argtypes = [
+            ctypes.POINTER(_ServiceTableEntry)
+        ]
+        self._advapi32.StartServiceCtrlDispatcherW.restype = ctypes.c_int
+        self._advapi32.RegisterServiceCtrlHandlerExW.argtypes = [
+            ctypes.c_wchar_p,
+            self._handler_type,
+            ctypes.c_void_p,
+        ]
+        self._advapi32.RegisterServiceCtrlHandlerExW.restype = ctypes.c_void_p
+        self._advapi32.SetServiceStatus.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(_ServiceStatus),
+        ]
+        self._advapi32.SetServiceStatus.restype = ctypes.c_int
 
-    def SvcDoRun(self):
-        self.ReportServiceStatus(self._win32service.SERVICE_START_PENDING)
+    def _service_main(
+        self,
+        argc: int,  # noqa: ARG002 - SCM callback signature
+        argv: ctypes.POINTER(ctypes.c_wchar_p),  # noqa: ARG002 - SCM callback signature
+    ) -> None:
+        self._status_handle = self._advapi32.RegisterServiceCtrlHandlerExW(
+            self.service_name, self._handler_callback, None
+        )
+        if not self._status_handle:
+            return
+        self._report_state(_SERVICE_START_PENDING, wait_hint=30_000)
         try:
             asyncio.run(self._run_service())
         except Exception:
-            self.ReportServiceStatus(self._win32service.SERVICE_STOPPED)
-            raise
+            self._report_state(
+                _SERVICE_STOPPED,
+                controls_accepted=0,
+                win32_exit_code=_ERROR_SERVICE_SPECIFIC_ERROR,
+                service_specific_exit_code=1,
+            )
 
     async def _run_service(self) -> None:
-        args = build_arg_parser().parse_args(sys.argv[1:])
+        args = build_arg_parser().parse_args(self.argv)
         collector, resources = build_collector_from_args(args)
         self._loop = asyncio.get_running_loop()
         self._runtime = WindowsCollectorServiceRuntime(
@@ -835,24 +898,67 @@ class MONWindowsServiceHost(_ServiceFrameworkBase):
         await self._runtime.run_forever()
 
     def _report_runtime_status(self, status: WindowsCollectorServiceStatus) -> None:
-        self.ReportServiceStatus(_service_status_to_win32(status))
+        native_state = _service_status_to_native(status)
+        controls_accepted = (
+            _SERVICE_ACCEPT_STOP | _SERVICE_ACCEPT_SHUTDOWN
+            if native_state == _SERVICE_RUNNING
+            else 0
+        )
+        win32_exit_code = (
+            _ERROR_SERVICE_SPECIFIC_ERROR
+            if status.service_state is WindowsCollectorServiceState.FAILED
+            else _NO_ERROR
+        )
+        self._report_state(
+            native_state,
+            controls_accepted=controls_accepted,
+            win32_exit_code=win32_exit_code,
+            service_specific_exit_code=1 if win32_exit_code else 0,
+        )
+
+    def _control_handler(
+        self,
+        control: int,
+        event_type: int,  # noqa: ARG002 - SCM callback signature
+        event_data: ctypes.c_void_p,  # noqa: ARG002 - SCM callback signature
+        context: ctypes.c_void_p,  # noqa: ARG002 - SCM callback signature
+    ) -> int:
+        if control in {_SERVICE_CONTROL_STOP, _SERVICE_CONTROL_SHUTDOWN}:
+            self._pending_stop = True
+            self._report_state(_SERVICE_STOP_PENDING, controls_accepted=0)
+            if self._loop is not None and self._runtime is not None:
+                self._loop.call_soon_threadsafe(self._runtime.request_stop)
+        return _NO_ERROR
+
+    def _report_state(
+        self,
+        current_state: int,
+        *,
+        controls_accepted: int = 0,
+        win32_exit_code: int = _NO_ERROR,
+        service_specific_exit_code: int = 0,
+        wait_hint: int = 0,
+    ) -> None:
+        if self._status_handle is None:
+            return
+        checkpoint = 0
+        if current_state in {_SERVICE_START_PENDING, _SERVICE_STOP_PENDING}:
+            checkpoint = self._checkpoint
+            self._checkpoint += 1
+        status = _ServiceStatus(
+            dwServiceType=_SERVICE_WIN32_OWN_PROCESS,
+            dwCurrentState=current_state,
+            dwControlsAccepted=controls_accepted,
+            dwWin32ExitCode=win32_exit_code,
+            dwServiceSpecificExitCode=service_specific_exit_code,
+            dwCheckPoint=checkpoint,
+            dwWaitHint=wait_hint,
+        )
+        self._advapi32.SetServiceStatus(self._status_handle, ctypes.byref(status))
 
 
 def run_windows_service_host(service_name: str) -> int:
-    if sys.platform != "win32":
-        raise WindowsCollectorServiceError("Windows SCM service host requires Windows")
-    try:
-        import servicemanager
-        import win32serviceutil
-    except ImportError as exc:
-        raise WindowsCollectorServiceError("pywin32 is required for SCM hosting") from exc
-
-    MONWindowsServiceHost._svc_name_ = service_name
-    MONWindowsServiceHost._svc_display_name_ = service_name
-    servicemanager.Initialize()
-    servicemanager.PrepareToHostSingle(MONWindowsServiceHost)
-    win32serviceutil.StartServiceCtrlDispatcher()
-    return 0
+    return NativeWindowsServiceProcess(service_name=service_name, argv=sys.argv[1:]).run()
 
 
 class WindowsEventLogSource:

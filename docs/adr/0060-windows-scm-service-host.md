@@ -13,8 +13,9 @@ MON needs a minimal service host before adding an installer layer.
 ## Decision
 
 `service-run` is now the internal SCM-host entry point for `MONWindows.exe`. On Windows it
-uses `pywin32` to connect to the Service Control Manager dispatcher, register stop/shutdown
-controls, and report SCM lifecycle states separately from collector health.
+uses native `advapi32.dll` Service Control Manager APIs through `ctypes` to connect to the
+service dispatcher, register stop/shutdown controls, and report SCM lifecycle states
+separately from collector health.
 
 The service reports `SERVICE_START_PENDING` during initialization, does not report
 `SERVICE_RUNNING` until the existing collector runtime has completed its first collection
