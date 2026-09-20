@@ -95,7 +95,7 @@ def wait_http(
     last_error: object = None
     while time.monotonic() < deadline:
         try:
-            response = httpx.get(
+            response = http_get(
                 url,
                 headers=headers,
                 verify=verify,
@@ -110,6 +110,42 @@ def wait_http(
             last_error = exc
         time.sleep(0.25)
     raise AssertionError(f"{url} did not become ready: {last_error}")
+
+
+def http_get(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    verify: str | bool = True,
+    cert: tuple[str, str] | None = None,
+    timeout: float = 2.0,
+) -> httpx.Response:
+    with httpx.Client(
+        verify=verify,
+        cert=cert,
+        timeout=timeout,
+        trust_env=False,
+    ) as client:
+        return client.get(url, headers=headers)
+
+
+def http_post(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    json_body: object | None = None,
+    content: bytes | None = None,
+    verify: str | bool = True,
+    cert: tuple[str, str] | None = None,
+    timeout: float = 2.0,
+) -> httpx.Response:
+    with httpx.Client(
+        verify=verify,
+        cert=cert,
+        timeout=timeout,
+        trust_env=False,
+    ) as client:
+        return client.post(url, headers=headers, json=json_body, content=content)
 
 
 def wait_until(predicate, *, timeout: float = 20.0, interval: float = 0.25):
@@ -463,30 +499,27 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
                 "category": "network.connection",
             }
             with pytest.raises(httpx.TransportError):
-                httpx.post(
+                http_post(
                     f"{ingress_url}/api/v1/site/fabric/events",
-                    json=event_body,
+                    json_body=event_body,
                     verify=str(ca_path),
                     timeout=2,
-                    trust_env=False,
                 )
             with pytest.raises(httpx.TransportError):
-                httpx.get(
+                http_get(
                     f"{ingress_url}/health",
                     verify=str(ca_path),
                     cert=(str(wrong_ca_cert), str(wrong_ca_key)),
                     timeout=2,
-                    trust_env=False,
                 )
-            missing_bearer = httpx.get(
+            missing_bearer = http_get(
                 f"{ingress_url}/api/v1/site/commands",
                 verify=str(ca_path),
                 cert=(str(good_cert), str(good_key)),
                 timeout=2,
-                trust_env=False,
             )
             assert missing_bearer.status_code == 401
-            wrong_scope = httpx.post(
+            wrong_scope = http_post(
                 f"{ingress_url}/api/v1/site/fabric/events",
                 content=json.dumps(
                     {
@@ -503,16 +536,14 @@ async def test_networked_mtls_restart_acceptance(tmp_path: Path) -> None:
                 verify=str(ca_path),
                 cert=(str(wrong_scope_cert), str(wrong_scope_key)),
                 timeout=2,
-                trust_env=False,
             )
             assert wrong_scope.status_code == 403
-            wrong_pull = httpx.get(
+            wrong_pull = http_get(
                 f"{ingress_url}/api/v1/site/commands",
                 headers={"Authorization": f"Bearer {wrong_site_token}"},
                 verify=str(ca_path),
                 cert=(str(wrong_scope_cert), str(wrong_scope_key)),
                 timeout=2,
-                trust_env=False,
             )
             assert wrong_pull.status_code == 200
             assert wrong_pull.json() == []
