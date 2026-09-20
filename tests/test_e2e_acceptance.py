@@ -275,14 +275,12 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
             assert fabric_outbox.diagnostics()["pending"] == len(security_events)
 
         with _stage(report, "05_event_reaches_control_plane"):
-            delivered_ids: set[str] = set()
             for envelope in envelopes:
                 ingested = ingest_fabric_envelope(
                     control_store, api_module.pipeline, envelope
                 )
                 assert ingested.acknowledgement.duplicate is False
-                delivered_ids.add(envelope.event_id)
-            fabric_outbox.mark_delivered(delivered_ids)
+                assert fabric_outbox.mark_delivered(envelope.event_id) is True
             assert fabric_outbox.diagnostics()["pending"] == 0
             for item in security_events:
                 assert control_store.event_exists(tenant_a, site_a, item.event_id)
@@ -773,7 +771,7 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
                 control_store, api_module.pipeline, reopened_pending[0]
             )
             assert first_delivery.acknowledgement.duplicate is False
-            fabric_outbox_reopened.mark_delivered({offline_event.event_id})
+            assert fabric_outbox_reopened.mark_delivered(offline_event.event_id) is True
             assert control_store.event_exists(tenant_a, site_a, offline_event.event_id)
             report["restart_replay_result"]["delivered"] = True
 
