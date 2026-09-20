@@ -862,12 +862,16 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
             # (never the RLS-restricted mon_app_e2e role used for the main
             # scenario) -- the same reasoning a real backup/restore job
             # would apply.
+            # admin_engine/restore_url go through SQLAlchemy (create_engine,
+            # DatabaseStore) and must keep the `+psycopg` driver suffix.
+            # control_plane_backup.backup()/restore()/verify() instead shell
+            # out to pg_dump/pg_restore/psql, which need the plain
+            # `postgresql://` form -- they already strip the suffix
+            # themselves internally via native_postgres_url(), so the
+            # original (unstripped) admin_database_url is passed to them.
             restore_db_name = f"mon_e2e_restore_{uuid.uuid4().hex[:12]}"
             admin_engine = create_engine(
-                control_plane_backup.native_postgres_url(admin_database_url).rsplit(
-                    "/", 1
-                )[0]
-                + "/postgres",
+                admin_database_url.rsplit("/", 1)[0] + "/postgres",
                 isolation_level="AUTOCOMMIT",
             )
             try:
@@ -880,9 +884,7 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
             control_plane_backup.backup(admin_database_url, dump_path)
 
             restore_url = (
-                control_plane_backup.native_postgres_url(admin_database_url).rsplit(
-                    "/", 1
-                )[0]
+                admin_database_url.rsplit("/", 1)[0]
                 + f"/{restore_db_name}"
             )
             control_plane_backup.restore(restore_url, dump_path)
