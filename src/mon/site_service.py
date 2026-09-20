@@ -11,6 +11,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 
+from mon.domain import EnforcementKind
 from mon.enforcement import EnforcementRegistry
 from mon.event_fabric_outbox import DurableFabricOutbox
 from mon.event_fabric_transport import HttpFabricPublisher
@@ -434,7 +435,24 @@ def create_site_service_app(
 
 def main() -> None:
     config = SiteServiceConfig.from_environment()
-    app = create_site_service_app(config)
+    registry = EnforcementRegistry()
+    disposable_netns = os.environ.get("MON_SITE_DISPOSABLE_NETNS", "").strip()
+    disposable_vendor = os.environ.get(
+        "MON_SITE_DISPOSABLE_NFTABLES_VENDOR",
+        "linux-nftables-e2e",
+    ).strip()
+    if disposable_netns:
+        from mon.connectors.nftables_netns import DisposableNftablesAdapter
+
+        adapter = DisposableNftablesAdapter(disposable_netns)
+        registry.register(
+            EnforcementKind.FIREWALL,
+            disposable_vendor,
+            adapter,
+            capabilities=adapter.capabilities,
+        )
+
+    app = create_site_service_app(config, registry=registry)
     uvicorn.run(
         app,
         host=config.listen_host,
