@@ -139,6 +139,8 @@ def test_deb_package_lifecycle(tmp_path: Path) -> None:
         # ---- start / status / stop ----------------------------------------------
         run(["systemctl", "start", PKG])
         assert wait_active("active") == "active"
+        time.sleep(3)
+        assert active() == "active", "service did not stay active"
         pid = int(run(["systemctl", "show", "-p", "MainPID", "--value", PKG]).stdout.strip())
         assert pid > 0 and os.readlink(f"/proc/{pid}/exe") == str(BIN)
         owner = run(["ps", "-o", "user=", "-p", str(pid)]).stdout.strip()
@@ -195,6 +197,10 @@ def test_deb_package_lifecycle(tmp_path: Path) -> None:
         report["overall"] = "PASS"
     except BaseException:
         report["overall"] = "FAIL"
+        report["journal_tail"] = run(
+            ["journalctl", "-u", PKG, "-n", "60", "--no-pager"], check=False
+        ).stdout[-4000:]
+        print(report["journal_tail"])
         raise
     finally:
         with contextlib.suppress(Exception):
