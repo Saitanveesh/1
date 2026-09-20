@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import ctypes
 import datetime as dt
 import hashlib
@@ -31,6 +32,8 @@ _SUPPORTED_SECURITY_EVENT_IDS = {4624, 4625, 4688}
 _SUPPORTED_SYSMON_EVENT_IDS = {1, 3}
 _MAX_XML_BYTES = 512_000
 _MAX_FIELD_CHARS = 1000
+_MIN_SERVICE_POLL_INTERVAL_SECONDS = 0.01
+_MAX_SERVICE_POLL_INTERVAL_SECONDS = 3600.0
 
 
 class WindowsCollectorState(StrEnum):
@@ -41,6 +44,14 @@ class WindowsCollectorState(StrEnum):
     SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
     PERMISSION_DENIED = "PERMISSION_DENIED"
     TRANSPORT_UNAVAILABLE = "TRANSPORT_UNAVAILABLE"
+
+
+class WindowsCollectorServiceState(StrEnum):
+    STARTING = "STARTING"
+    RUNNING = "RUNNING"
+    STOPPING = "STOPPING"
+    STOPPED = "STOPPED"
+    FAILED = "FAILED"
 
 
 class WindowsEndpointCollectorError(RuntimeError):
@@ -56,6 +67,10 @@ class WindowsEventPermissionDenied(WindowsEndpointCollectorError):
 
 
 class WindowsCollectorCheckpointError(WindowsEndpointCollectorError):
+    pass
+
+
+class WindowsCollectorServiceError(WindowsEndpointCollectorError):
     pass
 
 
@@ -84,6 +99,14 @@ class WindowsCollectorHealth(BaseModel):
     last_error: str | None = None
 
 
+class WindowsCollectorServiceStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    service_state: WindowsCollectorServiceState
+    collector_health: WindowsCollectorHealth | None = None
+    fatal_error: str | None = None
+
+
 class WindowsCollectorCheckpoint(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -99,6 +122,14 @@ class WindowsEventSource(Protocol):
 
 class SecurityEventSender(Protocol):
     async def send(self, event: SecurityEvent) -> None: ...
+
+
+class CollectorRuntime(Protocol):
+    async def collect_once(self) -> WindowsCollectorHealth: ...
+
+
+class Closable(Protocol):
+    def close(self) -> None: ...
 
 
 def _utc_now() -> dt.datetime:
@@ -614,6 +645,98 @@ def _supported(record: WindowsEventRecord) -> bool:
     return False
 
 
+def validate_service_poll_interval(value: float) -> float:
+    if (
+        value < _MIN_SERVICE_POLL_INTERVAL_SECONDS
+        or value > _MAX_SERVICE_POLL_INTERVAL_SECONDS
+    ):
+        raise ValueError("poll interval must be between 0.01 and 3600 seconds")
+    return value
+
+
+class WindowsCollectorServiceRuntime:
+    def __init__(
+        self,
+        *,
+        collector: CollectorRuntime,
+        poll_interval_seconds: float,
+        resources: Iterable[Closable] = (),
+    ) -> None:
+        self.collector = collector
+        self.poll_interval_seconds = validate_service_poll_interval(
+            poll_interval_seconds
+        )
+        self.resources = tuple(resources)
+        self._stop_event = asyncio.Event()
+        self.status = WindowsCollectorServiceStatus(
+            service_state=WindowsCollectorServiceState.STARTING
+        )
+
+    def request_stop(self) -> None:
+        if self.status.service_state not in {
+            WindowsCollectorServiceState.STOPPED,
+            WindowsCollectorServiceState.FAILED,
+        }:
+            self.status = WindowsCollectorServiceStatus(
+                service_state=WindowsCollectorServiceState.STOPPING,
+                collector_health=self.status.collector_health,
+                fatal_error=self.status.fatal_error,
+            )
+        self._stop_event.set()
+
+    async def run_forever(self) -> WindowsCollectorServiceStatus:
+        try:
+            health = await self.collector.collect_once()
+            self.status = WindowsCollectorServiceStatus(
+                service_state=WindowsCollectorServiceState.RUNNING,
+                collector_health=health,
+            )
+            while not self._stop_event.is_set():
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=self.poll_interval_seconds,
+                    )
+                    break
+                except TimeoutError:
+                    pass
+                health = await self.collector.collect_once()
+                self.status = WindowsCollectorServiceStatus(
+                    service_state=WindowsCollectorServiceState.RUNNING,
+                    collector_health=health,
+                )
+            if self.status.service_state is not WindowsCollectorServiceState.FAILED:
+                self.status = WindowsCollectorServiceStatus(
+                    service_state=WindowsCollectorServiceState.STOPPED,
+                    collector_health=self.status.collector_health,
+                )
+            return self.status
+        except WindowsCollectorCheckpointError as exc:
+            self.status = WindowsCollectorServiceStatus(
+                service_state=WindowsCollectorServiceState.FAILED,
+                collector_health=self.status.collector_health,
+                fatal_error=str(exc)[:1000],
+            )
+            raise
+        finally:
+            for resource in reversed(self.resources):
+                resource.close()
+
+
+class NativeWindowsServiceControlBoundary:
+    """Thin native SCM boundary without installer/registration behavior."""
+
+    can_accept_stop = 0x00000001
+    can_accept_shutdown = 0x00000004
+
+    def __init__(self) -> None:
+        if sys.platform != "win32":
+            raise WindowsCollectorServiceError(
+                "Windows Service Control Manager integration requires Windows"
+            )
+        self._advapi32 = ctypes.WinDLL("advapi32.dll")
+
+
 class WindowsEventLogSource:
     """Minimal Windows Event Log source.
 
@@ -694,6 +817,12 @@ class WindowsEventLogSource:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect Windows endpoint telemetry for MON")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("foreground", "service-run"),
+        help="run continuously instead of performing one collection pass",
+    )
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--site-id", required=True)
     parser.add_argument("--sensor-id", required=True)
@@ -701,11 +830,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--site-url", default="http://127.0.0.1:8090")
     parser.add_argument("--channel", default="Security")
     parser.add_argument("--batch-size", type=int, default=100)
+    parser.add_argument("--poll-interval-seconds", type=float, default=30.0)
     return parser
 
 
-async def async_main(argv: Iterable[str] | None = None) -> int:
-    args = build_arg_parser().parse_args(list(argv) if argv is not None else None)
+def build_collector_from_args(
+    args: argparse.Namespace,
+) -> tuple[WindowsEndpointCollector, tuple[Closable, ...]]:
     source = WindowsEventLogSource(args.channel)
     checkpoint = WindowsEventCheckpointStore(
         args.state_dir / f"{args.channel.casefold()}-checkpoint.json",
@@ -717,18 +848,35 @@ async def async_main(argv: Iterable[str] | None = None) -> int:
         site_id=args.site_id,
         sensor_id=args.sensor_id,
     )
-    try:
-        collector = WindowsEndpointCollector(
-            tenant_id=args.tenant_id,
-            site_id=args.site_id,
-            sensor_id=args.sensor_id,
-            channel=args.channel,
-            source=source,
-            checkpoint_store=checkpoint,
-            buffer=buffer,
-            sender=LocalSiteEventSender(args.site_url),
-            batch_size=args.batch_size,
+    collector = WindowsEndpointCollector(
+        tenant_id=args.tenant_id,
+        site_id=args.site_id,
+        sensor_id=args.sensor_id,
+        channel=args.channel,
+        source=source,
+        checkpoint_store=checkpoint,
+        buffer=buffer,
+        sender=LocalSiteEventSender(args.site_url),
+        batch_size=args.batch_size,
+    )
+    return collector, (buffer,)
+
+
+async def async_main(argv: Iterable[str] | None = None) -> int:
+    args = build_arg_parser().parse_args(list(argv) if argv is not None else None)
+    collector, resources = build_collector_from_args(args)
+    if args.command in {"foreground", "service-run"}:
+        runtime = WindowsCollectorServiceRuntime(
+            collector=collector,
+            poll_interval_seconds=args.poll_interval_seconds,
+            resources=resources,
         )
+        status = await runtime.run_forever()
+        print(status.model_dump_json())
+        return 0 if status.service_state is WindowsCollectorServiceState.STOPPED else 2
+
+    buffer = resources[0]
+    try:
         health = await collector.collect_once()
         print(health.model_dump_json())
         return 0 if health.state is WindowsCollectorState.SYNCED else 2
@@ -737,8 +885,6 @@ async def async_main(argv: Iterable[str] | None = None) -> int:
 
 
 def main() -> None:
-    import asyncio
-
     raise SystemExit(asyncio.run(async_main()))
 
 

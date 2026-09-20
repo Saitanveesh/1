@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 
 import pytest
@@ -9,6 +10,9 @@ from mon.endpoint import normalize_endpoint_event
 from mon.windows_endpoint_collector import (
     SQLiteWindowsEventBuffer,
     WindowsCollectorCheckpointError,
+    WindowsCollectorHealth,
+    WindowsCollectorServiceRuntime,
+    WindowsCollectorServiceState,
     WindowsCollectorState,
     WindowsEndpointCollector,
     WindowsEventCheckpointStore,
@@ -17,6 +21,7 @@ from mon.windows_endpoint_collector import (
     deterministic_event_id,
     normalize_windows_event,
     parse_windows_event_xml,
+    validate_service_poll_interval,
 )
 
 
@@ -323,3 +328,164 @@ async def test_collector_health_reports_source_and_permission_failures(tmp_path)
             assert health.buffered_events == 0
         finally:
             buffer.close()
+
+
+def health(state: WindowsCollectorState) -> WindowsCollectorHealth:
+    return WindowsCollectorHealth(
+        state=state,
+        source_available=True,
+        permissions_sufficient=True,
+        audit_source="Security",
+        buffered_events=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_service_runtime_reports_running_only_after_startup() -> None:
+    class Collector:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def collect_once(self):
+            self.calls += 1
+            return health(WindowsCollectorState.SYNCED)
+
+    collector = Collector()
+    runtime = WindowsCollectorServiceRuntime(
+        collector=collector,
+        poll_interval_seconds=60,
+    )
+    task = asyncio.create_task(runtime.run_forever())
+    await asyncio.sleep(0)
+
+    assert runtime.status.service_state is WindowsCollectorServiceState.RUNNING
+    assert runtime.status.collector_health is not None
+    runtime.request_stop()
+    status = await asyncio.wait_for(task, timeout=1)
+
+    assert status.service_state is WindowsCollectorServiceState.STOPPED
+    assert collector.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_service_runtime_stops_while_waiting() -> None:
+    class Collector:
+        async def collect_once(self):
+            return health(WindowsCollectorState.SYNCED)
+
+    runtime = WindowsCollectorServiceRuntime(
+        collector=Collector(),
+        poll_interval_seconds=60,
+    )
+    task = asyncio.create_task(runtime.run_forever())
+    await asyncio.sleep(0)
+    runtime.request_stop()
+
+    status = await asyncio.wait_for(task, timeout=1)
+
+    assert status.service_state is WindowsCollectorServiceState.STOPPED
+
+
+@pytest.mark.asyncio
+async def test_service_runtime_fatal_initialization_failure_is_visible() -> None:
+    class Collector:
+        async def collect_once(self):
+            raise WindowsCollectorCheckpointError("checkpoint corrupt")
+
+    runtime = WindowsCollectorServiceRuntime(
+        collector=Collector(),
+        poll_interval_seconds=1,
+    )
+
+    with pytest.raises(WindowsCollectorCheckpointError):
+        await runtime.run_forever()
+
+    assert runtime.status.service_state is WindowsCollectorServiceState.FAILED
+    assert runtime.status.fatal_error == "checkpoint corrupt"
+
+
+@pytest.mark.asyncio
+async def test_service_runtime_transient_collection_health_does_not_crash() -> None:
+    class Collector:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def collect_once(self):
+            self.calls += 1
+            state = (
+                WindowsCollectorState.TRANSPORT_UNAVAILABLE
+                if self.calls == 1
+                else WindowsCollectorState.SYNCED
+            )
+            return health(state)
+
+    collector = Collector()
+    runtime = WindowsCollectorServiceRuntime(
+        collector=collector,
+        poll_interval_seconds=0.01,
+    )
+    task = asyncio.create_task(runtime.run_forever())
+    while collector.calls < 2:
+        await asyncio.sleep(0.01)
+    runtime.request_stop()
+    status = await asyncio.wait_for(task, timeout=1)
+
+    assert status.service_state is WindowsCollectorServiceState.STOPPED
+    assert status.collector_health is not None
+    assert status.collector_health.state is WindowsCollectorState.SYNCED
+
+
+def test_service_runtime_interval_validation() -> None:
+    assert validate_service_poll_interval(0.01) == 0.01
+    assert validate_service_poll_interval(3600) == 3600
+    with pytest.raises(ValueError, match="poll interval"):
+        validate_service_poll_interval(0.009)
+    with pytest.raises(ValueError, match="poll interval"):
+        validate_service_poll_interval(3600.1)
+
+
+@pytest.mark.asyncio
+async def test_service_runtime_closes_resources_on_stop() -> None:
+    class Collector:
+        async def collect_once(self):
+            return health(WindowsCollectorState.SYNCED)
+
+    class Resource:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    resource = Resource()
+    runtime = WindowsCollectorServiceRuntime(
+        collector=Collector(),
+        poll_interval_seconds=60,
+        resources=(resource,),
+    )
+    task = asyncio.create_task(runtime.run_forever())
+    await asyncio.sleep(0)
+    runtime.request_stop()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert resource.closed
+
+
+@pytest.mark.asyncio
+async def test_service_lifecycle_state_is_distinct_from_collector_health() -> None:
+    class Collector:
+        async def collect_once(self):
+            return health(WindowsCollectorState.PERMISSION_DENIED)
+
+    runtime = WindowsCollectorServiceRuntime(
+        collector=Collector(),
+        poll_interval_seconds=60,
+    )
+    task = asyncio.create_task(runtime.run_forever())
+    await asyncio.sleep(0)
+
+    assert runtime.status.service_state is WindowsCollectorServiceState.RUNNING
+    assert runtime.status.collector_health is not None
+    assert runtime.status.collector_health.state is WindowsCollectorState.PERMISSION_DENIED
+    runtime.request_stop()
+    await asyncio.wait_for(task, timeout=1)

@@ -61,7 +61,8 @@ Implemented foundations include:
 - typed endpoint process/auth/process-network telemetry normalization with durable
   tenant/site-scoped identity and process analysis state;
 - first Windows Event Log endpoint collector adapter with deterministic event IDs,
-  durable cursoring, and bounded local buffering into the existing endpoint pipeline;
+  durable cursoring, bounded local buffering into the existing endpoint pipeline, and a
+  service-oriented foreground/runtime loop boundary;
 - identity/process attack-graph relationships for authentication, execution,
   parent/child process, and process-network evidence;
 - opt-in event-fabric load/soak evidence CLI for caller-supplied canonical envelope
@@ -90,15 +91,19 @@ feed synchronization is read-only and client-side. MON does not yet implement a 
 TAXII write/publish APIs, or complex STIX pattern evaluation. Endpoint support currently
 normalizes typed endpoint telemetry into the pipeline and graph and includes a narrow Windows
 Event Log collector adapter for Security 4624/4625/4688 plus optional Sysmon
-process/process-network records when present. It is not yet a production-complete Windows EDR
-agent or Linux endpoint agent. Load/soak measurements are deployment-specific evidence, not
-universal performance, resilience, or tenant-isolation proof. Event-fabric recovery validation
-currently covers deterministic local outage, crash/restart, duplicate replay, and
-scope-isolation scenarios; it is not yet a broker-backed HA, arbitrary network partition,
-multi-region failover, or disaster-recovery proof. Release-candidate packaging now emits
-SBOM, manifest, and GitHub provenance-attestation evidence for candidate bytes, but
-provenance does not prove vulnerability-free software, runtime safety, correct deployment
-configuration, or production readiness.
+process/process-network records when present. The Windows collector now has a bounded
+foreground/service runtime loop and a small SCM boundary, but it is not yet a
+production-complete Windows EDR agent or Linux endpoint agent and does not yet provide MSI
+packaging, a signed executable/package, production installer, upgrade/rollback installer
+behavior, tamper protection, or privileged disposable-VM certification. Load/soak
+measurements are deployment-specific evidence, not universal performance, resilience, or
+tenant-isolation proof. Event-fabric recovery validation currently covers deterministic local
+outage, crash/restart, duplicate replay, and scope-isolation scenarios; it is not yet a
+broker-backed HA, arbitrary network partition, multi-region failover, or disaster-recovery
+proof. Release-candidate packaging now emits SBOM, manifest, and GitHub
+provenance-attestation evidence for candidate bytes, but provenance does not prove
+vulnerability-free software, runtime safety, correct deployment configuration, or production
+readiness.
 
 See:
 
