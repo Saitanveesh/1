@@ -77,7 +77,7 @@ def _nft(*args: str, stdin: str | None = None, check: bool = True) -> str:
 
 
 def _ruleset() -> str:
-    return _nft("list", "ruleset", check=False)
+    return _nft("-s", "list", "ruleset", check=False)
 
 
 def _table_exists(family: str, name: str) -> bool:

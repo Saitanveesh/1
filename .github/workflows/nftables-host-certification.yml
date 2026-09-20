@@ -37,7 +37,7 @@ jobs:
           cat /etc/os-release
           sudo nft --version
           sudo iptables --version || true
-          sudo nft list ruleset > nftables-baseline.txt || true
+          sudo nft -s list ruleset > nftables-baseline.txt || true
           wc -l nftables-baseline.txt
           command -v ufw firewalld || echo "ufw/firewalld not present on runner"
       - name: Run privileged host certification
@@ -55,7 +55,7 @@ jobs:
           sudo nft delete table inet mon_endpoint 2>/dev/null || true
           sudo nft delete table inet operator_ci_owned 2>/dev/null || true
           sudo nft delete table ip operator_ci_owned 2>/dev/null || true
-          sudo nft list ruleset > nftables-after.txt || true
+          sudo nft -s list ruleset > nftables-after.txt || true
           diff nftables-baseline.txt nftables-after.txt && echo "host ruleset unchanged"
       - name: Upload certification report
         if: always()

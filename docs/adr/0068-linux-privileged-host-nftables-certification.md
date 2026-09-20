@@ -42,7 +42,7 @@ unit and namespace tests are unchanged.
 - A new adapter instance (simulated restart) reconciles against actual kernel
   state, observes out-of-band removal as drift, and does not repair it.
 - After each test the fixture deletes the MON and test tables and asserts the
-  full `nft list ruleset` equals the pre-test baseline. The workflow repeats
+  full stateless `nft -s list ruleset` equals the pre-test baseline. The workflow repeats
   the cleanup and a diff under `if: always()`.
 
 The workflow writes `nftables-host-certification-report.json` with the kernel,
