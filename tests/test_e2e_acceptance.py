@@ -109,6 +109,7 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
     import mon.api as api_module
 
     database_url = os.environ["MON_TEST_DATABASE_URL"]
+    admin_database_url = os.environ.get("MON_TEST_ADMIN_DATABASE_URL", database_url)
     namespace = os.environ["MON_TEST_NETNS"]
 
     tenant_a, site_a = "e2e-tenant-a", "e2e-site-a"
@@ -856,9 +857,16 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
         with _stage(report, "backup_restore_postgresql_incident_round_trip"):
             from mon import control_plane_backup
 
+            # A backup must capture every tenant's data unconditionally, so
+            # this whole sub-gate deliberately uses the superuser admin URL
+            # (never the RLS-restricted mon_app_e2e role used for the main
+            # scenario) -- the same reasoning a real backup/restore job
+            # would apply.
             restore_db_name = f"mon_e2e_restore_{uuid.uuid4().hex[:12]}"
             admin_engine = create_engine(
-                control_plane_backup.native_postgres_url(database_url).rsplit("/", 1)[0]
+                control_plane_backup.native_postgres_url(admin_database_url).rsplit(
+                    "/", 1
+                )[0]
                 + "/postgres",
                 isolation_level="AUTOCOMMIT",
             )
@@ -869,10 +877,12 @@ async def test_e2e_acceptance_gate(tmp_path) -> None:
                 admin_engine.dispose()
 
             dump_path = tmp_path / "control-plane.dump"
-            control_plane_backup.backup(database_url, dump_path)
+            control_plane_backup.backup(admin_database_url, dump_path)
 
             restore_url = (
-                control_plane_backup.native_postgres_url(database_url).rsplit("/", 1)[0]
+                control_plane_backup.native_postgres_url(admin_database_url).rsplit(
+                    "/", 1
+                )[0]
                 + f"/{restore_db_name}"
             )
             control_plane_backup.restore(restore_url, dump_path)

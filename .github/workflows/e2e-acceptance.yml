@@ -32,8 +32,7 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      MON_TEST_DATABASE_URL: postgresql+psycopg://mon:mon-e2e-test@127.0.0.1:5432/mon_e2e
-      MON_DATABASE_URL: postgresql+psycopg://mon:mon-e2e-test@127.0.0.1:5432/mon_e2e
+      MON_ADMIN_DATABASE_URL: postgresql+psycopg://mon:mon-e2e-test@127.0.0.1:5432/mon_e2e
       PGPASSWORD: mon-e2e-test
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +46,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y iproute2 nftables postgresql-client
       - name: Apply control-plane schema migrations
+        env:
+          MON_DATABASE_URL: ${{ env.MON_ADMIN_DATABASE_URL }}
         run: alembic upgrade head
+      - name: Create non-bypass application database role
+        run: |
+          python - <<'PY'
+          import psycopg
+
+          with psycopg.connect(
+              "postgresql://mon:mon-e2e-test@127.0.0.1:5432/mon_e2e"
+          ) as connection:
+              connection.execute(
+                  "CREATE ROLE mon_app_e2e LOGIN PASSWORD 'mon-app-e2e-test' "
+                  "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+              connection.execute("GRANT CONNECT ON DATABASE mon_e2e TO mon_app_e2e")
+              connection.execute("GRANT USAGE ON SCHEMA public TO mon_app_e2e")
+              connection.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO mon_app_e2e"
+              )
+              connection.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO mon_app_e2e"
+              )
+          PY
+          echo "MON_TEST_DATABASE_URL=postgresql+psycopg://mon_app_e2e:mon-app-e2e-test@127.0.0.1:5432/mon_e2e" >> "$GITHUB_ENV"
       - name: Run end-to-end acceptance gate in a disposable network namespace
         timeout-minutes: 15
         run: |
@@ -62,11 +87,17 @@ jobs:
           sudo ip netns exec "$NS" ip link set lo up
           # The acceptance gate's containment step exercises `ip netns exec`
           # directly, which needs elevated privileges; the whole process runs
-          # under sudo, never the runner's own host firewall/namespace.
+          # under sudo, never the runner's own host firewall/namespace. The
+          # control plane connects as the restricted mon_app_e2e role (never
+          # NOBYPASSRLS) so the tenant-isolation RLS proof is meaningful; a
+          # superuser connection would silently bypass row-level security
+          # regardless of FORCE ROW LEVEL SECURITY. Only the backup/restore
+          # sub-gate's admin database-creation step needs the superuser URL.
           sudo -E env \
             PATH="$PATH" \
             MON_TEST_DATABASE_URL="$MON_TEST_DATABASE_URL" \
-            MON_DATABASE_URL="$MON_DATABASE_URL" \
+            MON_DATABASE_URL="$MON_TEST_DATABASE_URL" \
+            MON_TEST_ADMIN_DATABASE_URL="$MON_ADMIN_DATABASE_URL" \
             MON_ENABLE_ENDPOINT_NFTABLES_ENFORCEMENT=1 \
             MON_TEST_NETNS="$NS" \
             "$PYTHON" -m pytest -q tests/test_e2e_acceptance.py
