@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import sys
 
 import pytest
 
@@ -21,6 +22,7 @@ from mon.windows_endpoint_collector import (
     deterministic_event_id,
     normalize_windows_event,
     parse_windows_event_xml,
+    run_windows_service_host,
     validate_service_poll_interval,
 )
 
@@ -489,3 +491,57 @@ async def test_service_lifecycle_state_is_distinct_from_collector_health() -> No
     assert runtime.status.collector_health.state is WindowsCollectorState.PERMISSION_DENIED
     runtime.request_stop()
     await asyncio.wait_for(task, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_service_runtime_publishes_scm_visible_transitions() -> None:
+    class Collector:
+        async def collect_once(self):
+            return health(WindowsCollectorState.TRANSPORT_UNAVAILABLE)
+
+    transitions: list[WindowsCollectorServiceState] = []
+    runtime = WindowsCollectorServiceRuntime(
+        collector=Collector(),
+        poll_interval_seconds=60,
+        status_callback=lambda status: transitions.append(status.service_state),
+    )
+    task = asyncio.create_task(runtime.run_forever())
+    await asyncio.sleep(0)
+
+    assert transitions[:2] == [
+        WindowsCollectorServiceState.STARTING,
+        WindowsCollectorServiceState.RUNNING,
+    ]
+    assert runtime.status.collector_health is not None
+    assert runtime.status.collector_health.state is WindowsCollectorState.TRANSPORT_UNAVAILABLE
+    runtime.request_stop()
+    await asyncio.wait_for(task, timeout=1)
+    assert WindowsCollectorServiceState.STOPPING in transitions
+    assert transitions[-1] is WindowsCollectorServiceState.STOPPED
+
+
+@pytest.mark.asyncio
+async def test_service_runtime_does_not_publish_running_before_failed_initialization() -> None:
+    class Collector:
+        async def collect_once(self):
+            raise WindowsCollectorCheckpointError("checkpoint corrupt")
+
+    transitions: list[WindowsCollectorServiceState] = []
+    runtime = WindowsCollectorServiceRuntime(
+        collector=Collector(),
+        poll_interval_seconds=1,
+        status_callback=lambda status: transitions.append(status.service_state),
+    )
+
+    with pytest.raises(WindowsCollectorCheckpointError):
+        await runtime.run_forever()
+
+    assert WindowsCollectorServiceState.RUNNING not in transitions
+    assert transitions[-1] is WindowsCollectorServiceState.FAILED
+
+
+def test_service_host_import_is_safe_off_windows() -> None:
+    if sys.platform == "win32":
+        pytest.skip("non-Windows import guard")
+    with pytest.raises(Exception, match="Windows SCM service host requires Windows"):
+        run_windows_service_host("MONWindowsTest")
