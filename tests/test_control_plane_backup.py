@@ -5,21 +5,21 @@ import subprocess
 
 import pytest
 
-from tools.backup import control_plane
+from mon import control_plane_backup
 
 
 def test_backup_refuses_empty_or_directory_destination(tmp_path) -> None:
-    with pytest.raises(control_plane.BackupRestoreError, match="file"):
-        control_plane.require_backup_path(tmp_path)
+    with pytest.raises(control_plane_backup.BackupRestoreError, match="file"):
+        control_plane_backup.require_backup_path(tmp_path)
 
 
 def test_backup_requires_postgresql_url() -> None:
-    with pytest.raises(control_plane.BackupRestoreError, match="PostgreSQL URL"):
-        control_plane.require_postgres_url("sqlite:///tmp.db")
+    with pytest.raises(control_plane_backup.BackupRestoreError, match="PostgreSQL URL"):
+        control_plane_backup.require_postgres_url("sqlite:///tmp.db")
 
 
 def test_sanitize_database_url_removes_password() -> None:
-    url = control_plane.sanitize_database_url(
+    url = control_plane_backup.sanitize_database_url(
         "postgresql://mon:secret@example.test:5432/mon"
     )
 
@@ -39,9 +39,9 @@ def test_pg_dump_failure_returns_nonzero_without_printing_password(
         assert argv[0] == "pg_dump"
         return subprocess.CompletedProcess(argv, 1, "", "pg_dump failed")
 
-    monkeypatch.setattr(control_plane.subprocess, "run", fake_run)
+    monkeypatch.setattr(control_plane_backup.subprocess, "run", fake_run)
 
-    rc = control_plane.main(
+    rc = control_plane_backup.main(
         [
             "backup",
             "--database-url",
@@ -70,15 +70,15 @@ def test_backup_metadata_has_checksum_and_no_credentials(tmp_path, monkeypatch) 
             return subprocess.CompletedProcess(argv, 0, "abc123\n", "")
         raise AssertionError(argv)
 
-    monkeypatch.setattr(control_plane.subprocess, "run", fake_run)
+    monkeypatch.setattr(control_plane_backup.subprocess, "run", fake_run)
 
-    metadata_path = control_plane.backup(
+    metadata_path = control_plane_backup.backup(
         "postgresql://mon:secret@example.test/mon",
         backup_path,
     )
     metadata = json.loads(metadata_path.read_text())
 
-    assert metadata["backup_sha256"] == control_plane.sha256_file(backup_path)
+    assert metadata["backup_sha256"] == control_plane_backup.sha256_file(backup_path)
     assert metadata["postgres_major_version"] == "16"
     assert "secret" not in metadata_path.read_text()
     assert "postgresql://" not in metadata_path.read_text()
@@ -93,10 +93,10 @@ def test_restore_refuses_nonempty_target_before_pg_restore(tmp_path, monkeypatch
         called.append(argv[0])
         return subprocess.CompletedProcess(argv, 0, "1\n", "")
 
-    monkeypatch.setattr(control_plane.subprocess, "run", fake_run)
+    monkeypatch.setattr(control_plane_backup.subprocess, "run", fake_run)
 
-    with pytest.raises(control_plane.BackupRestoreError, match="not empty"):
-        control_plane.restore("postgresql://mon@example.test/restore", backup_path)
+    with pytest.raises(control_plane_backup.BackupRestoreError, match="not empty"):
+        control_plane_backup.restore("postgresql://mon@example.test/restore", backup_path)
 
     assert called == ["psql"]
 
@@ -111,7 +111,7 @@ def test_restore_rejects_corrupted_backup_checksum(tmp_path, monkeypatch) -> Non
     def fake_run(argv, check, text, capture_output):  # noqa: ANN001
         return subprocess.CompletedProcess(argv, 0, "0\n", "")
 
-    monkeypatch.setattr(control_plane.subprocess, "run", fake_run)
+    monkeypatch.setattr(control_plane_backup.subprocess, "run", fake_run)
 
-    with pytest.raises(control_plane.BackupRestoreError, match="checksum"):
-        control_plane.restore("postgresql://mon@example.test/restore", backup_path)
+    with pytest.raises(control_plane_backup.BackupRestoreError, match="checksum"):
+        control_plane_backup.restore("postgresql://mon@example.test/restore", backup_path)
