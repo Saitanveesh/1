@@ -4,16 +4,21 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pytest
 
 from mon.release_candidate import (
     ReleaseCandidateError,
+    ReleaseCandidateVerificationError,
     required_release_artifacts,
     validate_cyclonedx_sbom,
     validate_release_candidate_directory,
+    verify_release_candidate,
+    verify_release_candidate_attestations,
+    verify_release_candidate_offline,
 )
-from mon.release_manifest import build_manifest
+from mon.release_manifest import build_manifest, write_manifest
 
 SOURCE_SHA = "b" * 40
 
@@ -32,6 +37,19 @@ def write_sbom(path: Path, *, name: str = "component") -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def write_candidate(path: Path, source_sha: str = SOURCE_SHA) -> None:
+    (path / "python").mkdir()
+    (path / "python" / "mon_security_fabric-0.1.0-py3-none-any.whl").write_bytes(
+        b"wheel"
+    )
+    (path / "python" / "mon_security_fabric-0.1.0.tar.gz").write_bytes(b"sdist")
+    (path / "console").mkdir()
+    (path / "console" / "mon-operator-console.zip").write_bytes(b"console")
+    write_sbom(path / "mon-python.cdx.json", name="mon-security-fabric")
+    write_sbom(path / "mon-console.cdx.json", name="mon-operator-console")
+    write_manifest(path, source_sha)
 
 
 def test_cyclonedx_sbom_validation_accepts_supported_json(tmp_path: Path) -> None:
@@ -187,3 +205,159 @@ def test_release_candidate_workflow_uploads_only_after_attestation_verification(
     upload = workflow.index("Upload release-candidate evidence bundle")
     assert verify_attestations < upload
     assert "gh attestation verify" in workflow[verify_attestations:upload]
+
+
+def test_offline_release_verification_accepts_valid_candidate(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+
+    verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+def test_offline_release_verification_fails_for_changed_byte(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+    (tmp_path / "console" / "mon-operator-console.zip").write_bytes(b"mutated")
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="size|sha256"):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+def test_offline_release_verification_fails_for_missing_file(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+    (tmp_path / "python" / "mon_security_fabric-0.1.0.tar.gz").unlink()
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="missing"):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+def test_offline_release_verification_fails_for_extra_file(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+    (tmp_path / "unexpected.txt").write_text("injected\n", encoding="utf-8")
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="artifact set"):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+def test_offline_release_verification_fails_for_wrong_source_sha(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="source_sha"):
+        verify_release_candidate_offline(tmp_path, "c" * 40)
+
+
+def test_offline_release_verification_fails_for_malformed_sbom(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+    (tmp_path / "mon-python.cdx.json").write_text("{", encoding="utf-8")
+    write_manifest(tmp_path, SOURCE_SHA)
+
+    with pytest.raises(ReleaseCandidateVerificationError):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+def test_offline_release_verification_fails_for_missing_sbom(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+    (tmp_path / "mon-console.cdx.json").unlink()
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="missing"):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+@pytest.mark.skipif(not hasattr(Path, "symlink_to"), reason="symlinks unavailable")
+def test_offline_release_verification_fails_for_symlink_escape(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+    target = tmp_path.parent / "outside.txt"
+    target.write_text("outside\n", encoding="utf-8")
+    link = tmp_path / "escape-link"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="symlink"):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+def test_online_release_verification_invokes_attestation_for_each_required_artifact(
+    tmp_path: Path,
+) -> None:
+    write_candidate(tmp_path)
+    calls: list[list[str]] = []
+
+    def runner(args: list[str]) -> CompletedProcess[str]:
+        calls.append(args)
+        return CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    verify_release_candidate(
+        tmp_path,
+        SOURCE_SHA,
+        online_attestations=True,
+        runner=runner,
+    )
+
+    assert len(calls) == len(required_release_artifacts())
+    for artifact in required_release_artifacts():
+        assert any(str(tmp_path / artifact) in call for call in calls)
+
+
+def test_online_release_verification_fails_for_missing_attestation(
+    tmp_path: Path,
+) -> None:
+    write_candidate(tmp_path)
+
+    def runner(args: list[str]) -> CompletedProcess[str]:
+        return CompletedProcess(args=args, returncode=1, stdout="", stderr="not found")
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="attestation"):
+        verify_release_candidate_attestations(tmp_path, SOURCE_SHA, runner=runner)
+
+
+def test_online_release_verification_binds_repository_identity(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+
+    def runner(args: list[str]) -> CompletedProcess[str]:
+        if args[args.index("--repo") + 1] != "Saitanveesh/1":
+            return CompletedProcess(args=args, returncode=1, stdout="", stderr="wrong repo")
+        return CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    verify_release_candidate_attestations(tmp_path, SOURCE_SHA, runner=runner)
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="attestation"):
+        verify_release_candidate_attestations(
+            tmp_path,
+            SOURCE_SHA,
+            repository="other/repo",
+            runner=runner,
+        )
+
+
+def test_online_release_verification_binds_source_commit(tmp_path: Path) -> None:
+    write_candidate(tmp_path)
+
+    def runner(args: list[str]) -> CompletedProcess[str]:
+        if args[args.index("--source-digest") + 1] != SOURCE_SHA:
+            return CompletedProcess(args=args, returncode=1, stdout="", stderr="wrong sha")
+        return CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    verify_release_candidate_attestations(tmp_path, SOURCE_SHA, runner=runner)
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="source_sha"):
+        verify_release_candidate_attestations(tmp_path, "short", runner=runner)
+
+
+def test_verification_workflow_downloads_existing_candidate_without_rebuild() -> None:
+    workflow = Path(".github/workflows/verify-release-candidate.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    assert "run_id:" in workflow
+    assert "artifact_name:" in workflow
+    assert "expected_source_sha:" in workflow
+    assert "actions: read" in workflow
+    assert "contents: read" in workflow
+    assert "write" not in workflow
+    assert "gh run download" in workflow
+    assert "mon-release-verify candidate-download" in workflow
+    assert "--online-attestations" in workflow
+    assert "python -m build" not in workflow
+    assert "npm run build" not in workflow
+    assert "upload-artifact" not in workflow

@@ -29,6 +29,7 @@ mon-windows-endpoint-collector = "mon.windows_endpoint_collector:main"
 mon-connector-secret = "mon.connector_secrets:main"
 mon-release-manifest = "mon.release_manifest:main"
 mon-release-candidate-gate = "mon.release_candidate:main"
+mon-release-verify = "mon.release_candidate:main"
 
 [project.optional-dependencies]
 dev = [
