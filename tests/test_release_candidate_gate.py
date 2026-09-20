@@ -47,8 +47,11 @@ def write_candidate(path: Path, source_sha: str = SOURCE_SHA) -> None:
     (path / "python" / "mon_security_fabric-0.1.0.tar.gz").write_bytes(b"sdist")
     (path / "console").mkdir()
     (path / "console" / "mon-operator-console.zip").write_bytes(b"console")
+    (path / "windows").mkdir()
+    (path / "windows" / "MONWindows.exe").write_bytes(b"windows-exe")
     write_sbom(path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(path / "mon-console.cdx.json", name="mon-operator-console")
+    write_sbom(path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
     write_manifest(path, source_sha)
 
 
@@ -80,14 +83,16 @@ def test_cyclonedx_sbom_validation_rejects_missing_or_weak_evidence(
 
 def test_release_candidate_directory_requires_both_sboms(tmp_path: Path) -> None:
     write_sbom(tmp_path / "mon-python.cdx.json")
+    write_sbom(tmp_path / "mon-console.cdx.json")
 
-    with pytest.raises(ReleaseCandidateError, match="mon-console"):
+    with pytest.raises(ReleaseCandidateError, match="mon-windows"):
         validate_release_candidate_directory(tmp_path)
 
 
 def test_release_candidate_directory_accepts_required_sbom_evidence(tmp_path: Path) -> None:
     write_sbom(tmp_path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(tmp_path / "mon-console.cdx.json", name="mon-operator-console")
+    write_sbom(tmp_path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
 
     validate_release_candidate_directory(tmp_path)
 
@@ -95,6 +100,7 @@ def test_release_candidate_directory_accepts_required_sbom_evidence(tmp_path: Pa
 def test_cli_wrapper_validates_after_installable_import(tmp_path: Path) -> None:
     write_sbom(tmp_path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(tmp_path / "mon-console.cdx.json", name="mon-operator-console")
+    write_sbom(tmp_path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
     wrapper = Path("tools/release_candidate_gate.py").resolve()
 
     subprocess.run(
@@ -112,8 +118,11 @@ def test_manifest_generated_after_sboms_covers_sbom_evidence(tmp_path: Path) -> 
     (tmp_path / "python" / "mon_security_fabric-0.1.0.tar.gz").write_bytes(b"sdist")
     (tmp_path / "console").mkdir()
     (tmp_path / "console" / "mon-operator-console.zip").write_bytes(b"console")
+    (tmp_path / "windows").mkdir()
+    (tmp_path / "windows" / "MONWindows.exe").write_bytes(b"windows-exe")
     write_sbom(tmp_path / "mon-python.cdx.json", name="mon-security-fabric")
     write_sbom(tmp_path / "mon-console.cdx.json", name="mon-operator-console")
+    write_sbom(tmp_path / "mon-windows-collector.cdx.json", name="mon-windows-collector")
 
     validate_release_candidate_directory(tmp_path)
     manifest = build_manifest(tmp_path, SOURCE_SHA)
@@ -122,8 +131,10 @@ def test_manifest_generated_after_sboms_covers_sbom_evidence(tmp_path: Path) -> 
         "console/mon-operator-console.zip",
         "mon-console.cdx.json",
         "mon-python.cdx.json",
+        "mon-windows-collector.cdx.json",
         "python/mon_security_fabric-0.1.0-py3-none-any.whl",
         "python/mon_security_fabric-0.1.0.tar.gz",
+        "windows/MONWindows.exe",
     ]
 
 
@@ -133,8 +144,10 @@ def test_required_release_artifact_set_is_explicit() -> None:
         "manifest.json",
         "mon-console.cdx.json",
         "mon-python.cdx.json",
+        "mon-windows-collector.cdx.json",
         "python/mon_security_fabric-0.1.0-py3-none-any.whl",
         "python/mon_security_fabric-0.1.0.tar.gz",
+        "windows/MONWindows.exe",
     )
 
 
@@ -162,6 +175,11 @@ def test_release_candidate_workflow_attests_exact_final_artifact_set() -> None:
     assert "@cyclonedx/cyclonedx-npm" in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "python -m build --sdist --wheel" in workflow
+    assert "runs-on: windows-latest" in workflow
+    assert "pyinstaller --clean --noconfirm --onefile --name MONWindows" in workflow
+    assert ".\\dist\\MONWindows.exe --help" in workflow
+    assert "dist\\mon-windows-collector.cdx.json" in workflow
+    assert "actions/download-artifact@v4" in workflow
     assert "python tools/release_candidate_gate.py release-artifacts" in workflow
     assert 'mon-release-manifest release-artifacts --source-sha "$GITHUB_SHA"' in workflow
     assert '--source-digest "$GITHUB_SHA"' in workflow
@@ -215,15 +233,36 @@ def test_offline_release_verification_accepts_valid_candidate(tmp_path: Path) ->
 
 def test_offline_release_verification_fails_for_changed_byte(tmp_path: Path) -> None:
     write_candidate(tmp_path)
-    (tmp_path / "console" / "mon-operator-console.zip").write_bytes(b"mutated")
+    (tmp_path / "windows" / "MONWindows.exe").write_bytes(b"mutated")
 
     with pytest.raises(ReleaseCandidateVerificationError, match="size|sha256"):
         verify_release_candidate_offline(tmp_path, SOURCE_SHA)
 
 
+def test_offline_release_verification_fails_for_mutated_windows_sbom(
+    tmp_path: Path,
+) -> None:
+    write_candidate(tmp_path)
+    (tmp_path / "mon-windows-collector.cdx.json").write_text("{", encoding="utf-8")
+    write_manifest(tmp_path, SOURCE_SHA)
+
+    with pytest.raises(ReleaseCandidateVerificationError):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
 def test_offline_release_verification_fails_for_missing_file(tmp_path: Path) -> None:
     write_candidate(tmp_path)
-    (tmp_path / "python" / "mon_security_fabric-0.1.0.tar.gz").unlink()
+    (tmp_path / "windows" / "MONWindows.exe").unlink()
+
+    with pytest.raises(ReleaseCandidateVerificationError, match="missing"):
+        verify_release_candidate_offline(tmp_path, SOURCE_SHA)
+
+
+def test_offline_release_verification_fails_for_missing_windows_sbom(
+    tmp_path: Path,
+) -> None:
+    write_candidate(tmp_path)
+    (tmp_path / "mon-windows-collector.cdx.json").unlink()
 
     with pytest.raises(ReleaseCandidateVerificationError, match="missing"):
         verify_release_candidate_offline(tmp_path, SOURCE_SHA)

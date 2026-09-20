@@ -21,10 +21,16 @@ REQUIRED_RELEASE_ARTIFACTS = (
     "manifest.json",
     "mon-console.cdx.json",
     "mon-python.cdx.json",
+    "mon-windows-collector.cdx.json",
     "python/mon_security_fabric-0.1.0-py3-none-any.whl",
     "python/mon_security_fabric-0.1.0.tar.gz",
+    "windows/MONWindows.exe",
 )
-REQUIRED_SBOMS = ("mon-python.cdx.json", "mon-console.cdx.json")
+REQUIRED_SBOMS = (
+    "mon-python.cdx.json",
+    "mon-console.cdx.json",
+    "mon-windows-collector.cdx.json",
+)
 
 
 class ReleaseCandidateError(ValueError):

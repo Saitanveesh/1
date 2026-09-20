@@ -72,9 +72,10 @@ Implemented foundations include:
 - durable event-fabric exponential retry/backoff with persisted next retry times,
   bounded jitter, restart-stable attempts, and sanitized delivery errors;
 - deterministic release manifests plus a controlled release-candidate workflow that builds
-  current Python/console artifacts, generates validated CycloneDX SBOM evidence, gates that
-  evidence, verifies the final manifest, creates keyless GitHub provenance attestations for
-  final candidate artifacts, and verifies those attestations before artifact upload;
+  current Python/console artifacts and the unsigned Windows collector executable, generates
+  validated CycloneDX SBOM evidence, gates that evidence, verifies the final manifest,
+  creates keyless GitHub provenance attestations for final candidate artifacts, and verifies
+  those attestations before artifact upload;
 - network detection, correlation, asset enrichment, attack/investigation graph foundations;
 - push/live operator updates and a React operator console foundation;
 - PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
@@ -93,9 +94,10 @@ normalizes typed endpoint telemetry into the pipeline and graph and includes a n
 Event Log collector adapter for Security 4624/4625/4688 plus optional Sysmon
 process/process-network records when present. The Windows collector now has a bounded
 foreground/service runtime loop and a small SCM boundary, but it is not yet a
-production-complete Windows EDR agent or Linux endpoint agent and does not yet provide MSI
-packaging, a signed executable/package, production installer, upgrade/rollback installer
-behavior, tamper protection, or privileged disposable-VM certification. Load/soak
+production-complete Windows EDR agent or Linux endpoint agent and does not yet provide
+Authenticode signing, MSI packaging, a production installer, install/uninstall
+certification, upgrade/rollback installer behavior, tamper protection, or privileged
+service-registration certification. Load/soak
 measurements are deployment-specific evidence, not universal performance, resilience, or
 tenant-isolation proof. Event-fabric recovery validation currently covers deterministic local
 outage, crash/restart, duplicate replay, and scope-isolation scenarios; it is not yet a
