@@ -93,11 +93,11 @@ TAXII write/publish APIs, or complex STIX pattern evaluation. Endpoint support c
 normalizes typed endpoint telemetry into the pipeline and graph and includes a narrow Windows
 Event Log collector adapter for Security 4624/4625/4688 plus optional Sysmon
 process/process-network records when present. The Windows collector now has a bounded
-foreground/service runtime loop and a small SCM boundary, but it is not yet a
-production-complete Windows EDR agent or Linux endpoint agent and does not yet provide
-Authenticode signing, MSI packaging, a production installer, install/uninstall
-certification, upgrade/rollback installer behavior, tamper protection, or privileged
-service-registration certification. Load/soak
+foreground/service runtime loop and a real SCM service-host lifecycle validated on
+`windows-latest` with temporary service registration/start/query/stop/delete, but it is not
+yet a production-complete Windows EDR agent or Linux endpoint agent and does not yet provide
+Authenticode signing, MSI packaging, a production installer, upgrade/rollback installer
+certification, or tamper protection. Load/soak
 measurements are deployment-specific evidence, not universal performance, resilience, or
 tenant-isolation proof. Event-fabric recovery validation currently covers deterministic local
 outage, crash/restart, duplicate replay, and scope-isolation scenarios; it is not yet a
