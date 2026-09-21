@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 
 import pytest
@@ -222,6 +223,61 @@ async def test_site_rollback_is_queued_once() -> None:
 
     assert first.status is ResponseExecutionStatus.ROLLBACK_PENDING
     assert second.status is ResponseExecutionStatus.ROLLBACK_PENDING
+    assert adapter.rollback_calls == 0
+    rollback_commands = [
+        record
+        for record in store.list_site_commands("t1", "s1")
+        if record.command.kind is SiteCommandKind.ROLLBACK_RESPONSE
+    ]
+    assert len(rollback_commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_site_dispatch_queues_single_apply_command() -> None:
+    store, adapter, dispatcher, _ = prepare()
+
+    results = await asyncio.gather(*(dispatcher.dispatch(request()) for _ in range(8)))
+
+    assert {item.execution_id for item in results} == {"response-1"}
+    assert {item.status for item in results} == {ResponseExecutionStatus.DISPATCH_PENDING}
+    assert adapter.execute_calls == 0
+    assert len(store.list_response_executions("t1", "s1")) == 1
+    commands = [
+        record
+        for record in store.list_site_commands("t1", "s1")
+        if record.command.kind is SiteCommandKind.APPLY_RESPONSE
+    ]
+    assert len(commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_operator_rollbacks_queue_single_rollback_command() -> None:
+    store, adapter, dispatcher, _ = prepare()
+    dispatched = await dispatcher.dispatch(request())
+    applied = dispatched.model_copy(
+        update={
+            "status": ResponseExecutionStatus.APPLIED,
+            "applied_at": dt.datetime.now(dt.UTC),
+            "expires_at": dt.datetime.now(dt.UTC) + dt.timedelta(minutes=5),
+        }
+    )
+    store.add_response_execution(applied)
+
+    results = await asyncio.gather(
+        *(
+            dispatcher.rollback(
+                "t1",
+                "s1",
+                applied.execution_id,
+                actor_id="operator",
+                reason=f"operator rollback {index}",
+            )
+            for index in range(8)
+        )
+    )
+
+    assert {item.execution_id for item in results} == {applied.execution_id}
+    assert {item.status for item in results} == {ResponseExecutionStatus.ROLLBACK_PENDING}
     assert adapter.rollback_calls == 0
     rollback_commands = [
         record
