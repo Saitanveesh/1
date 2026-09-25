@@ -481,7 +481,7 @@
       "from": 98,
       "to": 112,
       "headline": "MON rolls back temporary control and confirms recovery.",
-      "plain": "When policy conditions are satisfied, MON rolls back the temporary action, watches the restored path, and records the recovery outcome.",
+      "plain": "When policy conditions are satisfied, MON performs the rollback of the temporary action, watches the restored path, and records the recovery outcome.",
       "question": "Can normal operation return safely?",
       "confidence": 0.96,
       "evidence": [
