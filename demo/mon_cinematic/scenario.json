@@ -1,523 +1,211 @@
 {
-  "title": "MON Security Fabric — End-to-End Incident",
-  "subtitle": "Synthetic educational simulation: network intrusion, safe containment, verification, and recovery",
-  "duration_seconds": 112,
-  "loop": true,
-  "tenant_id": "demo-tenant",
-  "site_id": "lab-site-01",
+  "version": 2,
+  "title": "MON Security Fabric — Narrated Incident Story",
+  "subtitle": "Synthetic educational walkthrough. No real attack traffic or real telemetry is generated.",
+  "presentation": {
+    "theme": "black-white",
+    "voice_rate": 0.86,
+    "voice_pitch": 1.0,
+    "auto_advance_pause_ms": 1400
+  },
+  "environment": {
+    "company": "Example engineering company",
+    "site": "One private office network",
+    "critical_service": "Business application backed by a database",
+    "mon_components": [
+      "Network Sensor",
+      "Endpoint Sensor",
+      "Local Site Controller",
+      "MON SaaS Control Plane",
+      "SOC Console",
+      "NAC / Switch Control"
+    ]
+  },
   "nodes": [
-    {
-      "id": "attacker",
-      "label": "Untrusted Source",
-      "kind": "external",
-      "position": [
-        -8,
-        0,
-        -2
-      ],
-      "critical": false
-    },
-    {
-      "id": "internet",
-      "label": "Internet Edge",
-      "kind": "network",
-      "position": [
-        -6,
-        0,
-        -1
-      ],
-      "critical": false
-    },
-    {
-      "id": "edge-fw",
-      "label": "Edge Firewall",
-      "kind": "enforcement",
-      "position": [
-        -4,
-        0,
-        0
-      ],
-      "critical": true
-    },
-    {
-      "id": "core",
-      "label": "Core Switch",
-      "kind": "network",
-      "position": [
-        -2,
-        0,
-        1
-      ],
-      "critical": true
-    },
-    {
-      "id": "workstation",
-      "label": "Engineer Workstation",
-      "kind": "endpoint",
-      "position": [
-        1,
-        -1,
-        1
-      ],
-      "critical": false
-    },
-    {
-      "id": "app",
-      "label": "Application Server",
-      "kind": "server",
-      "position": [
-        3,
-        0,
-        1
-      ],
-      "critical": true
-    },
-    {
-      "id": "db",
-      "label": "Database Server",
-      "kind": "server",
-      "position": [
-        5,
-        1,
-        0
-      ],
-      "critical": true
-    },
-    {
-      "id": "net-sensor",
-      "label": "Network Sensor",
-      "kind": "sensor",
-      "position": [
-        -1,
-        2,
-        2
-      ],
-      "critical": false
-    },
-    {
-      "id": "endpoint-sensor",
-      "label": "Endpoint Telemetry",
-      "kind": "sensor",
-      "position": [
-        2,
-        2,
-        2
-      ],
-      "critical": false
-    },
-    {
-      "id": "nac",
-      "label": "NAC / Switch Control",
-      "kind": "enforcement",
-      "position": [
-        -1,
-        2,
-        -1
-      ],
-      "critical": true
-    },
-    {
-      "id": "site-controller",
-      "label": "Local Site Controller",
-      "kind": "controller",
-      "position": [
-        0,
-        4,
-        1
-      ],
-      "critical": true
-    },
-    {
-      "id": "saas",
-      "label": "MON SaaS Control Plane",
-      "kind": "cloud",
-      "position": [
-        0,
-        7,
-        -1
-      ],
-      "critical": true
-    },
-    {
-      "id": "soc",
-      "label": "SOC Console",
-      "kind": "console",
-      "position": [
-        5,
-        6,
-        0
-      ],
-      "critical": false
-    }
+    {"id":"attacker","label":"External Attacker","role":"Synthetic untrusted source","x":110,"y":535,"kind":"external"},
+    {"id":"internet","label":"Internet","role":"Untrusted network","x":330,"y":535,"kind":"network"},
+    {"id":"edge","label":"Edge Firewall","role":"Perimeter control","x":550,"y":535,"kind":"enforcement"},
+    {"id":"core","label":"Core Switch","role":"Internal network","x":780,"y":535,"kind":"network"},
+    {"id":"workstation","label":"Engineer Workstation","role":"Employee endpoint","x":1030,"y":390,"kind":"endpoint"},
+    {"id":"app","label":"Application Server","role":"Critical business service","x":1280,"y":390,"kind":"critical"},
+    {"id":"db","label":"Database Server","role":"Critical data dependency","x":1530,"y":390,"kind":"critical"},
+    {"id":"netsensor","label":"Network Sensor","role":"Observes network metadata","x":790,"y":760,"kind":"sensor"},
+    {"id":"epsensor","label":"Endpoint Sensor","role":"Observes host activity","x":1050,"y":760,"kind":"sensor"},
+    {"id":"site","label":"Local Site Controller","role":"Local correlation and response","x":1050,"y":925,"kind":"controller"},
+    {"id":"nac","label":"NAC / Switch Control","role":"Local containment point","x":790,"y":925,"kind":"enforcement"},
+    {"id":"saas","label":"MON SaaS Control Plane","role":"Tenant, incident, policy and fleet coordination","x":1320,"y":925,"kind":"cloud"},
+    {"id":"soc","label":"SOC Console","role":"Human operator view","x":1580,"y":925,"kind":"console"}
   ],
   "links": [
-    {
-      "from": "attacker",
-      "to": "internet",
-      "kind": "network"
-    },
-    {
-      "from": "internet",
-      "to": "edge-fw",
-      "kind": "network"
-    },
-    {
-      "from": "edge-fw",
-      "to": "core",
-      "kind": "network"
-    },
-    {
-      "from": "core",
-      "to": "workstation",
-      "kind": "network"
-    },
-    {
-      "from": "core",
-      "to": "app",
-      "kind": "network"
-    },
-    {
-      "from": "app",
-      "to": "db",
-      "kind": "network"
-    },
-    {
-      "from": "workstation",
-      "to": "app",
-      "kind": "network"
-    },
-    {
-      "from": "edge-fw",
-      "to": "net-sensor",
-      "kind": "telemetry"
-    },
-    {
-      "from": "core",
-      "to": "net-sensor",
-      "kind": "telemetry"
-    },
-    {
-      "from": "workstation",
-      "to": "endpoint-sensor",
-      "kind": "telemetry"
-    },
-    {
-      "from": "app",
-      "to": "endpoint-sensor",
-      "kind": "telemetry"
-    },
-    {
-      "from": "net-sensor",
-      "to": "site-controller",
-      "kind": "telemetry"
-    },
-    {
-      "from": "endpoint-sensor",
-      "to": "site-controller",
-      "kind": "telemetry"
-    },
-    {
-      "from": "site-controller",
-      "to": "saas",
-      "kind": "control"
-    },
-    {
-      "from": "saas",
-      "to": "soc",
-      "kind": "control"
-    },
-    {
-      "from": "site-controller",
-      "to": "edge-fw",
-      "kind": "enforcement"
-    },
-    {
-      "from": "site-controller",
-      "to": "nac",
-      "kind": "enforcement"
-    },
-    {
-      "from": "site-controller",
-      "to": "workstation",
-      "kind": "enforcement"
-    },
-    {
-      "from": "nac",
-      "to": "workstation",
-      "kind": "enforcement"
-    }
+    {"from":"attacker","to":"internet","kind":"network"},
+    {"from":"internet","to":"edge","kind":"network"},
+    {"from":"edge","to":"core","kind":"network"},
+    {"from":"core","to":"workstation","kind":"network"},
+    {"from":"core","to":"app","kind":"network"},
+    {"from":"workstation","to":"app","kind":"network"},
+    {"from":"app","to":"db","kind":"network"},
+    {"from":"edge","to":"netsensor","kind":"telemetry"},
+    {"from":"core","to":"netsensor","kind":"telemetry"},
+    {"from":"workstation","to":"epsensor","kind":"telemetry"},
+    {"from":"app","to":"epsensor","kind":"telemetry"},
+    {"from":"netsensor","to":"site","kind":"telemetry"},
+    {"from":"epsensor","to":"site","kind":"telemetry"},
+    {"from":"site","to":"saas","kind":"control"},
+    {"from":"saas","to":"soc","kind":"control"},
+    {"from":"site","to":"nac","kind":"enforcement"},
+    {"from":"nac","to":"workstation","kind":"enforcement"},
+    {"from":"site","to":"edge","kind":"enforcement"}
   ],
-  "stages": [
+  "scenes": [
     {
-      "name": "DISCOVER",
-      "from": 0,
-      "to": 14,
-      "headline": "MON learns the environment before anything goes wrong.",
-      "plain": "Sensors observe assets, services, identities, and normal communication paths. The system builds the context it will need later.",
-      "question": "What exists, and how is it normally connected?",
-      "confidence": 0.18,
-      "evidence": [
-        "Asset: Engineer Workstation",
-        "Service: Application Server",
-        "Critical dependency: Application → Database",
-        "Enforcement options: endpoint, NAC, edge firewall"
-      ],
-      "affected": [
-        "No incident yet"
-      ],
-      "decision": "No containment. Build topology and baseline context.",
-      "ttl": "—",
-      "blast_radius": "0 assets",
-      "focus": [
-        "workstation",
-        "app",
-        "db",
-        "net-sensor",
-        "endpoint-sensor"
-      ],
-      "routes": []
+      "id":"intro",
+      "chapter":"INTRO",
+      "title":"First, understand the world we are protecting.",
+      "happening":"Assume a company has employee computers, an application server, and a database. Employees must use these systems every day, so simply disconnecting everything is not an acceptable security response.",
+      "mon_action":"MON watches the environment through network and endpoint sensors. A Local Site Controller keeps local context and can continue protective actions even if the cloud connection is unavailable.",
+      "impact":"The goal is not only to raise alerts. The goal is to understand what is happening, identify the path, contain it safely, verify the result, and recover normal service.",
+      "term":"Security Fabric",
+      "term_definition":"A coordinated set of sensors, context, policy, response points, evidence, and recovery logic that work together instead of acting as isolated security products.",
+      "narration":"Before the attack, let us understand the environment. Imagine a company with an engineer workstation, an application server, and a database. These systems are connected and the application is important to the business. MON places sensors around this environment. Network sensors observe communication. Endpoint sensors observe activity on computers and servers. The Local Site Controller keeps local context and response capability. The SaaS control plane coordinates policy, incidents, fleet state, and audit. The important idea is this: MON is not only trying to detect danger. It is trying to understand the whole situation and respond without unnecessarily breaking the business.",
+      "focus":["workstation","app","db","netsensor","epsensor","site","saas","soc"],
+      "route":[],
+      "states":{"app":"CRITICAL SERVICE","db":"CRITICAL DATA","site":"LOCAL AUTONOMY"},
+      "silent_seconds":25
     },
     {
-      "name": "DETECT",
-      "from": 14,
-      "to": 31,
-      "headline": "Multiple weak signals appear.",
-      "plain": "The network sensor sees repeated probing and the endpoint stream records authentication failures. MON does not call this a compromise yet.",
-      "question": "What is happening?",
-      "confidence": 0.46,
-      "evidence": [
-        "Recon-shaped connection pattern",
-        "Repeated authentication failures",
-        "Same source path reaches one workstation"
-      ],
-      "affected": [
-        "Engineer Workstation"
-      ],
-      "decision": "Raise findings; continue evidence collection.",
-      "ttl": "—",
-      "blast_radius": "1 observed asset",
-      "focus": [
-        "attacker",
-        "edge-fw",
-        "workstation",
-        "net-sensor",
-        "endpoint-sensor"
-      ],
-      "routes": [
-        [
-          "attacker",
-          "internet",
-          "edge-fw",
-          "core",
-          "workstation"
-        ]
-      ]
+      "id":"discover",
+      "chapter":"DISCOVER",
+      "title":"MON learns what normal looks like before an incident.",
+      "happening":"The workstation normally talks to the application. The application normally talks to the database. MON records these relationships as context rather than treating every connection as suspicious.",
+      "mon_action":"It builds an asset view, service dependencies, normal communication paths, and available enforcement points such as the endpoint, NAC, and edge firewall.",
+      "impact":"Later, when behavior changes, MON can compare it with the known environment and understand which critical services could be affected.",
+      "term":"Baseline",
+      "term_definition":"A model of normal behavior and relationships used as context. A baseline is evidence for comparison, not proof that future deviations are malicious.",
+      "narration":"This is the discover stage. Nothing bad has happened yet. MON learns what exists and how it normally communicates. The engineer workstation normally reaches the application server. The application server depends on the database. MON also learns where control is possible, for example at the endpoint, at network access control, or at the edge firewall. This normal picture is called a baseline. A baseline does not magically decide that something is an attack. It gives MON context so that unusual behavior can be investigated correctly later.",
+      "focus":["workstation","app","db","netsensor","epsensor","site","nac","edge"],
+      "route":[["workstation","app","db"]],
+      "states":{"workstation":"NORMAL","app":"NORMAL","db":"NORMAL"},
+      "silent_seconds":23
     },
     {
-      "name": "CORRELATE",
-      "from": 31,
-      "to": 48,
-      "headline": "Network and endpoint evidence become one incident.",
-      "plain": "MON links the probing, failed logons, a later successful session, and a new workstation-to-server connection under the same site and time window.",
-      "question": "Which asset, user, and service are involved?",
-      "confidence": 0.73,
-      "evidence": [
-        "Network metadata and endpoint auth share scope/time",
-        "Successful session follows failure burst",
-        "New east-west connection deviates from baseline"
-      ],
-      "affected": [
-        "Engineer Workstation",
-        "Application Server"
-      ],
-      "decision": "Create incident and increase investigation priority.",
-      "ttl": "—",
-      "blast_radius": "2 assets",
-      "focus": [
-        "workstation",
-        "app",
-        "site-controller",
-        "soc"
-      ],
-      "routes": [
-        [
-          "attacker",
-          "internet",
-          "edge-fw",
-          "core",
-          "workstation"
-        ],
-        [
-          "workstation",
-          "app"
-        ]
-      ]
+      "id":"attack-arrives",
+      "chapter":"CASE",
+      "title":"Now assume an external attacker begins probing the company.",
+      "happening":"A synthetic external source sends repeated connection attempts toward the company and then repeatedly tries to authenticate to the engineer workstation.",
+      "mon_action":"MON does not immediately declare a compromise. The network sensor records reconnaissance-shaped traffic while the endpoint sensor records authentication failures.",
+      "impact":"Individually these may be weak signals. The important question is whether they belong to one developing incident.",
+      "term":"Reconnaissance",
+      "term_definition":"Activity used to learn what systems, ports, services, or accounts may be reachable before attempting deeper access.",
+      "narration":"Now we introduce the example incident. Assume an attacker on the internet begins probing the company. The attacker sends repeated connection attempts and then repeatedly tries to authenticate to the engineer workstation. This early probing is called reconnaissance. Reconnaissance means trying to learn what is reachable and where an entry point may exist. At this moment MON should not claim that the company is compromised. The network sensor only sees suspicious probing, and the endpoint sensor sees failed authentication attempts. These are signals, not yet a complete conclusion.",
+      "focus":["attacker","internet","edge","core","workstation","netsensor","epsensor"],
+      "route":[["attacker","internet","edge","core","workstation"]],
+      "states":{"attacker":"UNTRUSTED SOURCE","workstation":"UNDER PROBE"},
+      "silent_seconds":25
     },
     {
-      "name": "TRACE",
-      "from": 48,
-      "to": 64,
-      "headline": "MON reconstructs the probable attack path.",
-      "plain": "The attack graph shows the path from the external source to the workstation and then laterally toward the application server. Critical database access is at risk but not yet observed.",
-      "question": "Where did it come from, where did it move, and what could be next?",
-      "confidence": 0.86,
-      "evidence": [
-        "External → edge → workstation path",
-        "Workstation → application lateral edge",
-        "Application has a critical dependency on database"
-      ],
-      "affected": [
-        "Engineer Workstation",
-        "Application Server",
-        "Database at risk"
-      ],
-      "decision": "Find the safest enforcement point before acting.",
-      "ttl": "—",
-      "blast_radius": "2 affected + 1 at risk",
-      "focus": [
-        "attacker",
-        "workstation",
-        "app",
-        "db",
-        "site-controller"
-      ],
-      "routes": [
-        [
-          "attacker",
-          "internet",
-          "edge-fw",
-          "core",
-          "workstation",
-          "app",
-          "db"
-        ]
-      ]
+      "id":"detect",
+      "chapter":"DETECT",
+      "title":"A stronger signal appears: a successful session follows the failures.",
+      "happening":"After the failed attempts, the synthetic scenario records a successful login on the same workstation and a new connection pattern that was not part of the normal baseline.",
+      "mon_action":"Detection logic raises findings from both network and endpoint telemetry, but MON still keeps the observations and confidence separate from a final attack conclusion.",
+      "impact":"The workstation now deserves investigation because a sequence of related events is forming.",
+      "term":"Detection",
+      "term_definition":"Recognition of a suspicious pattern or rule match. A detection is evidence that something deserves attention; it is not automatically proof of compromise.",
+      "narration":"This is the detect stage. After the failed authentication attempts, the synthetic scenario records a successful session on the same workstation. At nearly the same time, network behavior changes. MON now has stronger evidence. Detection means recognizing a suspicious pattern, such as repeated failures followed by a success or communication that does not match the usual baseline. But a detection is still not the same as proof. MON keeps the raw evidence, the source, the asset, the time, and the confidence so that the next stage can decide whether these signals belong together.",
+      "focus":["workstation","netsensor","epsensor","site"],
+      "route":[["workstation","epsensor","site"],["core","netsensor","site"]],
+      "states":{"workstation":"SUSPICIOUS SESSION","site":"COLLECTING EVIDENCE"},
+      "silent_seconds":25
     },
     {
-      "name": "CONTAIN",
-      "from": 64,
-      "to": 82,
-      "headline": "MON contains the threat at the narrowest safe point.",
-      "plain": "Policy avoids isolating critical servers from a single detector. The response plan blocks the suspicious path at the workstation and NAC layer, with a short TTL and rollback.",
-      "question": "Where can this be stopped with the smallest blast radius?",
-      "confidence": 0.91,
-      "evidence": [
-        "Correlated multi-source incident",
-        "Endpoint is non-critical",
-        "NAC and endpoint controls are available",
-        "Critical application/database remain online"
-      ],
-      "affected": [
-        "Engineer Workstation isolated from risky path",
-        "Application and Database remain available"
-      ],
-      "decision": "Temporary workstation/NAC containment; preserve critical service traffic.",
-      "ttl": "10 minutes (simulated)",
-      "blast_radius": "1 workstation",
-      "focus": [
-        "workstation",
-        "nac",
-        "site-controller",
-        "app",
-        "db"
-      ],
-      "routes": [
-        [
-          "site-controller",
-          "nac"
-        ],
-        [
-          "site-controller",
-          "workstation"
-        ]
-      ]
+      "id":"correlate",
+      "chapter":"CORRELATE",
+      "title":"MON joins separate signals into one incident.",
+      "happening":"The network finding and endpoint authentication evidence point to the same site, same workstation, same time window, and the same developing path. The workstation then begins a new east-west connection toward the application server.",
+      "mon_action":"MON correlates the evidence, associates it with the asset and identity context, and creates one incident instead of showing unrelated alerts.",
+      "impact":"An operator can now see one story: external probing, authentication activity, and unusual internal movement are connected.",
+      "term":"Correlation",
+      "term_definition":"Combining related observations from multiple sources using shared context such as time, asset, identity, source, service, and topology.",
+      "narration":"Now MON correlates the evidence. Correlation means joining separate observations when the context shows that they belong together. The network sensor saw the external probing. The endpoint sensor saw the authentication sequence. Both point to the same workstation and the same time window. Then the workstation begins a new internal connection toward the application server. Instead of forcing the operator to mentally combine several alerts, MON creates one incident with the supporting evidence attached. This is where the system starts answering not only what happened, but which asset, identity, and service are involved.",
+      "focus":["attacker","workstation","app","netsensor","epsensor","site","soc"],
+      "route":[["attacker","internet","edge","core","workstation"],["workstation","app"],["netsensor","site","saas","soc"],["epsensor","site"]],
+      "states":{"workstation":"INVOLVED","app":"TOUCHED BY NEW PATH","soc":"ONE INCIDENT"},
+      "silent_seconds":27
     },
     {
-      "name": "VERIFY",
-      "from": 82,
-      "to": 98,
-      "headline": "Containment is not assumed successful; it is verified.",
-      "plain": "MON checks that the suspicious path is blocked, telemetry still arrives, and the critical application and database remain healthy.",
-      "question": "Did the action work without breaking the network?",
-      "confidence": 0.94,
-      "evidence": [
-        "Risky connection attempts stop at enforcement point",
-        "Sensor telemetry continues",
-        "Application dependency remains reachable",
-        "Response result and audit record received"
-      ],
-      "affected": [
-        "Workstation contained",
-        "Critical services healthy"
-      ],
-      "decision": "Hold temporary containment while evidence stabilizes.",
-      "ttl": "Remaining TTL tracked",
-      "blast_radius": "1 workstation",
-      "focus": [
-        "workstation",
-        "nac",
-        "app",
-        "db",
-        "site-controller",
-        "saas"
-      ],
-      "routes": [
-        [
-          "workstation",
-          "nac"
-        ],
-        [
-          "app",
-          "db"
-        ],
-        [
-          "site-controller",
-          "saas"
-        ]
-      ]
+      "id":"trace",
+      "chapter":"TRACE",
+      "title":"MON reconstructs the path and shows what could be reached next.",
+      "happening":"The probable path is now external source → edge → engineer workstation → application server. The application depends on the database.",
+      "mon_action":"The attack graph combines topology and incident evidence to show observed movement and critical dependencies. The database is marked at risk, not falsely marked as compromised.",
+      "impact":"The operator can see where the activity came from, how far it moved, and which critical system could be affected if the path continues.",
+      "term":"Lateral Movement",
+      "term_definition":"Movement from one internal system toward another after an initial foothold. In this simulation the workstation-to-application connection is treated as lateral-movement-shaped behavior.",
+      "narration":"This is the trace stage. MON reconstructs the probable path. The external source reached the environment through the edge, activity centered on the engineer workstation, and a new internal connection appeared from that workstation toward the application server. Movement from one internal system to another is commonly called lateral movement. The application also depends on the database. MON therefore marks the database as at risk, but it does not claim the database is compromised because there is no evidence for that claim. This distinction matters. The attack graph should show what was observed, what path is probable, and what important systems are exposed next.",
+      "focus":["attacker","edge","workstation","app","db","site"],
+      "route":[["attacker","internet","edge","core","workstation","app","db"]],
+      "states":{"workstation":"PROBABLE FOOTHOLD","app":"AFFECTED PATH","db":"AT RISK — NOT CONFIRMED"},
+      "silent_seconds":27
     },
     {
-      "name": "RECOVER",
-      "from": 98,
-      "to": 112,
-      "headline": "MON rolls back temporary control and confirms recovery.",
-      "plain": "When policy conditions are satisfied, MON performs the rollback of the temporary action, watches the restored path, and records the recovery outcome.",
-      "question": "Can normal operation return safely?",
-      "confidence": 0.96,
-      "evidence": [
-        "Rollback result confirmed",
-        "No renewed suspicious path in verification window",
-        "Critical services still healthy",
-        "Full audit trail retained"
-      ],
-      "affected": [
-        "Workstation restored",
-        "Application and Database healthy"
-      ],
-      "decision": "Rollback containment and close into monitored recovery.",
-      "ttl": "Expired / rolled back",
-      "blast_radius": "0 remaining restrictions",
-      "focus": [
-        "workstation",
-        "app",
-        "db",
-        "site-controller",
-        "soc"
-      ],
-      "routes": [
-        [
-          "site-controller",
-          "workstation"
-        ],
-        [
-          "workstation",
-          "app"
-        ],
-        [
-          "app",
-          "db"
-        ]
-      ]
+      "id":"contain",
+      "chapter":"CONTAIN",
+      "title":"MON chooses the smallest safe place to stop the path.",
+      "happening":"Blocking the whole application or database would create unnecessary business impact. The suspicious path can instead be restricted around the workstation using endpoint or NAC control.",
+      "mon_action":"Policy selects a temporary containment action with evidence, confidence, target, enforcement point, blast-radius estimate, TTL, rollback instructions, actor, and audit record.",
+      "impact":"The risky workstation path is restricted while the critical application and database remain available.",
+      "term":"Blast Radius and TTL",
+      "term_definition":"Blast radius is the expected scope of disruption caused by a response. TTL, or time to live, limits how long a temporary containment action may remain active before reassessment or rollback.",
+      "narration":"Now MON contains the incident. This is where response safety matters. A simple reaction might be to shut down a large part of the network. MON instead asks where the suspicious path can be stopped with the smallest blast radius. Blast radius means how much legitimate operation could be disrupted by the response. In this case the safer control point is around the engineer workstation, using endpoint or network access control. The action is temporary and carries a TTL, meaning a time limit, plus explicit rollback instructions. The critical application and database remain online. The purpose of the security fabric is to stop the threat without creating a second incident by breaking the business.",
+      "focus":["workstation","nac","site","app","db"],
+      "route":[["site","nac","workstation"]],
+      "states":{"workstation":"TEMPORARILY CONTAINED","app":"STAYS ONLINE","db":"STAYS ONLINE","nac":"ENFORCEMENT POINT"},
+      "silent_seconds":30
+    },
+    {
+      "id":"verify",
+      "chapter":"VERIFY",
+      "title":"MON checks whether containment actually worked.",
+      "happening":"The suspicious workstation-to-application path stops. Sensors still report telemetry. The application continues reaching the database.",
+      "mon_action":"MON verifies the enforcement result, watches service health, records the response result, and keeps the audit trail. The Local Site Controller can continue this work even during a temporary SaaS-link interruption.",
+      "impact":"Containment is accepted only when the risky path is stopped and critical services remain healthy.",
+      "term":"Verification",
+      "term_definition":"Post-action evidence that confirms whether a response achieved its intended effect without unacceptable side effects.",
+      "narration":"Containment is never assumed successful. MON verifies it. The suspicious path from the workstation toward the application should stop. Sensors must continue reporting so MON can still see the environment. The application must still reach the database because that dependency is required for the business service. MON also records the enforcement result and audit trail. If the SaaS connection is temporarily unavailable, the Local Site Controller is designed to retain local autonomy for permitted actions. Verification answers a simple but critical question: did the response stop the risky behavior without breaking what we were trying to protect?",
+      "focus":["workstation","nac","site","app","db","saas"],
+      "route":[["workstation","nac"],["app","db"],["site","saas"]],
+      "states":{"workstation":"RISKY PATH STOPPED","app":"HEALTHY","db":"HEALTHY","site":"VERIFYING LOCALLY"},
+      "silent_seconds":27
+    },
+    {
+      "id":"recover",
+      "chapter":"RECOVER",
+      "title":"Temporary containment is rolled back under observation.",
+      "happening":"After policy conditions are satisfied, MON removes the temporary restriction and watches the restored communication path for renewed suspicious behavior.",
+      "mon_action":"Rollback is recorded, recovery evidence is preserved, and the incident moves into monitored recovery rather than silently disappearing.",
+      "impact":"Normal operation returns in a controlled way, with evidence showing what was changed, who or what authorized it, and whether recovery succeeded.",
+      "term":"Rollback",
+      "term_definition":"A defined reversal of a containment action so normal operation can be restored safely when policy conditions allow it.",
+      "narration":"Finally MON moves into recovery. The containment action was temporary, so when the policy conditions are satisfied MON performs the rollback. Rollback means reversing the temporary restriction in a controlled way. The workstation is restored under observation rather than simply forgotten. MON watches for renewed suspicious behavior, confirms that the application and database remain healthy, and keeps the complete audit trail. Recovery matters because security response is not finished when something is blocked. The system must also prove that the network can return to an acceptable operating state.",
+      "focus":["workstation","app","db","site","soc"],
+      "route":[["site","workstation"],["workstation","app"],["app","db"]],
+      "states":{"workstation":"RESTORED + MONITORED","app":"HEALTHY","db":"HEALTHY","soc":"AUDIT COMPLETE"},
+      "silent_seconds":27
+    },
+    {
+      "id":"summary",
+      "chapter":"WHY MON",
+      "title":"The complete MON story in one sentence.",
+      "happening":"A suspicious event becomes useful only when the system can connect it to assets, identity, topology, evidence, safe control points, verification, and recovery.",
+      "mon_action":"MON follows the lifecycle: DISCOVER → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER.",
+      "impact":"The intended result is a defensible answer to what happened, where it moved, what is affected, how it can be contained safely, whether the action worked, and whether the environment recovered.",
+      "term":"MON Security Fabric",
+      "term_definition":"A distributed detection, investigation, containment, verification, recovery, and multi-tenant control architecture designed to turn evidence into safe, auditable response.",
+      "narration":"That is the complete MON story. Discover the environment. Detect suspicious behavior. Correlate separate evidence into one incident. Trace the path. Contain at the safest available enforcement point. Verify that the action worked. Then recover and roll the temporary action back when conditions allow. MON is valuable because the operator should not receive only an alarm. The operator should receive evidence, affected systems, a reconstructed path, confidence, a safe response plan, blast radius, TTL, rollback, verification, and an audit trail. That is the difference between merely noticing suspicious activity and managing an incident end to end.",
+      "focus":["attacker","workstation","app","db","netsensor","epsensor","site","nac","saas","soc"],
+      "route":[["attacker","internet","edge","core","workstation","app","db"],["netsensor","site","saas","soc"],["site","nac","workstation"]],
+      "states":{"soc":"END-TO-END INCIDENT STORY","site":"LOCAL + CLOUD COORDINATION"},
+      "silent_seconds":30
     }
   ]
 }
