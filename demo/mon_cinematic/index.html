@@ -4,104 +4,90 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
-  <title>MON Security Fabric — Narrated Incident Story</title>
+  <title>MON Security Fabric — Incident Walkthrough</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <main id="app">
     <section id="start-screen" class="start-screen">
       <div class="start-copy">
-        <div class="kicker">MON SECURITY FABRIC · SYNTHETIC EDUCATIONAL WALKTHROUGH</div>
-        <h1>See one incident move through MON from beginning to recovery.</h1>
-        <p>
-          This version is designed for a non-technical audience. It uses a guided black-and-white story,
-          large explanations, and browser voice narration instead of an abstract dashboard.
-        </p>
-        <button id="start" type="button">START NARRATED DEMO</button>
-        <small>Uses your browser's built-in text-to-speech. No attack traffic is generated.</small>
+        <h1>MON Security Fabric</h1>
+        <p>Watch one simple incident from the first clue to safe recovery.</p>
+        <button id="start" type="button">START DEMO</button>
+        <small>Demo scenario only. No real attack traffic is generated.</small>
       </div>
     </section>
 
     <section id="presentation" class="presentation hidden" aria-live="polite">
       <header class="story-header">
         <div>
-          <div class="kicker">MON SECURITY FABRIC · SYNTHETIC CASE</div>
           <div id="chapter" class="chapter">INTRO</div>
+          <div id="scene-count" class="scene-count">1 / 10</div>
         </div>
-        <div class="progress-copy">
-          <span id="scene-count">Scene 1 of 10</span>
-          <span id="voice-state">Narration on</span>
-        </div>
+        <div id="voice-state" class="voice-state">Narrating</div>
       </header>
 
-      <div class="story-grid">
-        <section class="visual-stage" aria-label="Narrated MON incident diagram">
-          <div class="visual-caption">
-            <span id="stage-label">WHAT YOU ARE LOOKING AT</span>
-            <strong id="stage-caption">Company network and MON components</strong>
+      <section class="visual-stage" aria-label="MON incident story">
+        <div class="scene-copy">
+          <h2 id="headline">Loading…</h2>
+          <p id="caption"></p>
+        </div>
+
+        <div id="viewport" class="viewport">
+          <div id="world" class="world">
+            <svg id="links" class="links" viewBox="0 0 1700 1050" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div id="nodes" class="nodes"></div>
           </div>
-          <div id="viewport" class="viewport">
-            <div id="world" class="world">
-              <svg id="links" class="links" viewBox="0 0 1700 1050" preserveAspectRatio="none" aria-hidden="true"></svg>
-              <div id="nodes" class="nodes"></div>
-            </div>
+        </div>
+
+        <div id="summary-view" class="summary-view hidden" aria-label="MON lifecycle summary">
+          <div class="summary-flow">
+            <div><span>1</span><strong>LEARN</strong><small>what normal looks like</small></div>
+            <i>→</i>
+            <div><span>2</span><strong>NOTICE</strong><small>a suspicious clue</small></div>
+            <i>→</i>
+            <div><span>3</span><strong>JOIN</strong><small>related clues</small></div>
+            <i>→</i>
+            <div><span>4</span><strong>FOLLOW</strong><small>the path</small></div>
+            <i>→</i>
+            <div><span>5</span><strong>BLOCK</strong><small>at the safest place</small></div>
+            <i>→</i>
+            <div><span>6</span><strong>CHECK</strong><small>that it worked</small></div>
+            <i>→</i>
+            <div><span>7</span><strong>RESTORE</strong><small>normal operation</small></div>
           </div>
-          <div id="route-note" class="route-note">Follow the highlighted path.</div>
-        </section>
+        </div>
 
-        <aside class="story-panel">
-          <div class="scene-title-wrap">
-            <span id="scene-number" class="scene-number">01</span>
-            <div>
-              <div class="kicker">CURRENT STEP</div>
-              <h2 id="scene-title">Loading story…</h2>
-            </div>
+        <div id="path-label" class="path-label hidden"></div>
+
+        <div class="bottom-copy">
+          <div class="lesson" id="lesson"></div>
+          <div class="term-line">
+            <strong id="term"></strong>
+            <span id="term-definition"></span>
           </div>
-
-          <article class="explain-block">
-            <span>1. WHAT IS HAPPENING?</span>
-            <p id="happening"></p>
-          </article>
-
-          <article class="explain-block">
-            <span>2. WHAT DOES MON DO?</span>
-            <p id="mon-action"></p>
-          </article>
-
-          <article class="explain-block impact">
-            <span>3. WHY DOES IT MATTER?</span>
-            <p id="impact"></p>
-          </article>
-
-          <article class="definition">
-            <span id="term"></span>
-            <p id="term-definition"></p>
-          </article>
-        </aside>
-      </div>
+        </div>
+      </section>
 
       <section class="subtitle-strip">
-        <span>NARRATOR</span>
         <p id="subtitle"></p>
       </section>
 
       <footer class="controls">
         <div class="buttons">
-          <button id="prev" type="button">← PREVIOUS</button>
+          <button id="prev" type="button">←</button>
           <button id="play-pause" type="button">PAUSE</button>
           <button id="replay-voice" type="button">REPLAY VOICE</button>
-          <button id="voice-toggle" type="button">MUTE VOICE</button>
-          <button id="next" type="button">NEXT →</button>
+          <button id="voice-toggle" type="button">MUTE</button>
+          <button id="next" type="button">→</button>
           <button id="fullscreen" type="button">FULLSCREEN</button>
         </div>
         <div id="scene-dots" class="scene-dots" aria-label="Scene navigation"></div>
-        <div class="hint">Space: pause/resume · ←/→: change scene · V: mute · R: replay narration · F: fullscreen</div>
       </footer>
     </section>
 
     <div id="loading" class="loading">
-      <strong>PREPARING MON STORY</strong>
-      <span>Loading the synthetic scenario…</span>
+      <strong>LOADING DEMO</strong>
     </div>
   </main>
 
