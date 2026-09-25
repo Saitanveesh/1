@@ -163,7 +163,7 @@ button:focus-visible {
 
 .viewport {
   position: absolute;
-  inset: 108px 0 108px;
+  inset: 196px 0 108px;
   overflow: hidden;
 }
 
@@ -302,12 +302,8 @@ button:focus-visible {
 .node.stateful .node-state { display: block; }
 
 .path-label {
-  position: absolute;
-  z-index: 7;
-  left: 50%;
-  top: 112px;
-  max-width: calc(100% - 80px);
-  transform: translateX(-50%);
+  max-width: 100%;
+  margin: 14px auto 0;
   color: #aaa;
   font-size: 11px;
   letter-spacing: 0.055em;
@@ -475,7 +471,7 @@ button:focus-visible {
 }
 
 @media (max-width: 1050px) {
-  .viewport { inset: 120px 0 130px; }
+  .viewport { inset: 205px 0 130px; }
 
   .summary-flow {
     grid-template-columns: repeat(7, minmax(92px, 1fr));
@@ -508,7 +504,7 @@ button:focus-visible {
   .scene-copy h2 { font-size: 28px; }
   .scene-copy p { font-size: 13px; }
 
-  .viewport { inset: 112px 0 142px; }
+  .viewport { inset: 188px 0 142px; }
 
   .bottom-copy {
     width: calc(100% - 28px);
@@ -526,8 +522,9 @@ button:focus-visible {
   }
 
   .path-label {
-    top: 102px;
-    max-width: calc(100% - 24px);
+    max-width: calc(100% - 12px);
+    margin-top: 10px;
+    font-size: 10px;
   }
 
   .subtitle-strip { padding: 10px 12px; }
