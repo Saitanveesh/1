@@ -24,6 +24,21 @@ There is no single perimeter device that defines trust. Enforcement may occur at
 switch/NAC, network firewall/router, cloud control, WAF, or upstream mitigation point,
 depending on evidence and the enforcement graph.
 
+## Cinematic architecture demo
+
+For explaining MON end to end to a non-technical audience, the repository includes a synthetic
+interactive simulation under `demo/mon_cinematic/`. It visualizes the complete lifecycle,
+evidence flow, attack-path reconstruction, policy-safe containment, TTL/rollback, local autonomy,
+verification, and recovery without generating attack traffic.
+
+Run it from the repository root with:
+
+```bash
+python demo/mon_cinematic/server.py
+```
+
+See `demo/mon_cinematic/README.md` for presentation controls and simulation boundaries.
+
 ## Current implementation status
 
 MON is an active production-foundation implementation, not a finished production release.
