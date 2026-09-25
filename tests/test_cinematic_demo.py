@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 SCENARIO_PATH = (
     Path(__file__).resolve().parents[1] / "demo" / "mon_cinematic" / "scenario.json"
 )
