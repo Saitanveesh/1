@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
@@ -28,7 +26,7 @@ def test_cinematic_demo_covers_full_mon_lifecycle_in_order() -> None:
     ]
 
     assert stages[0]["from"] == 0
-    for previous, current in zip(stages, stages[1:]):
+    for previous, current in zip(stages, stages[1:], strict=False):
         assert previous["to"] == current["from"]
     assert stages[-1]["to"] == scenario["duration_seconds"]
 
@@ -45,7 +43,7 @@ def test_cinematic_demo_routes_reference_known_nodes_and_links() -> None:
         assert set(stage["focus"]) <= node_ids
         for route in stage["routes"]:
             assert set(route) <= node_ids
-            for source, target in zip(route, route[1:]):
+            for source, target in zip(route, route[1:], strict=False):
                 assert frozenset((source, target)) in links
 
 
@@ -66,7 +64,7 @@ def test_cinematic_demo_preserves_response_safety_context() -> None:
     assert "rollback" in contain["plain"].lower()
     assert "ttl" in contain["plain"].lower()
     assert "rollback" in recover["plain"].lower()
-    assert "0 remaining restrictions" == recover["blast_radius"]
+    assert recover["blast_radius"] == "0 remaining restrictions"
 
 
 def test_cinematic_demo_is_explicitly_synthetic() -> None:
