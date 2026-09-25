@@ -24,21 +24,28 @@ There is no single perimeter device that defines trust. Enforcement may occur at
 switch/NAC, network firewall/router, cloud control, WAF, or upstream mitigation point,
 depending on evidence and the enforcement graph.
 
-## Cinematic architecture demo
+## Narrated architecture walkthrough
 
-For explaining MON end to end to a non-technical audience, the repository includes a synthetic
-interactive simulation under `demo/mon_cinematic/`. It visualizes the complete lifecycle,
-evidence flow, attack-path reconstruction, policy-safe containment, TTL/rollback, local autonomy,
-verification, and recovery without generating attack traffic.
+For explaining MON end to end to a non-technical audience, the repository includes a synthetic,
+black-and-white narrated walkthrough under `demo/mon_cinematic/`. It deliberately avoids a dense
+SOC dashboard and instead follows one incident scene by scene:
 
-Run it from the repository root with:
+`INTRO → DISCOVER → CASE → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER → WHY MON`
+
+Each scene explains what is happening, what MON does, why the step matters, and one important
+security term. The active network path is shown visually and in plain language. Browser
+text-to-speech narrates the story slowly after the presenter clicks **START NARRATED DEMO**.
+
+The walkthrough remains presentation-only: all events and system states are synthetic, it
+generates no attack traffic, and it cannot alter MON operational state. Run it from the repository
+root with:
 
 ```bash
 python demo/mon_cinematic/server.py
 ```
 
-See `demo/mon_cinematic/README.md` for presentation controls and simulation boundaries.
-
+See `demo/mon_cinematic/README.md` for the scenario, narration behavior, controls, and the
+distinction between synthetic presentation state and real MON telemetry.
 ## Current implementation status
 
 MON is an active production-foundation implementation, not a finished production release.
