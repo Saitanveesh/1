@@ -1,65 +1,49 @@
-# MON Narrated Security-Fabric Walkthrough
+# MON Narrated Incident Walkthrough
 
-This is a **synthetic educational presentation** of the MON lifecycle. It does not generate attack traffic, change firewall rules, or claim to be live telemetry.
+This is a presentation-only walkthrough of the MON lifecycle. It does not generate attack traffic, change firewall rules, or claim to show live telemetry.
 
-The presentation is intentionally designed for professors, friends, interviewers, and other people who may not already understand SOC tooling. It does not begin with a dense dashboard. It begins by explaining the environment and then follows one synthetic incident in order.
+It is designed for a non-technical audience. The screen stays clean: the current part of the network is centered, unrelated systems disappear, the important path is animated, and a slow browser voice explains the story in plain language.
 
 The story is:
 
-`INTRO → DISCOVER → CASE → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER → WHY MON`
+`INTRO → DISCOVER → ATTACK BEGINS → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER → THE WHOLE IDEA`
 
-Within the MON lifecycle itself:
+The MON lifecycle itself remains:
 
 `DISCOVER → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER`
 
-## What changed in this presentation
+## Presentation approach
 
-The first version used a 3D topology-first visualization. That made the architecture visible, but it required the audience to already understand what the nodes and lines meant.
+The walkthrough deliberately avoids a dense SOC dashboard. It uses:
 
-This version is deliberately content-first:
+- black-and-white visuals only;
+- a centered network map;
+- only the systems relevant to the current scene;
+- short titles and one simple explanation line;
+- animated paths that show where traffic, evidence, or response moves;
+- one plain-language security term per scene;
+- slow browser text-to-speech narration;
+- a final seven-step visual summary instead of another architecture screen.
 
-- black-and-white only;
-- one narrated scene at a time;
-- the camera follows only the systems relevant to the current explanation;
-- every scene answers three questions:
-  1. what is happening;
-  2. what MON does;
-  3. why it matters;
-- each scene defines one important security term;
-- the active path is written in plain text as well as drawn;
-- browser text-to-speech explains the incident slowly;
-- the synthetic database is marked **at risk** when appropriate rather than falsely marked compromised;
-- containment explains blast radius, TTL, rollback, and why critical services should remain online;
-- verification shows that MON must prove the response worked;
-- recovery shows that temporary containment must be reversed under controlled observation.
+The narration avoids repeatedly saying the product name. It explains the situation first: what the company has, what changed, what the clues mean, where the activity moved, why a narrow containment point is safer, how the result is checked, and how normal operation is restored.
 
-## Synthetic incident used in the story
+## Example incident
 
-Assume an engineering company has:
+The demo uses an Engineer Workstation, Application Server, Database Server, Network Sensor, Endpoint Sensor, Local Controller, Control Plane, SOC Console, NAC / switch control, and edge firewall.
 
-- an Engineer Workstation;
-- an Application Server;
-- a Database Server;
-- a Network Sensor;
-- an Endpoint Sensor;
-- a Local Site Controller;
-- a MON SaaS Control Plane;
-- a SOC Console;
-- NAC / switch control and an edge firewall as possible enforcement points.
+An outside attacker begins probing the company and repeatedly attempts authentication to the workstation. Later the demo introduces a successful session and a new workstation-to-application connection.
 
-The demonstration then introduces a synthetic external attacker. The attacker probes the environment and repeatedly attempts authentication to the workstation. Later the scenario records a successful session and a new workstation-to-application connection.
+The walkthrough stays conservative about evidence. It never marks the database as compromised without evidence. During TRACE it is shown as **at risk — not confirmed**.
 
-MON does **not** immediately call this a compromise. Instead the walkthrough shows how evidence develops:
+During CONTAIN, the demo restricts the workstation path rather than taking the application and database offline. It explains:
 
-1. network and endpoint observations are detected;
-2. related evidence is correlated;
-3. the probable path is reconstructed;
-4. the database is identified as a critical dependency at risk;
-5. policy chooses a narrow workstation/NAC containment point;
-6. the risky path is verified as stopped while the application and database remain healthy;
-7. the temporary restriction is rolled back under observation.
+- **blast radius** — how much legitimate activity a response may disrupt;
+- **TTL** — the time limit on a temporary action;
+- **rollback** — the undo plan.
 
-All actors, timings, system states, and event details in this presentation are synthetic.
+VERIFY checks that the risky path stopped while the business service still works. RECOVER removes the temporary restriction under observation.
+
+All actors, timings, states, and event details in this walkthrough are demo data.
 
 ## Run
 
@@ -69,7 +53,7 @@ From the repository root:
 python demo/mon_cinematic/server.py
 ```
 
-On Windows, this also works:
+On Windows:
 
 ```powershell
 py demo\mon_cinematic\server.py
@@ -81,57 +65,48 @@ The launcher opens:
 http://127.0.0.1:8765/
 ```
 
-No Python package installation is required for the presentation itself. The launcher uses the Python standard library and the presentation uses browser-native HTML, CSS, SVG, JavaScript, and Speech Synthesis.
+No extra package installation is required for the presentation. It uses the Python standard library plus browser-native HTML, CSS, SVG, JavaScript, and Speech Synthesis.
 
-## Voice narration
+## Voice
 
-Click **START NARRATED DEMO**. The click is intentional because browsers may restrict speech until the user interacts with the page.
+Click **START DEMO** once. Browsers generally require a user interaction before speech can begin.
 
-The presentation will:
+The presentation speaks the current scene, pauses briefly, and advances automatically. If browser speech is unavailable, the scenes still advance using their fallback timing.
 
-- speak the current scene;
-- wait briefly after the narration finishes;
-- move automatically to the next scene.
-
-The default voice rate is deliberately slower than normal conversational speech.
-
-If the browser does not expose a speech-synthesis voice, the presentation remains usable in silent mode and advances using scene timing.
-
-## Controls
+Controls:
 
 - **Space** — pause or resume
 - **Left / Right Arrow** — previous / next scene
-- **V** — mute or enable narration
+- **V** — mute or enable voice
 - **R** — replay the current narration
 - **F** — fullscreen
-- numbered scene buttons — jump directly to a scene
+- numbered buttons — jump directly to a scene
 
-The **REPLAY VOICE** button pauses automatic progression so the current explanation can be heard again without immediately moving on.
+## Visual rules
 
-## What the diagram means
+Inactive nodes are hidden rather than left as transparent text. This prevents the overlapping labels that made the earlier version hard to read.
 
-The presentation is not trying to simulate physical 4D space. It uses a camera-like 2D network map that zooms to the systems relevant to each scene while time supplies the narrative sequence.
+A white filled node means its current state matters to the story, for example:
 
-The bright moving route is the path currently being explained. Faded links remain only as context.
-
-A filled white node represents a system whose current state is important to the explanation, for example:
-
-- `UNDER PROBE`
-- `SUSPICIOUS SESSION`
-- `PROBABLE FOOTHOLD`
+- `BEING TESTED`
+- `SUSPICIOUS LOGIN`
 - `AT RISK — NOT CONFIRMED`
-- `TEMPORARILY CONTAINED`
+- `TEMPORARILY RESTRICTED`
 - `HEALTHY`
-- `RESTORED + MONITORED`
+- `RESTORED + WATCHED`
 
-These are synthetic presentation states, not live measurements.
+The final scene replaces the topology with:
+
+`LEARN → NOTICE → JOIN → FOLLOW → BLOCK → CHECK → RESTORE`
+
+That is the same lifecycle expressed in language a first-time viewer can remember.
 
 ## Files
 
-- `scenario.json` — complete narrated story, terms, impact explanations, nodes, paths, and synthetic state
-- `simulation.js` — scene sequencing, camera flow, active-path rendering, controls, and browser narration
-- `styles.css` — monochrome presentation styling
-- `index.html` — story layout
+- `scenario.json` — simple narration, definitions, topology, paths, and demo states
+- `simulation.js` — scene sequencing, active-path animation, automatic framing, controls, and browser narration
+- `styles.css` — monochrome centered presentation
+- `index.html` — minimal presentation shell
 - `server.py` — loopback-first standard-library launcher
 
-The presentation is deliberately isolated from MON's operational detection and enforcement code. Presentation effects cannot change real MON state.
+The presentation remains isolated from MON operational detection and enforcement code, so presentation effects cannot alter real MON state.
