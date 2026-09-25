@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>MON Security Fabric — Cinematic Simulation</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main id="app">
+    <canvas id="scene" aria-label="Animated MON security fabric simulation"></canvas>
+
+    <header class="topbar glass">
+      <div>
+        <div class="eyebrow">MON SECURITY FABRIC · SYNTHETIC EDUCATIONAL SIMULATION</div>
+        <h1 id="title">MON Security Fabric</h1>
+        <div id="subtitle" class="subtitle">Loading scenario…</div>
+      </div>
+      <div class="top-metrics">
+        <div><span>TENANT</span><strong id="tenant">—</strong></div>
+        <div><span>SITE</span><strong id="site">—</strong></div>
+        <div><span>SIM TIME</span><strong id="sim-time">00:00.0</strong></div>
+      </div>
+    </header>
+
+    <aside class="hud-left glass">
+      <div class="stage-row">
+        <span class="stage-index" id="stage-index">01</span>
+        <div>
+          <div class="eyebrow">LIFECYCLE STAGE</div>
+          <h2 id="stage-name">DISCOVER</h2>
+        </div>
+      </div>
+      <h3 id="headline">Building context…</h3>
+      <p id="plain" class="plain"></p>
+      <div class="question-card">
+        <span>MON ANSWERS</span>
+        <strong id="question"></strong>
+      </div>
+
+      <section>
+        <div class="section-title">Evidence</div>
+        <ul id="evidence"></ul>
+      </section>
+    </aside>
+
+    <aside class="hud-right glass">
+      <section class="metric-grid">
+        <div class="metric">
+          <span>CONFIDENCE</span>
+          <strong id="confidence">0%</strong>
+          <div class="bar"><i id="confidence-bar"></i></div>
+        </div>
+        <div class="metric"><span>BLAST RADIUS</span><strong id="blast-radius">—</strong></div>
+        <div class="metric"><span>TTL / ROLLBACK</span><strong id="ttl">—</strong></div>
+      </section>
+
+      <section>
+        <div class="section-title">Systems affected</div>
+        <ul id="affected"></ul>
+      </section>
+
+      <section>
+        <div class="section-title">Policy / response decision</div>
+        <p id="decision" class="decision"></p>
+      </section>
+
+      <section class="importance">
+        <div class="section-title">Why the fabric matters</div>
+        <p id="importance-copy">
+          Detection alone is not enough. MON preserves evidence, reconstructs path, chooses a safe control point, verifies the result, and can roll it back.
+        </p>
+      </section>
+    </aside>
+
+    <div class="legend glass" aria-label="Simulation legend">
+      <span><i class="dot telemetry"></i>Telemetry</span>
+      <span><i class="dot attack"></i>Suspicious path</span>
+      <span><i class="dot contain"></i>Containment</span>
+      <span><i class="dot critical"></i>Critical asset</span>
+    </div>
+
+    <footer class="controls glass">
+      <div class="control-buttons">
+        <button id="play" type="button">PAUSE</button>
+        <button id="restart" type="button">RESTART</button>
+        <button id="speed" type="button">1×</button>
+        <button id="camera" type="button">AUTO CAMERA</button>
+        <button id="fullscreen" type="button">FULLSCREEN</button>
+      </div>
+
+      <div class="timeline-wrap">
+        <input id="scrubber" type="range" min="0" max="112" step="0.05" value="0" aria-label="Simulation time" />
+        <div id="stages" class="stage-tabs"></div>
+      </div>
+
+      <div class="hint">Space: play/pause · ←/→: seek · drag: orbit · wheel: zoom · F: fullscreen</div>
+    </footer>
+
+    <div id="loading" class="loading">
+      <div class="loader-ring"></div>
+      <strong>INITIALIZING MON FABRIC</strong>
+      <span>Building topology · evidence fabric · enforcement graph</span>
+    </div>
+  </main>
+
+  <script type="module" src="./simulation.js"></script>
+</body>
+</html>
