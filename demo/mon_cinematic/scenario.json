@@ -6,138 +6,518 @@
   "tenant_id": "demo-tenant",
   "site_id": "lab-site-01",
   "nodes": [
-    {"id":"attacker","label":"Untrusted Source","kind":"external","position":[-8,0,-2],"critical":false},
-    {"id":"internet","label":"Internet Edge","kind":"network","position":[-6,0,-1],"critical":false},
-    {"id":"edge-fw","label":"Edge Firewall","kind":"enforcement","position":[-4,0,0],"critical":true},
-    {"id":"core","label":"Core Switch","kind":"network","position":[-2,0,1],"critical":true},
-    {"id":"workstation","label":"Engineer Workstation","kind":"endpoint","position":[1,-1,1],"critical":false},
-    {"id":"app","label":"Application Server","kind":"server","position":[3,0,1],"critical":true},
-    {"id":"db","label":"Database Server","kind":"server","position":[5,1,0],"critical":true},
-    {"id":"net-sensor","label":"Network Sensor","kind":"sensor","position":[-1,2,2],"critical":false},
-    {"id":"endpoint-sensor","label":"Endpoint Telemetry","kind":"sensor","position":[2,2,2],"critical":false},
-    {"id":"nac","label":"NAC / Switch Control","kind":"enforcement","position":[-1,2,-1],"critical":true},
-    {"id":"site-controller","label":"Local Site Controller","kind":"controller","position":[0,4,1],"critical":true},
-    {"id":"saas","label":"MON SaaS Control Plane","kind":"cloud","position":[0,7,-1],"critical":true},
-    {"id":"soc","label":"SOC Console","kind":"console","position":[5,6,0],"critical":false}
+    {
+      "id": "attacker",
+      "label": "Untrusted Source",
+      "kind": "external",
+      "position": [
+        -8,
+        0,
+        -2
+      ],
+      "critical": false
+    },
+    {
+      "id": "internet",
+      "label": "Internet Edge",
+      "kind": "network",
+      "position": [
+        -6,
+        0,
+        -1
+      ],
+      "critical": false
+    },
+    {
+      "id": "edge-fw",
+      "label": "Edge Firewall",
+      "kind": "enforcement",
+      "position": [
+        -4,
+        0,
+        0
+      ],
+      "critical": true
+    },
+    {
+      "id": "core",
+      "label": "Core Switch",
+      "kind": "network",
+      "position": [
+        -2,
+        0,
+        1
+      ],
+      "critical": true
+    },
+    {
+      "id": "workstation",
+      "label": "Engineer Workstation",
+      "kind": "endpoint",
+      "position": [
+        1,
+        -1,
+        1
+      ],
+      "critical": false
+    },
+    {
+      "id": "app",
+      "label": "Application Server",
+      "kind": "server",
+      "position": [
+        3,
+        0,
+        1
+      ],
+      "critical": true
+    },
+    {
+      "id": "db",
+      "label": "Database Server",
+      "kind": "server",
+      "position": [
+        5,
+        1,
+        0
+      ],
+      "critical": true
+    },
+    {
+      "id": "net-sensor",
+      "label": "Network Sensor",
+      "kind": "sensor",
+      "position": [
+        -1,
+        2,
+        2
+      ],
+      "critical": false
+    },
+    {
+      "id": "endpoint-sensor",
+      "label": "Endpoint Telemetry",
+      "kind": "sensor",
+      "position": [
+        2,
+        2,
+        2
+      ],
+      "critical": false
+    },
+    {
+      "id": "nac",
+      "label": "NAC / Switch Control",
+      "kind": "enforcement",
+      "position": [
+        -1,
+        2,
+        -1
+      ],
+      "critical": true
+    },
+    {
+      "id": "site-controller",
+      "label": "Local Site Controller",
+      "kind": "controller",
+      "position": [
+        0,
+        4,
+        1
+      ],
+      "critical": true
+    },
+    {
+      "id": "saas",
+      "label": "MON SaaS Control Plane",
+      "kind": "cloud",
+      "position": [
+        0,
+        7,
+        -1
+      ],
+      "critical": true
+    },
+    {
+      "id": "soc",
+      "label": "SOC Console",
+      "kind": "console",
+      "position": [
+        5,
+        6,
+        0
+      ],
+      "critical": false
+    }
   ],
   "links": [
-    {"from":"attacker","to":"internet","kind":"network"},
-    {"from":"internet","to":"edge-fw","kind":"network"},
-    {"from":"edge-fw","to":"core","kind":"network"},
-    {"from":"core","to":"workstation","kind":"network"},
-    {"from":"core","to":"app","kind":"network"},
-    {"from":"app","to":"db","kind":"network"},
-    {"from":"workstation","to":"app","kind":"network"},
-    {"from":"edge-fw","to":"net-sensor","kind":"telemetry"},
-    {"from":"core","to":"net-sensor","kind":"telemetry"},
-    {"from":"workstation","to":"endpoint-sensor","kind":"telemetry"},
-    {"from":"app","to":"endpoint-sensor","kind":"telemetry"},
-    {"from":"net-sensor","to":"site-controller","kind":"telemetry"},
-    {"from":"endpoint-sensor","to":"site-controller","kind":"telemetry"},
-    {"from":"site-controller","to":"saas","kind":"control"},
-    {"from":"saas","to":"soc","kind":"control"},
-    {"from":"site-controller","to":"edge-fw","kind":"enforcement"},
-    {"from":"site-controller","to":"nac","kind":"enforcement"},
-    {"from":"site-controller","to":"workstation","kind":"enforcement"}
+    {
+      "from": "attacker",
+      "to": "internet",
+      "kind": "network"
+    },
+    {
+      "from": "internet",
+      "to": "edge-fw",
+      "kind": "network"
+    },
+    {
+      "from": "edge-fw",
+      "to": "core",
+      "kind": "network"
+    },
+    {
+      "from": "core",
+      "to": "workstation",
+      "kind": "network"
+    },
+    {
+      "from": "core",
+      "to": "app",
+      "kind": "network"
+    },
+    {
+      "from": "app",
+      "to": "db",
+      "kind": "network"
+    },
+    {
+      "from": "workstation",
+      "to": "app",
+      "kind": "network"
+    },
+    {
+      "from": "edge-fw",
+      "to": "net-sensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "core",
+      "to": "net-sensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "workstation",
+      "to": "endpoint-sensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "app",
+      "to": "endpoint-sensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "net-sensor",
+      "to": "site-controller",
+      "kind": "telemetry"
+    },
+    {
+      "from": "endpoint-sensor",
+      "to": "site-controller",
+      "kind": "telemetry"
+    },
+    {
+      "from": "site-controller",
+      "to": "saas",
+      "kind": "control"
+    },
+    {
+      "from": "saas",
+      "to": "soc",
+      "kind": "control"
+    },
+    {
+      "from": "site-controller",
+      "to": "edge-fw",
+      "kind": "enforcement"
+    },
+    {
+      "from": "site-controller",
+      "to": "nac",
+      "kind": "enforcement"
+    },
+    {
+      "from": "site-controller",
+      "to": "workstation",
+      "kind": "enforcement"
+    },
+    {
+      "from": "nac",
+      "to": "workstation",
+      "kind": "enforcement"
+    }
   ],
   "stages": [
     {
-      "name":"DISCOVER","from":0,"to":14,
-      "headline":"MON learns the environment before anything goes wrong.",
-      "plain":"Sensors observe assets, services, identities, and normal communication paths. The system builds the context it will need later.",
-      "question":"What exists, and how is it normally connected?",
-      "confidence":0.18,
-      "evidence":["Asset: Engineer Workstation","Service: Application Server","Critical dependency: Application → Database","Enforcement options: endpoint, NAC, edge firewall"],
-      "affected":["No incident yet"],
-      "decision":"No containment. Build topology and baseline context.",
-      "ttl":"—",
-      "blast_radius":"0 assets",
-      "focus":["workstation","app","db","net-sensor","endpoint-sensor"],
-      "routes":[]
+      "name": "DISCOVER",
+      "from": 0,
+      "to": 14,
+      "headline": "MON learns the environment before anything goes wrong.",
+      "plain": "Sensors observe assets, services, identities, and normal communication paths. The system builds the context it will need later.",
+      "question": "What exists, and how is it normally connected?",
+      "confidence": 0.18,
+      "evidence": [
+        "Asset: Engineer Workstation",
+        "Service: Application Server",
+        "Critical dependency: Application → Database",
+        "Enforcement options: endpoint, NAC, edge firewall"
+      ],
+      "affected": [
+        "No incident yet"
+      ],
+      "decision": "No containment. Build topology and baseline context.",
+      "ttl": "—",
+      "blast_radius": "0 assets",
+      "focus": [
+        "workstation",
+        "app",
+        "db",
+        "net-sensor",
+        "endpoint-sensor"
+      ],
+      "routes": []
     },
     {
-      "name":"DETECT","from":14,"to":31,
-      "headline":"Multiple weak signals appear.",
-      "plain":"The network sensor sees repeated probing and the endpoint stream records authentication failures. MON does not call this a compromise yet.",
-      "question":"What is happening?",
-      "confidence":0.46,
-      "evidence":["Recon-shaped connection pattern","Repeated authentication failures","Same source path reaches one workstation"],
-      "affected":["Engineer Workstation"],
-      "decision":"Raise findings; continue evidence collection.",
-      "ttl":"—",
-      "blast_radius":"1 observed asset",
-      "focus":["attacker","edge-fw","workstation","net-sensor","endpoint-sensor"],
-      "routes":[["attacker","internet","edge-fw","core","workstation"]]
+      "name": "DETECT",
+      "from": 14,
+      "to": 31,
+      "headline": "Multiple weak signals appear.",
+      "plain": "The network sensor sees repeated probing and the endpoint stream records authentication failures. MON does not call this a compromise yet.",
+      "question": "What is happening?",
+      "confidence": 0.46,
+      "evidence": [
+        "Recon-shaped connection pattern",
+        "Repeated authentication failures",
+        "Same source path reaches one workstation"
+      ],
+      "affected": [
+        "Engineer Workstation"
+      ],
+      "decision": "Raise findings; continue evidence collection.",
+      "ttl": "—",
+      "blast_radius": "1 observed asset",
+      "focus": [
+        "attacker",
+        "edge-fw",
+        "workstation",
+        "net-sensor",
+        "endpoint-sensor"
+      ],
+      "routes": [
+        [
+          "attacker",
+          "internet",
+          "edge-fw",
+          "core",
+          "workstation"
+        ]
+      ]
     },
     {
-      "name":"CORRELATE","from":31,"to":48,
-      "headline":"Network and endpoint evidence become one incident.",
-      "plain":"MON links the probing, failed logons, a later successful session, and a new workstation-to-server connection under the same site and time window.",
-      "question":"Which asset, user, and service are involved?",
-      "confidence":0.73,
-      "evidence":["Network metadata and endpoint auth share scope/time","Successful session follows failure burst","New east-west connection deviates from baseline"],
-      "affected":["Engineer Workstation","Application Server"],
-      "decision":"Create incident and increase investigation priority.",
-      "ttl":"—",
-      "blast_radius":"2 assets",
-      "focus":["workstation","app","site-controller","soc"],
-      "routes":[["attacker","internet","edge-fw","core","workstation"],["workstation","app"]]
+      "name": "CORRELATE",
+      "from": 31,
+      "to": 48,
+      "headline": "Network and endpoint evidence become one incident.",
+      "plain": "MON links the probing, failed logons, a later successful session, and a new workstation-to-server connection under the same site and time window.",
+      "question": "Which asset, user, and service are involved?",
+      "confidence": 0.73,
+      "evidence": [
+        "Network metadata and endpoint auth share scope/time",
+        "Successful session follows failure burst",
+        "New east-west connection deviates from baseline"
+      ],
+      "affected": [
+        "Engineer Workstation",
+        "Application Server"
+      ],
+      "decision": "Create incident and increase investigation priority.",
+      "ttl": "—",
+      "blast_radius": "2 assets",
+      "focus": [
+        "workstation",
+        "app",
+        "site-controller",
+        "soc"
+      ],
+      "routes": [
+        [
+          "attacker",
+          "internet",
+          "edge-fw",
+          "core",
+          "workstation"
+        ],
+        [
+          "workstation",
+          "app"
+        ]
+      ]
     },
     {
-      "name":"TRACE","from":48,"to":64,
-      "headline":"MON reconstructs the probable attack path.",
-      "plain":"The attack graph shows the path from the external source to the workstation and then laterally toward the application server. Critical database access is at risk but not yet observed.",
-      "question":"Where did it come from, where did it move, and what could be next?",
-      "confidence":0.86,
-      "evidence":["External → edge → workstation path","Workstation → application lateral edge","Application has a critical dependency on database"],
-      "affected":["Engineer Workstation","Application Server","Database at risk"],
-      "decision":"Find the safest enforcement point before acting.",
-      "ttl":"—",
-      "blast_radius":"2 affected + 1 at risk",
-      "focus":["attacker","workstation","app","db","site-controller"],
-      "routes":[["attacker","internet","edge-fw","core","workstation","app","db"]]
+      "name": "TRACE",
+      "from": 48,
+      "to": 64,
+      "headline": "MON reconstructs the probable attack path.",
+      "plain": "The attack graph shows the path from the external source to the workstation and then laterally toward the application server. Critical database access is at risk but not yet observed.",
+      "question": "Where did it come from, where did it move, and what could be next?",
+      "confidence": 0.86,
+      "evidence": [
+        "External → edge → workstation path",
+        "Workstation → application lateral edge",
+        "Application has a critical dependency on database"
+      ],
+      "affected": [
+        "Engineer Workstation",
+        "Application Server",
+        "Database at risk"
+      ],
+      "decision": "Find the safest enforcement point before acting.",
+      "ttl": "—",
+      "blast_radius": "2 affected + 1 at risk",
+      "focus": [
+        "attacker",
+        "workstation",
+        "app",
+        "db",
+        "site-controller"
+      ],
+      "routes": [
+        [
+          "attacker",
+          "internet",
+          "edge-fw",
+          "core",
+          "workstation",
+          "app",
+          "db"
+        ]
+      ]
     },
     {
-      "name":"CONTAIN","from":64,"to":82,
-      "headline":"MON contains the threat at the narrowest safe point.",
-      "plain":"Policy avoids isolating critical servers from a single detector. The response plan blocks the suspicious path at the workstation and NAC layer, with a short TTL and rollback.",
-      "question":"Where can this be stopped with the smallest blast radius?",
-      "confidence":0.91,
-      "evidence":["Correlated multi-source incident","Endpoint is non-critical","NAC and endpoint controls are available","Critical application/database remain online"],
-      "affected":["Engineer Workstation isolated from risky path","Application and Database remain available"],
-      "decision":"Temporary workstation/NAC containment; preserve critical service traffic.",
-      "ttl":"10 minutes (simulated)",
-      "blast_radius":"1 workstation",
-      "focus":["workstation","nac","site-controller","app","db"],
-      "routes":[["site-controller","nac"],["site-controller","workstation"]]
+      "name": "CONTAIN",
+      "from": 64,
+      "to": 82,
+      "headline": "MON contains the threat at the narrowest safe point.",
+      "plain": "Policy avoids isolating critical servers from a single detector. The response plan blocks the suspicious path at the workstation and NAC layer, with a short TTL and rollback.",
+      "question": "Where can this be stopped with the smallest blast radius?",
+      "confidence": 0.91,
+      "evidence": [
+        "Correlated multi-source incident",
+        "Endpoint is non-critical",
+        "NAC and endpoint controls are available",
+        "Critical application/database remain online"
+      ],
+      "affected": [
+        "Engineer Workstation isolated from risky path",
+        "Application and Database remain available"
+      ],
+      "decision": "Temporary workstation/NAC containment; preserve critical service traffic.",
+      "ttl": "10 minutes (simulated)",
+      "blast_radius": "1 workstation",
+      "focus": [
+        "workstation",
+        "nac",
+        "site-controller",
+        "app",
+        "db"
+      ],
+      "routes": [
+        [
+          "site-controller",
+          "nac"
+        ],
+        [
+          "site-controller",
+          "workstation"
+        ]
+      ]
     },
     {
-      "name":"VERIFY","from":82,"to":98,
-      "headline":"Containment is not assumed successful; it is verified.",
-      "plain":"MON checks that the suspicious path is blocked, telemetry still arrives, and the critical application and database remain healthy.",
-      "question":"Did the action work without breaking the network?",
-      "confidence":0.94,
-      "evidence":["Risky connection attempts stop at enforcement point","Sensor telemetry continues","Application dependency remains reachable","Response result and audit record received"],
-      "affected":["Workstation contained","Critical services healthy"],
-      "decision":"Hold temporary containment while evidence stabilizes.",
-      "ttl":"Remaining TTL tracked",
-      "blast_radius":"1 workstation",
-      "focus":["workstation","nac","app","db","site-controller","saas"],
-      "routes":[["workstation","nac"],["app","db"],["site-controller","saas"]]
+      "name": "VERIFY",
+      "from": 82,
+      "to": 98,
+      "headline": "Containment is not assumed successful; it is verified.",
+      "plain": "MON checks that the suspicious path is blocked, telemetry still arrives, and the critical application and database remain healthy.",
+      "question": "Did the action work without breaking the network?",
+      "confidence": 0.94,
+      "evidence": [
+        "Risky connection attempts stop at enforcement point",
+        "Sensor telemetry continues",
+        "Application dependency remains reachable",
+        "Response result and audit record received"
+      ],
+      "affected": [
+        "Workstation contained",
+        "Critical services healthy"
+      ],
+      "decision": "Hold temporary containment while evidence stabilizes.",
+      "ttl": "Remaining TTL tracked",
+      "blast_radius": "1 workstation",
+      "focus": [
+        "workstation",
+        "nac",
+        "app",
+        "db",
+        "site-controller",
+        "saas"
+      ],
+      "routes": [
+        [
+          "workstation",
+          "nac"
+        ],
+        [
+          "app",
+          "db"
+        ],
+        [
+          "site-controller",
+          "saas"
+        ]
+      ]
     },
     {
-      "name":"RECOVER","from":98,"to":112,
-      "headline":"MON rolls back temporary control and confirms recovery.",
-      "plain":"When policy conditions are satisfied, MON reverses the temporary action, watches the restored path, and records the recovery outcome.",
-      "question":"Can normal operation return safely?",
-      "confidence":0.96,
-      "evidence":["Rollback result confirmed","No renewed suspicious path in verification window","Critical services still healthy","Full audit trail retained"],
-      "affected":["Workstation restored","Application and Database healthy"],
-      "decision":"Rollback containment and close into monitored recovery.",
-      "ttl":"Expired / rolled back",
-      "blast_radius":"0 remaining restrictions",
-      "focus":["workstation","app","db","site-controller","soc"],
-      "routes":[["site-controller","workstation"],["workstation","app"],["app","db"]]
+      "name": "RECOVER",
+      "from": 98,
+      "to": 112,
+      "headline": "MON rolls back temporary control and confirms recovery.",
+      "plain": "When policy conditions are satisfied, MON reverses the temporary action, watches the restored path, and records the recovery outcome.",
+      "question": "Can normal operation return safely?",
+      "confidence": 0.96,
+      "evidence": [
+        "Rollback result confirmed",
+        "No renewed suspicious path in verification window",
+        "Critical services still healthy",
+        "Full audit trail retained"
+      ],
+      "affected": [
+        "Workstation restored",
+        "Application and Database healthy"
+      ],
+      "decision": "Rollback containment and close into monitored recovery.",
+      "ttl": "Expired / rolled back",
+      "blast_radius": "0 remaining restrictions",
+      "focus": [
+        "workstation",
+        "app",
+        "db",
+        "site-controller",
+        "soc"
+      ],
+      "routes": [
+        [
+          "site-controller",
+          "workstation"
+        ],
+        [
+          "workstation",
+          "app"
+        ],
+        [
+          "app",
+          "db"
+        ]
+      ]
     }
   ]
 }
