@@ -51,7 +51,10 @@ def test_narrated_demo_uses_simple_story_copy() -> None:
     scenario = _scenario()
 
     assert scenario["presentation"]["theme"] == "black-white"
-    assert scenario["presentation"]["voice_rate"] <= 0.9
+    assert 0.85 <= scenario["presentation"]["voice_rate"] <= 0.95
+    assert 0.9 <= scenario["presentation"]["voice_pitch"] <= 1.05
+    assert scenario["presentation"]["voice_start_delay_ms"] >= 100
+    assert scenario["presentation"]["preferred_voice_names"]
 
     for scene in scenario["scenes"]:
         assert scene["headline"]
