@@ -6,21 +6,18 @@ const ui = {
   chapter: document.querySelector("#chapter"),
   sceneCount: document.querySelector("#scene-count"),
   voiceState: document.querySelector("#voice-state"),
-  stageLabel: document.querySelector("#stage-label"),
-  stageCaption: document.querySelector("#stage-caption"),
+  headline: document.querySelector("#headline"),
+  caption: document.querySelector("#caption"),
   viewport: document.querySelector("#viewport"),
   world: document.querySelector("#world"),
   links: document.querySelector("#links"),
   nodes: document.querySelector("#nodes"),
-  routeNote: document.querySelector("#route-note"),
-  sceneNumber: document.querySelector("#scene-number"),
-  sceneTitle: document.querySelector("#scene-title"),
-  happening: document.querySelector("#happening"),
-  monAction: document.querySelector("#mon-action"),
-  impact: document.querySelector("#impact"),
+  pathLabel: document.querySelector("#path-label"),
+  lesson: document.querySelector("#lesson"),
   term: document.querySelector("#term"),
   termDefinition: document.querySelector("#term-definition"),
   subtitle: document.querySelector("#subtitle"),
+  summaryView: document.querySelector("#summary-view"),
   prev: document.querySelector("#prev"),
   playPause: document.querySelector("#play-pause"),
   replayVoice: document.querySelector("#replay-voice"),
@@ -33,12 +30,25 @@ const ui = {
 let scenario = null;
 let nodeMap = new Map();
 let nodeElements = new Map();
+let linkElements = [];
 let currentScene = 0;
 let started = false;
 let playing = true;
 let muted = false;
 let advanceTimer = null;
 let narrationToken = 0;
+
+const kindLabels = {
+  external: "OUTSIDE",
+  network: "NETWORK",
+  enforcement: "CONTROL",
+  endpoint: "PC",
+  critical: "SERVER",
+  sensor: "SENSOR",
+  controller: "LOCAL",
+  cloud: "CLOUD",
+  console: "SOC"
+};
 
 function clearAdvanceTimer() {
   if (advanceTimer !== null) {
@@ -59,19 +69,32 @@ function nodeLabel(id) {
   return nodeMap.get(id)?.label || id;
 }
 
+function edgeKey(a, b) {
+  return a < b ? `${a}::${b}` : `${b}::${a}`;
+}
+
+function sceneVisibleIds(scene) {
+  const ids = new Set(scene.focus || []);
+  for (const route of scene.route || []) {
+    for (const id of route) ids.add(id);
+  }
+  return ids;
+}
+
 function buildDiagram() {
   ui.nodes.replaceChildren();
   ui.links.replaceChildren();
   nodeElements = new Map();
+  linkElements = [];
 
   const defs = makeSvg("defs");
   const marker = makeSvg("marker", {
     id: "route-arrow",
     viewBox: "0 0 10 10",
-    refX: 8,
+    refX: 9,
     refY: 5,
-    markerWidth: 7,
-    markerHeight: 7,
+    markerWidth: 6,
+    markerHeight: 6,
     orient: "auto-start-reverse"
   });
   marker.appendChild(makeSvg("path", {
@@ -86,13 +109,17 @@ function buildDiagram() {
     const to = nodeMap.get(link.to);
     if (!from || !to) continue;
 
-    ui.links.appendChild(makeSvg("line", {
+    const line = makeSvg("line", {
       x1: from.x,
       y1: from.y,
       x2: to.x,
       y2: to.y,
       class: `base-link ${link.kind}`
-    }));
+    });
+    line.dataset.from = link.from;
+    line.dataset.to = link.to;
+    ui.links.appendChild(line);
+    linkElements.push({link, element: line});
   }
 
   for (const node of scenario.nodes) {
@@ -100,6 +127,10 @@ function buildDiagram() {
     element.className = `node kind-${node.kind}`;
     element.style.left = `${node.x}px`;
     element.style.top = `${node.y}px`;
+
+    const icon = document.createElement("span");
+    icon.className = "node-icon";
+    icon.textContent = kindLabels[node.kind] || "NODE";
 
     const label = document.createElement("strong");
     label.textContent = node.label;
@@ -110,7 +141,7 @@ function buildDiagram() {
     const state = document.createElement("div");
     state.className = "node-state";
 
-    element.append(label, role, state);
+    element.append(icon, label, role, state);
     ui.nodes.appendChild(element);
     nodeElements.set(node.id, element);
   }
@@ -122,129 +153,183 @@ function buildSceneDots() {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = String(index + 1).padStart(2, "0");
-    button.title = `${scene.chapter}: ${scene.title}`;
+    button.title = `${scene.chapter}: ${scene.headline}`;
     button.addEventListener("click", () => goToScene(index, true));
     ui.sceneDots.appendChild(button);
   });
 }
 
-function routeDescription(scene) {
-  if (!scene.route || scene.route.length === 0) {
-    return "No attack path yet. MON is building context before making conclusions.";
-  }
+function compactPathLabel(scene) {
+  const chapter = scene.chapter;
+  if (chapter === "ATTACK BEGINS") return "OUTSIDE → FIREWALL → ENGINEER WORKSTATION";
+  if (chapter === "DETECT") return "TWO WATCHERS → ONE LOCAL CONTROLLER";
+  if (chapter === "CORRELATE") return "SEPARATE CLUES → ONE INCIDENT";
+  if (chapter === "TRACE") return "OUTSIDE → WORKSTATION → APPLICATION → DATABASE AT RISK";
+  if (chapter === "CONTAIN") return "LOCAL CONTROLLER → NAC → WORKSTATION";
+  if (chapter === "VERIFY") return "BAD PATH STOPPED · GOOD SERVICE STILL WORKING";
+  if (chapter === "RECOVER") return "UNDO TEMPORARY BLOCK → WATCH THE RESTORED PATH";
+  if (chapter === "DISCOVER") return "NORMAL PATH: WORKSTATION → APPLICATION → DATABASE";
+  return "";
+}
 
-  return scene.route
-    .map((route) => route.map(nodeLabel).join(" → "))
-    .join("   |   ");
+function clearActiveRoutes() {
+  ui.links.querySelectorAll(".route-link, .route-pulse").forEach((element) => element.remove());
 }
 
 function drawActiveRoutes(scene) {
-  ui.links.querySelectorAll(".route-link").forEach((line) => line.remove());
+  clearActiveRoutes();
 
-  for (const route of scene.route || []) {
+  (scene.route || []).forEach((route, routeIndex) => {
     for (let index = 0; index < route.length - 1; index += 1) {
       const from = nodeMap.get(route[index]);
       const to = nodeMap.get(route[index + 1]);
       if (!from || !to) continue;
 
-      ui.links.appendChild(makeSvg("line", {
+      const line = makeSvg("line", {
         x1: from.x,
         y1: from.y,
         x2: to.x,
         y2: to.y,
         class: "route-link",
         "marker-end": "url(#route-arrow)"
+      });
+      ui.links.appendChild(line);
+
+      const pulse = makeSvg("circle", {
+        cx: from.x,
+        cy: from.y,
+        class: "route-pulse"
+      });
+
+      const duration = 1.45 + index * 0.08;
+      const delay = routeIndex * 0.24 + index * 0.12;
+
+      pulse.appendChild(makeSvg("animate", {
+        attributeName: "cx",
+        from: from.x,
+        to: to.x,
+        dur: `${duration}s`,
+        begin: `${delay}s`,
+        repeatCount: "indefinite"
       }));
+      pulse.appendChild(makeSvg("animate", {
+        attributeName: "cy",
+        from: from.y,
+        to: to.y,
+        dur: `${duration}s`,
+        begin: `${delay}s`,
+        repeatCount: "indefinite"
+      }));
+
+      ui.links.appendChild(pulse);
     }
-  }
+  });
 }
 
-function updateNodes(scene) {
+function updateDiagramVisibility(scene) {
+  const visible = sceneVisibleIds(scene);
   const focus = new Set(scene.focus || []);
   const states = scene.states || {};
 
+  let revealIndex = 0;
   for (const [id, element] of nodeElements.entries()) {
-    element.classList.toggle("focus", focus.has(id));
-    element.classList.toggle("stateful", Object.hasOwn(states, id));
+    const isVisible = visible.has(id);
+    const isFocused = focus.has(id);
+
+    element.classList.toggle("visible", isVisible);
+    element.classList.toggle("focus", isFocused);
+    element.classList.toggle("stateful", isVisible && Object.hasOwn(states, id));
+
+    if (isVisible) {
+      element.style.transitionDelay = `${Math.min(revealIndex * 45, 360)}ms`;
+      revealIndex += 1;
+    } else {
+      element.style.transitionDelay = "0ms";
+    }
 
     const state = element.querySelector(".node-state");
     state.textContent = states[id] || "";
   }
+
+  for (const {link, element} of linkElements) {
+    element.classList.toggle(
+      "visible",
+      visible.has(link.from) && visible.has(link.to)
+    );
+  }
 }
 
 function cameraToScene(scene) {
-  const focusNodes = (scene.focus || [])
+  if (scene.view === "summary") return;
+
+  const visibleIds = sceneVisibleIds(scene);
+  const visibleNodes = [...visibleIds]
     .map((id) => nodeMap.get(id))
     .filter(Boolean);
 
-  if (focusNodes.length === 0) {
-    ui.world.style.transform = "translate(0px, 0px) scale(0.7)";
-    return;
-  }
+  if (visibleNodes.length === 0) return;
 
   const viewportWidth = Math.max(ui.viewport.clientWidth, 320);
   const viewportHeight = Math.max(ui.viewport.clientHeight, 220);
-  const xs = focusNodes.map((node) => node.x);
-  const ys = focusNodes.map((node) => node.y);
+
+  const xs = visibleNodes.map((node) => node.x);
+  const ys = visibleNodes.map((node) => node.y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
+
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
-  const contentWidth = Math.max(maxX - minX + 360, 520);
-  const contentHeight = Math.max(maxY - minY + 260, 390);
+  const contentWidth = Math.max(maxX - minX + 430, 620);
+  const contentHeight = Math.max(maxY - minY + 330, 460);
+
   const scale = Math.max(
-    0.42,
-    Math.min(1.08, viewportWidth / contentWidth, viewportHeight / contentHeight)
+    0.46,
+    Math.min(1.12, viewportWidth / contentWidth, viewportHeight / contentHeight)
   );
+
   const tx = viewportWidth / 2 - centerX * scale;
   const ty = viewportHeight / 2 - centerY * scale;
 
   ui.world.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
 }
 
-function stageCaption(scene) {
-  const copy = {
-    INTRO: "The company network MON must understand and protect",
-    DISCOVER: "Normal systems, dependencies, sensors, and control points",
-    CASE: "Synthetic attacker begins at the outside edge",
-    DETECT: "Two sensors observe different pieces of the same developing event",
-    CORRELATE: "Separate evidence becomes one incident story",
-    TRACE: "Observed path, internal movement, and critical dependency at risk",
-    CONTAIN: "Response is pushed to the narrowest safe control point",
-    VERIFY: "MON proves the threat path stopped and business service still works",
-    RECOVER: "Temporary restrictions are reversed under observation",
-    "WHY MON": "The complete end-to-end lifecycle"
-  };
-  return copy[scene.chapter] || scene.title;
-}
-
 function renderScene() {
   const scene = scenario.scenes[currentScene];
+  const summary = scene.view === "summary";
 
   ui.chapter.textContent = scene.chapter;
-  ui.sceneCount.textContent = `Scene ${currentScene + 1} of ${scenario.scenes.length}`;
-  ui.sceneNumber.textContent = String(currentScene + 1).padStart(2, "0");
-  ui.sceneTitle.textContent = scene.title;
-  ui.happening.textContent = scene.happening;
-  ui.monAction.textContent = scene.mon_action;
-  ui.impact.textContent = scene.impact;
+  ui.sceneCount.textContent = `${currentScene + 1} / ${scenario.scenes.length}`;
+  ui.headline.textContent = scene.headline;
+  ui.caption.textContent = scene.caption;
+  ui.lesson.textContent = scene.lesson;
   ui.term.textContent = scene.term;
   ui.termDefinition.textContent = scene.term_definition;
   ui.subtitle.textContent = scene.narration;
-  ui.stageLabel.textContent = scene.chapter === "INTRO" ? "THE ENVIRONMENT" : "FOLLOW THE STORY";
-  ui.stageCaption.textContent = stageCaption(scene);
-  ui.routeNote.textContent = routeDescription(scene);
 
-  updateNodes(scene);
-  drawActiveRoutes(scene);
+  ui.world.classList.toggle("hidden", summary);
+  ui.summaryView.classList.toggle("hidden", !summary);
+
+  const path = compactPathLabel(scene);
+  ui.pathLabel.textContent = path;
+  ui.pathLabel.classList.toggle("hidden", summary || !path);
+
+  if (!summary) {
+    updateDiagramVisibility(scene);
+    drawActiveRoutes(scene);
+    window.requestAnimationFrame(() => cameraToScene(scene));
+  } else {
+    clearActiveRoutes();
+    for (const element of nodeElements.values()) {
+      element.classList.remove("visible", "focus", "stateful");
+    }
+    for (const {element} of linkElements) element.classList.remove("visible");
+  }
 
   Array.from(ui.sceneDots.children).forEach((button, index) => {
     button.classList.toggle("active", index === currentScene);
   });
-
-  window.requestAnimationFrame(() => cameraToScene(scene));
 }
 
 function preferredVoice() {
@@ -276,7 +361,7 @@ function speakCurrentScene() {
   const scene = scenario.scenes[sceneIndex];
 
   if (muted || !("speechSynthesis" in window)) {
-    ui.voiceState.textContent = muted ? "Narration muted" : "Speech unavailable";
+    ui.voiceState.textContent = muted ? "Muted" : "Voice unavailable";
     scheduleSilentAdvance(sceneIndex);
     return;
   }
@@ -289,28 +374,26 @@ function speakCurrentScene() {
   const voice = preferredVoice();
   if (voice) utterance.voice = voice;
   utterance.lang = voice?.lang || "en-US";
-  utterance.rate = scenario.presentation?.voice_rate || 0.86;
+  utterance.rate = scenario.presentation?.voice_rate || 0.84;
   utterance.pitch = scenario.presentation?.voice_pitch || 1;
 
   utterance.onstart = () => {
-    if (token !== narrationToken) return;
-    ui.voiceState.textContent = "Narrating";
+    if (token === narrationToken) ui.voiceState.textContent = "Narrating";
   };
 
   utterance.onend = () => {
     if (token !== narrationToken || currentScene !== sceneIndex) return;
-    ui.voiceState.textContent = "Narration on";
+    ui.voiceState.textContent = "Voice on";
     if (!playing) return;
 
-    clearAdvanceTimer();
     advanceTimer = window.setTimeout(() => {
       if (playing && currentScene === sceneIndex) nextScene();
-    }, scenario.presentation?.auto_advance_pause_ms || 1400);
+    }, scenario.presentation?.auto_advance_pause_ms || 1200);
   };
 
   utterance.onerror = () => {
     if (token !== narrationToken || currentScene !== sceneIndex) return;
-    ui.voiceState.textContent = "Speech unavailable";
+    ui.voiceState.textContent = "Voice unavailable";
     scheduleSilentAdvance(sceneIndex);
   };
 
@@ -330,7 +413,7 @@ function goToScene(index, narrate = true) {
   renderScene();
 
   if (started && narrate && playing) {
-    window.setTimeout(speakCurrentScene, 180);
+    window.setTimeout(speakCurrentScene, 220);
   }
 }
 
@@ -338,7 +421,7 @@ function nextScene() {
   if (currentScene === scenario.scenes.length - 1) {
     playing = false;
     ui.playPause.textContent = "PLAY";
-    ui.voiceState.textContent = "Presentation complete";
+    ui.voiceState.textContent = "Complete";
     return;
   }
   goToScene(currentScene + 1, true);
@@ -376,14 +459,13 @@ function togglePlay() {
 
 function toggleVoice() {
   muted = !muted;
-  ui.voiceToggle.textContent = muted ? "ENABLE VOICE" : "MUTE VOICE";
+  ui.voiceToggle.textContent = muted ? "VOICE ON" : "MUTE";
 
   if (muted) {
     stopNarration();
-    ui.voiceState.textContent = "Narration muted";
+    ui.voiceState.textContent = "Muted";
     scheduleSilentAdvance(currentScene);
   } else if (playing) {
-    ui.voiceState.textContent = "Narration on";
     speakCurrentScene();
   }
 }
@@ -393,7 +475,7 @@ function replayVoice() {
 
   if (muted) {
     muted = false;
-    ui.voiceToggle.textContent = "MUTE VOICE";
+    ui.voiceToggle.textContent = "MUTE";
   }
 
   const wasPlaying = playing;
@@ -401,7 +483,7 @@ function replayVoice() {
   ui.playPause.textContent = "PLAY";
 
   if (!("speechSynthesis" in window)) {
-    ui.voiceState.textContent = "Speech unavailable";
+    ui.voiceState.textContent = "Voice unavailable";
     return;
   }
 
@@ -412,16 +494,17 @@ function replayVoice() {
   const voice = preferredVoice();
   if (voice) utterance.voice = voice;
   utterance.lang = voice?.lang || "en-US";
-  utterance.rate = scenario.presentation?.voice_rate || 0.86;
+  utterance.rate = scenario.presentation?.voice_rate || 0.84;
   utterance.pitch = scenario.presentation?.voice_pitch || 1;
 
   utterance.onstart = () => {
-    if (token === narrationToken) ui.voiceState.textContent = "Replaying narration";
+    if (token === narrationToken) ui.voiceState.textContent = "Replaying";
   };
   utterance.onend = () => {
     if (token !== narrationToken) return;
-    ui.voiceState.textContent = wasPlaying ? "Paused after replay" : "Narration on";
+    ui.voiceState.textContent = wasPlaying ? "Paused after replay" : "Voice on";
   };
+
   window.speechSynthesis.speak(utterance);
 }
 
@@ -433,7 +516,7 @@ function installControls() {
     ui.presentation.classList.remove("hidden");
     ui.playPause.textContent = "PAUSE";
     renderScene();
-    window.setTimeout(speakCurrentScene, 450);
+    window.setTimeout(speakCurrentScene, 500);
   });
 
   ui.prev.addEventListener("click", previousScene);
@@ -470,7 +553,9 @@ function installControls() {
   });
 
   window.addEventListener("resize", () => {
-    if (scenario && started) cameraToScene(scenario.scenes[currentScene]);
+    if (!scenario || !started) return;
+    const scene = scenario.scenes[currentScene];
+    if (scene.view !== "summary") cameraToScene(scene);
   });
 
   if ("speechSynthesis" in window) {
@@ -480,7 +565,7 @@ function installControls() {
 
 async function init() {
   try {
-    const response = await fetch("./scenario.json", { cache: "no-store" });
+    const response = await fetch("./scenario.json", {cache: "no-store"});
     if (!response.ok) throw new Error(`Scenario request failed: ${response.status}`);
     scenario = await response.json();
     nodeMap = new Map(scenario.nodes.map((node) => [node.id, node]));
@@ -496,10 +581,8 @@ async function init() {
     ui.loading.replaceChildren();
 
     const strong = document.createElement("strong");
-    strong.textContent = "PRESENTATION FAILED TO INITIALIZE";
-    const span = document.createElement("span");
-    span.textContent = error instanceof Error ? error.message : String(error);
-    ui.loading.append(strong, span);
+    strong.textContent = "DEMO FAILED TO LOAD";
+    ui.loading.append(strong);
   }
 }
 
