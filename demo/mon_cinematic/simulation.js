@@ -37,6 +37,8 @@ let playing = true;
 let muted = false;
 let advanceTimer = null;
 let narrationToken = 0;
+let cachedVoice = null;
+let voiceLoadPromise = null;
 
 const kindLabels = {
   external: "OUTSIDE",
@@ -332,15 +334,98 @@ function renderScene() {
   });
 }
 
-function preferredVoice() {
-  if (!("speechSynthesis" in window)) return null;
-  const voices = window.speechSynthesis.getVoices();
-  return (
-    voices.find((voice) => voice.lang === "en-US" && /natural|neural|online/i.test(voice.name)) ||
-    voices.find((voice) => voice.lang === "en-US") ||
-    voices.find((voice) => voice.lang.startsWith("en")) ||
-    null
+function voiceScore(voice) {
+  const language = (voice.lang || "").toLowerCase();
+  if (!language.startsWith("en")) return -1000;
+
+  const name = (voice.name || "").toLowerCase();
+  let score = 0;
+
+  if (/natural|neural|online/.test(name)) score += 140;
+  if (/google/.test(name)) score += 18;
+  if (/microsoft/.test(name)) score += 12;
+  if (voice.default) score += 5;
+
+  if (language === "en-us") score += 30;
+  else if (language === "en-gb") score += 24;
+  else if (language === "en-in") score += 20;
+  else score += 10;
+
+  const preferredNames = scenario?.presentation?.preferred_voice_names || [];
+  preferredNames.forEach((fragment, index) => {
+    if (name.includes(String(fragment).toLowerCase())) {
+      score += 120 - index * 4;
+    }
+  });
+
+  return score;
+}
+
+function selectPreferredVoice(voices) {
+  const englishVoices = voices.filter((voice) =>
+    (voice.lang || "").toLowerCase().startsWith("en")
   );
+  if (englishVoices.length === 0) return null;
+
+  return [...englishVoices].sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
+}
+
+function loadVoices() {
+  if (!("speechSynthesis" in window)) return Promise.resolve([]);
+  const existing = window.speechSynthesis.getVoices();
+  if (existing.length > 0) return Promise.resolve(existing);
+  if (voiceLoadPromise) return voiceLoadPromise;
+
+  voiceLoadPromise = new Promise((resolve) => {
+    let finished = false;
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timer);
+      window.speechSynthesis.removeEventListener?.("voiceschanged", onChanged);
+      resolve(window.speechSynthesis.getVoices());
+    };
+
+    const onChanged = () => {
+      if (window.speechSynthesis.getVoices().length > 0) finish();
+    };
+
+    const timer = window.setTimeout(finish, 1200);
+    window.speechSynthesis.addEventListener?.("voiceschanged", onChanged);
+  });
+
+  return voiceLoadPromise;
+}
+
+async function preferredVoice() {
+  if (cachedVoice) return cachedVoice;
+  const voices = await loadVoices();
+  cachedVoice = selectPreferredVoice(voices);
+  return cachedVoice;
+}
+
+function narrationText(text) {
+  return String(text)
+    .replace(/\bTTL\b/g, "T T L")
+    .replace(/\bNAC\b/g, "network access control")
+    .replace(/\bSOC\b/g, "security operations center")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildUtterance(text, voice) {
+  const utterance = new SpeechSynthesisUtterance(narrationText(text));
+  if (voice) utterance.voice = voice;
+  utterance.lang = voice?.lang || "en-US";
+  utterance.rate = scenario.presentation?.voice_rate || 0.9;
+  utterance.pitch = scenario.presentation?.voice_pitch || 0.98;
+  utterance.volume = 1;
+  return utterance;
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function scheduleSilentAdvance(sceneIndex) {
@@ -353,7 +438,7 @@ function scheduleSilentAdvance(sceneIndex) {
   }, seconds * 1000);
 }
 
-function speakCurrentScene() {
+async function speakCurrentScene() {
   clearAdvanceTimer();
   if (!started || !playing) return;
 
@@ -370,12 +455,23 @@ function speakCurrentScene() {
   const token = narrationToken;
   window.speechSynthesis.cancel();
 
-  const utterance = new SpeechSynthesisUtterance(scene.narration);
-  const voice = preferredVoice();
-  if (voice) utterance.voice = voice;
-  utterance.lang = voice?.lang || "en-US";
-  utterance.rate = scenario.presentation?.voice_rate || 0.84;
-  utterance.pitch = scenario.presentation?.voice_pitch || 1;
+  const voice = await preferredVoice();
+  if (
+    token !== narrationToken ||
+    currentScene !== sceneIndex ||
+    muted ||
+    !playing
+  ) return;
+
+  await wait(scenario.presentation?.voice_start_delay_ms || 140);
+  if (
+    token !== narrationToken ||
+    currentScene !== sceneIndex ||
+    muted ||
+    !playing
+  ) return;
+
+  const utterance = buildUtterance(scene.narration, voice);
 
   utterance.onstart = () => {
     if (token === narrationToken) ui.voiceState.textContent = "Narrating";
@@ -413,7 +509,7 @@ function goToScene(index, narrate = true) {
   renderScene();
 
   if (started && narrate && playing) {
-    window.setTimeout(speakCurrentScene, 220);
+    window.setTimeout(() => { void speakCurrentScene(); }, 220);
   }
 }
 
@@ -453,7 +549,7 @@ function togglePlay() {
     window.speechSynthesis.resume();
     ui.voiceState.textContent = "Narrating";
   } else {
-    speakCurrentScene();
+    void speakCurrentScene();
   }
 }
 
@@ -470,7 +566,7 @@ function toggleVoice() {
   }
 }
 
-function replayVoice() {
+async function replayVoice() {
   stopNarration();
 
   if (muted) {
@@ -487,15 +583,18 @@ function replayVoice() {
     return;
   }
 
-  const scene = scenario.scenes[currentScene];
+  const sceneIndex = currentScene;
+  const scene = scenario.scenes[sceneIndex];
   narrationToken += 1;
   const token = narrationToken;
-  const utterance = new SpeechSynthesisUtterance(scene.narration);
-  const voice = preferredVoice();
-  if (voice) utterance.voice = voice;
-  utterance.lang = voice?.lang || "en-US";
-  utterance.rate = scenario.presentation?.voice_rate || 0.84;
-  utterance.pitch = scenario.presentation?.voice_pitch || 1;
+  const voice = await preferredVoice();
+
+  if (token !== narrationToken || currentScene !== sceneIndex) return;
+
+  await wait(scenario.presentation?.voice_start_delay_ms || 140);
+  if (token !== narrationToken || currentScene !== sceneIndex) return;
+
+  const utterance = buildUtterance(scene.narration, voice);
 
   utterance.onstart = () => {
     if (token === narrationToken) ui.voiceState.textContent = "Replaying";
@@ -503,6 +602,9 @@ function replayVoice() {
   utterance.onend = () => {
     if (token !== narrationToken) return;
     ui.voiceState.textContent = wasPlaying ? "Paused after replay" : "Voice on";
+  };
+  utterance.onerror = () => {
+    if (token === narrationToken) ui.voiceState.textContent = "Voice unavailable";
   };
 
   window.speechSynthesis.speak(utterance);
@@ -516,7 +618,7 @@ function installControls() {
     ui.presentation.classList.remove("hidden");
     ui.playPause.textContent = "PAUSE";
     renderScene();
-    window.setTimeout(speakCurrentScene, 500);
+    window.setTimeout(() => { void speakCurrentScene(); }, 500);
   });
 
   ui.prev.addEventListener("click", previousScene);
@@ -559,7 +661,12 @@ function installControls() {
   });
 
   if ("speechSynthesis" in window) {
-    window.speechSynthesis.addEventListener?.("voiceschanged", preferredVoice);
+    window.speechSynthesis.addEventListener?.("voiceschanged", () => {
+      cachedVoice = null;
+      voiceLoadPromise = null;
+      void preferredVoice();
+    });
+    void preferredVoice();
   }
 }
 
