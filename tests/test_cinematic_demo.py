@@ -28,7 +28,7 @@ def test_cinematic_demo_covers_full_mon_lifecycle_in_order() -> None:
     ]
 
     assert stages[0]["from"] == 0
-    for previous, current in zip(stages, stages[1:], strict=True):
+    for previous, current in zip(stages, stages[1:]):
         assert previous["to"] == current["from"]
     assert stages[-1]["to"] == scenario["duration_seconds"]
 
@@ -45,7 +45,7 @@ def test_cinematic_demo_routes_reference_known_nodes_and_links() -> None:
         assert set(stage["focus"]) <= node_ids
         for route in stage["routes"]:
             assert set(route) <= node_ids
-            for source, target in zip(route, route[1:], strict=True):
+            for source, target in zip(route, route[1:]):
                 assert frozenset((source, target)) in links
 
 
