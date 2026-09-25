@@ -4,195 +4,562 @@
   "subtitle": "Demo scenario only. No real attack traffic or real telemetry is generated.",
   "presentation": {
     "theme": "black-white",
-    "voice_rate": 0.84,
-    "voice_pitch": 1,
-    "auto_advance_pause_ms": 1200
+    "voice_rate": 0.9,
+    "voice_pitch": 0.98,
+    "auto_advance_pause_ms": 1200,
+    "voice_start_delay_ms": 140,
+    "preferred_voice_names": [
+      "Microsoft Aria",
+      "Microsoft Jenny",
+      "Microsoft Ava",
+      "Microsoft Andrew",
+      "Microsoft Sonia",
+      "Microsoft Ryan",
+      "Google US English",
+      "Google UK English"
+    ]
   },
   "nodes": [
-    {"id":"attacker","label":"External Attacker","role":"Outside the company","x":110,"y":510,"kind":"external"},
-    {"id":"internet","label":"Internet","role":"Public network","x":330,"y":510,"kind":"network"},
-    {"id":"edge","label":"Edge Firewall","role":"Filters incoming traffic","x":550,"y":510,"kind":"enforcement"},
-    {"id":"core","label":"Core Switch","role":"Connects office systems","x":770,"y":510,"kind":"network"},
-    {"id":"workstation","label":"Engineer Workstation","role":"Employee computer","x":1010,"y":350,"kind":"endpoint"},
-    {"id":"app","label":"Application Server","role":"Runs the business application","x":1280,"y":350,"kind":"critical"},
-    {"id":"db","label":"Database Server","role":"Stores business data","x":1530,"y":350,"kind":"critical"},
-    {"id":"netsensor","label":"Network Sensor","role":"Watches network communication","x":760,"y":735,"kind":"sensor"},
-    {"id":"epsensor","label":"Endpoint Sensor","role":"Watches activity on systems","x":1020,"y":735,"kind":"sensor"},
-    {"id":"site","label":"Local Controller","role":"Joins clues and coordinates local action","x":1040,"y":910,"kind":"controller"},
-    {"id":"nac","label":"NAC / Switch Control","role":"Can restrict one device","x":760,"y":910,"kind":"enforcement"},
-    {"id":"saas","label":"Control Plane","role":"Keeps policy, incidents and audit","x":1320,"y":910,"kind":"cloud"},
-    {"id":"soc","label":"SOC Console","role":"What the security team sees","x":1570,"y":910,"kind":"console"}
+    {
+      "id": "attacker",
+      "label": "External Attacker",
+      "role": "Outside the company",
+      "x": 110,
+      "y": 510,
+      "kind": "external"
+    },
+    {
+      "id": "internet",
+      "label": "Internet",
+      "role": "Public network",
+      "x": 330,
+      "y": 510,
+      "kind": "network"
+    },
+    {
+      "id": "edge",
+      "label": "Edge Firewall",
+      "role": "Filters incoming traffic",
+      "x": 550,
+      "y": 510,
+      "kind": "enforcement"
+    },
+    {
+      "id": "core",
+      "label": "Core Switch",
+      "role": "Connects office systems",
+      "x": 770,
+      "y": 510,
+      "kind": "network"
+    },
+    {
+      "id": "workstation",
+      "label": "Engineer Workstation",
+      "role": "Employee computer",
+      "x": 1010,
+      "y": 350,
+      "kind": "endpoint"
+    },
+    {
+      "id": "app",
+      "label": "Application Server",
+      "role": "Runs the business application",
+      "x": 1280,
+      "y": 350,
+      "kind": "critical"
+    },
+    {
+      "id": "db",
+      "label": "Database Server",
+      "role": "Stores business data",
+      "x": 1530,
+      "y": 350,
+      "kind": "critical"
+    },
+    {
+      "id": "netsensor",
+      "label": "Network Sensor",
+      "role": "Watches network communication",
+      "x": 760,
+      "y": 735,
+      "kind": "sensor"
+    },
+    {
+      "id": "epsensor",
+      "label": "Endpoint Sensor",
+      "role": "Watches activity on systems",
+      "x": 1020,
+      "y": 735,
+      "kind": "sensor"
+    },
+    {
+      "id": "site",
+      "label": "Local Controller",
+      "role": "Joins clues and coordinates local action",
+      "x": 1040,
+      "y": 910,
+      "kind": "controller"
+    },
+    {
+      "id": "nac",
+      "label": "NAC / Switch Control",
+      "role": "Can restrict one device",
+      "x": 760,
+      "y": 910,
+      "kind": "enforcement"
+    },
+    {
+      "id": "saas",
+      "label": "Control Plane",
+      "role": "Keeps policy, incidents and audit",
+      "x": 1320,
+      "y": 910,
+      "kind": "cloud"
+    },
+    {
+      "id": "soc",
+      "label": "SOC Console",
+      "role": "What the security team sees",
+      "x": 1570,
+      "y": 910,
+      "kind": "console"
+    }
   ],
   "links": [
-    {"from":"attacker","to":"internet","kind":"network"},
-    {"from":"internet","to":"edge","kind":"network"},
-    {"from":"edge","to":"core","kind":"network"},
-    {"from":"core","to":"workstation","kind":"network"},
-    {"from":"core","to":"app","kind":"network"},
-    {"from":"workstation","to":"app","kind":"network"},
-    {"from":"app","to":"db","kind":"network"},
-    {"from":"edge","to":"netsensor","kind":"telemetry"},
-    {"from":"core","to":"netsensor","kind":"telemetry"},
-    {"from":"workstation","to":"epsensor","kind":"telemetry"},
-    {"from":"app","to":"epsensor","kind":"telemetry"},
-    {"from":"netsensor","to":"site","kind":"telemetry"},
-    {"from":"epsensor","to":"site","kind":"telemetry"},
-    {"from":"site","to":"saas","kind":"control"},
-    {"from":"saas","to":"soc","kind":"control"},
-    {"from":"site","to":"nac","kind":"enforcement"},
-    {"from":"nac","to":"workstation","kind":"enforcement"},
-    {"from":"site","to":"edge","kind":"enforcement"}
+    {
+      "from": "attacker",
+      "to": "internet",
+      "kind": "network"
+    },
+    {
+      "from": "internet",
+      "to": "edge",
+      "kind": "network"
+    },
+    {
+      "from": "edge",
+      "to": "core",
+      "kind": "network"
+    },
+    {
+      "from": "core",
+      "to": "workstation",
+      "kind": "network"
+    },
+    {
+      "from": "core",
+      "to": "app",
+      "kind": "network"
+    },
+    {
+      "from": "workstation",
+      "to": "app",
+      "kind": "network"
+    },
+    {
+      "from": "app",
+      "to": "db",
+      "kind": "network"
+    },
+    {
+      "from": "edge",
+      "to": "netsensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "core",
+      "to": "netsensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "workstation",
+      "to": "epsensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "app",
+      "to": "epsensor",
+      "kind": "telemetry"
+    },
+    {
+      "from": "netsensor",
+      "to": "site",
+      "kind": "telemetry"
+    },
+    {
+      "from": "epsensor",
+      "to": "site",
+      "kind": "telemetry"
+    },
+    {
+      "from": "site",
+      "to": "saas",
+      "kind": "control"
+    },
+    {
+      "from": "saas",
+      "to": "soc",
+      "kind": "control"
+    },
+    {
+      "from": "site",
+      "to": "nac",
+      "kind": "enforcement"
+    },
+    {
+      "from": "nac",
+      "to": "workstation",
+      "kind": "enforcement"
+    },
+    {
+      "from": "site",
+      "to": "edge",
+      "kind": "enforcement"
+    }
   ],
   "scenes": [
     {
-      "id":"intro",
-      "chapter":"INTRO",
-      "headline":"Start with the company, not the attack.",
-      "caption":"One employee computer uses an application. The application needs a database. Sensors watch quietly around them.",
-      "lesson":"The security system has to protect the business without simply switching everything off.",
-      "term":"Security Fabric",
-      "term_definition":"Several security parts working together as one system: watchers, context, decisions, controls and recovery.",
-      "narration":"Imagine a small company. An engineer uses this computer to reach a business application, and that application needs a database. These systems must stay available because people depend on them for work. Around them are two watchers: one watches network communication, and one watches activity on computers and servers. A local controller joins those clues and can coordinate a response. Think of the whole setup as one security team made of software parts working together.",
-      "focus":["workstation","app","db","netsensor","epsensor","site"],
-      "route":[],
-      "states":{"app":"IMPORTANT SERVICE","db":"IMPORTANT DATA","site":"LOCAL COORDINATOR"},
-      "silent_seconds":26,
-      "view":"map"
+      "id": "intro",
+      "chapter": "INTRO",
+      "headline": "Start with the company, not the attack.",
+      "caption": "One employee computer uses an application. The application needs a database. Sensors watch quietly around them.",
+      "lesson": "The security system has to protect the business without simply switching everything off.",
+      "term": "Security Fabric",
+      "term_definition": "Several security parts working together as one system: watchers, context, decisions, controls and recovery.",
+      "narration": "Imagine a small company. An engineer uses this computer to reach a business application, and that application needs a database. These systems must stay available because people depend on them for work. Around them are two watchers: one watches network communication, and one watches activity on computers and servers. A local controller joins those clues and can coordinate a response. Think of the whole setup as one security team made of software parts working together.",
+      "focus": [
+        "workstation",
+        "app",
+        "db",
+        "netsensor",
+        "epsensor",
+        "site"
+      ],
+      "route": [],
+      "states": {
+        "app": "IMPORTANT SERVICE",
+        "db": "IMPORTANT DATA",
+        "site": "LOCAL COORDINATOR"
+      },
+      "silent_seconds": 26,
+      "view": "map"
     },
     {
-      "id":"discover",
-      "chapter":"DISCOVER",
-      "headline":"First learn what normal looks like.",
-      "caption":"The workstation normally talks to the application. The application normally talks to the database.",
-      "lesson":"If you know the normal roads, a strange new road is easier to notice later.",
-      "term":"Baseline",
-      "term_definition":"A simple picture of what normally happens in the network.",
-      "narration":"Before any attack, the system learns the usual picture. This workstation normally talks to the application. The application normally talks to the database. It also learns where a device could be restricted if there is trouble. This normal picture is called a baseline. It does not mean every change is an attack. It simply gives us something sensible to compare with later.",
-      "focus":["edge","workstation","app","db","netsensor","epsensor","site","nac"],
-      "route":[["workstation","app","db"]],
-      "states":{"workstation":"NORMAL","app":"NORMAL","db":"NORMAL"},
-      "silent_seconds":23,
-      "view":"map"
+      "id": "discover",
+      "chapter": "DISCOVER",
+      "headline": "First learn what normal looks like.",
+      "caption": "The workstation normally talks to the application. The application normally talks to the database.",
+      "lesson": "If you know the normal roads, a strange new road is easier to notice later.",
+      "term": "Baseline",
+      "term_definition": "A simple picture of what normally happens in the network.",
+      "narration": "Before any attack, the system learns the usual picture. This workstation normally talks to the application. The application normally talks to the database. It also learns where a device could be restricted if there is trouble. This normal picture is called a baseline. It does not mean every change is an attack. It simply gives us something sensible to compare with later.",
+      "focus": [
+        "edge",
+        "workstation",
+        "app",
+        "db",
+        "netsensor",
+        "epsensor",
+        "site",
+        "nac"
+      ],
+      "route": [
+        [
+          "workstation",
+          "app",
+          "db"
+        ]
+      ],
+      "states": {
+        "workstation": "NORMAL",
+        "app": "NORMAL",
+        "db": "NORMAL"
+      },
+      "silent_seconds": 23,
+      "view": "map"
     },
     {
-      "id":"attack-arrives",
-      "chapter":"ATTACK BEGINS",
-      "headline":"Now someone outside starts testing the doors.",
-      "caption":"Repeated connection attempts reach the company, followed by repeated login attempts against the engineer's computer.",
-      "lesson":"This looks suspicious, but it is still only an early clue.",
-      "term":"Reconnaissance",
-      "term_definition":"An attacker looking around to learn what is reachable before trying to get deeper inside.",
-      "narration":"Now imagine an attacker outside the company. The attacker starts testing what can be reached, like someone trying several doors to see which one responds. Then repeated login attempts hit the engineer's computer. This early searching is called reconnaissance. It is suspicious, but it is not enough to say the computer is hacked. At this point we only have clues, so the system keeps watching and saves the evidence.",
-      "focus":["attacker","internet","edge","core","workstation","netsensor","epsensor"],
-      "route":[["attacker","internet","edge","core","workstation"]],
-      "states":{"attacker":"OUTSIDE SOURCE","workstation":"BEING TESTED"},
-      "silent_seconds":25,
-      "view":"map"
+      "id": "attack-arrives",
+      "chapter": "ATTACK BEGINS",
+      "headline": "Now someone outside starts testing the doors.",
+      "caption": "Repeated connection attempts reach the company, followed by repeated login attempts against the engineer's computer.",
+      "lesson": "This looks suspicious, but it is still only an early clue.",
+      "term": "Reconnaissance",
+      "term_definition": "An attacker looking around to learn what is reachable before trying to get deeper inside.",
+      "narration": "Now imagine an attacker outside the company. The attacker starts testing what can be reached, like someone trying several doors to see which one responds. Then repeated login attempts hit the engineer's computer. This early searching is called reconnaissance. It is suspicious, but it is not enough to say the computer is hacked. At this point we only have clues, so the system keeps watching and saves the evidence.",
+      "focus": [
+        "attacker",
+        "internet",
+        "edge",
+        "core",
+        "workstation",
+        "netsensor",
+        "epsensor"
+      ],
+      "route": [
+        [
+          "attacker",
+          "internet",
+          "edge",
+          "core",
+          "workstation"
+        ]
+      ],
+      "states": {
+        "attacker": "OUTSIDE SOURCE",
+        "workstation": "BEING TESTED"
+      },
+      "silent_seconds": 25,
+      "view": "map"
     },
     {
-      "id":"detect",
-      "chapter":"DETECT",
-      "headline":"A stronger clue appears.",
-      "caption":"Several failed logins are followed by a successful session, while the network pattern also changes.",
-      "lesson":"A detection means “look here.” It is not the same as proof.",
-      "term":"Detection",
-      "term_definition":"A rule or pattern that says something deserves attention.",
-      "narration":"After several failed login attempts, one session succeeds. Around the same time, the network behavior changes. That makes the situation more interesting. This is detection: a rule or pattern says, look here, something may be wrong. It is still not proof of a full compromise. The useful part is that the evidence is kept with the time, the machine involved, and where it came from.",
-      "focus":["core","workstation","netsensor","epsensor","site"],
-      "route":[["core","netsensor","site"],["workstation","epsensor","site"]],
-      "states":{"workstation":"SUSPICIOUS LOGIN","site":"COLLECTING CLUES"},
-      "silent_seconds":24,
-      "view":"map"
+      "id": "detect",
+      "chapter": "DETECT",
+      "headline": "A stronger clue appears.",
+      "caption": "Several failed logins are followed by a successful session, while the network pattern also changes.",
+      "lesson": "A detection means “look here.” It is not the same as proof.",
+      "term": "Detection",
+      "term_definition": "A rule or pattern that says something deserves attention.",
+      "narration": "After several failed login attempts, one session succeeds. Around the same time, the network behavior changes. That makes the situation more interesting. This is detection: a rule or pattern says, look here, something may be wrong. It is still not proof of a full compromise. The useful part is that the evidence is kept with the time, the machine involved, and where it came from.",
+      "focus": [
+        "core",
+        "workstation",
+        "netsensor",
+        "epsensor",
+        "site"
+      ],
+      "route": [
+        [
+          "core",
+          "netsensor",
+          "site"
+        ],
+        [
+          "workstation",
+          "epsensor",
+          "site"
+        ]
+      ],
+      "states": {
+        "workstation": "SUSPICIOUS LOGIN",
+        "site": "COLLECTING CLUES"
+      },
+      "silent_seconds": 24,
+      "view": "map"
     },
     {
-      "id":"correlate",
-      "chapter":"CORRELATE",
-      "headline":"Separate clues become one story.",
-      "caption":"The network clue and the login clue point to the same machine and the same time. Then that machine starts a new connection to the application server.",
-      "lesson":"Instead of many unrelated alerts, the operator gets one connected incident.",
-      "term":"Correlation",
-      "term_definition":"Joining clues that point to the same event.",
-      "narration":"One watcher saw the outside probing. Another saw the login attempts. Both clues point to the same workstation and the same time. Then that workstation starts a new connection toward the application server. Now the pieces fit together. Correlation simply means joining related clues into one story. This is far easier for a person to understand than receiving several separate alerts with no connection between them.",
-      "focus":["attacker","workstation","app","netsensor","epsensor","site","saas","soc"],
-      "route":[["attacker","internet","edge","core","workstation"],["workstation","app"],["netsensor","site","saas","soc"],["epsensor","site"]],
-      "states":{"workstation":"PART OF INCIDENT","app":"NEW CONNECTION","soc":"ONE INCIDENT"},
-      "silent_seconds":25,
-      "view":"map"
+      "id": "correlate",
+      "chapter": "CORRELATE",
+      "headline": "Separate clues become one story.",
+      "caption": "The network clue and the login clue point to the same machine and the same time. Then that machine starts a new connection to the application server.",
+      "lesson": "Instead of many unrelated alerts, the operator gets one connected incident.",
+      "term": "Correlation",
+      "term_definition": "Joining clues that point to the same event.",
+      "narration": "One watcher saw the outside probing. Another saw the login attempts. Both clues point to the same workstation and the same time. Then that workstation starts a new connection toward the application server. Now the pieces fit together. Correlation simply means joining related clues into one story. This is far easier for a person to understand than receiving several separate alerts with no connection between them.",
+      "focus": [
+        "attacker",
+        "workstation",
+        "app",
+        "netsensor",
+        "epsensor",
+        "site",
+        "saas",
+        "soc"
+      ],
+      "route": [
+        [
+          "attacker",
+          "internet",
+          "edge",
+          "core",
+          "workstation"
+        ],
+        [
+          "workstation",
+          "app"
+        ],
+        [
+          "netsensor",
+          "site",
+          "saas",
+          "soc"
+        ],
+        [
+          "epsensor",
+          "site"
+        ]
+      ],
+      "states": {
+        "workstation": "PART OF INCIDENT",
+        "app": "NEW CONNECTION",
+        "soc": "ONE INCIDENT"
+      },
+      "silent_seconds": 25,
+      "view": "map"
     },
     {
-      "id":"trace",
-      "chapter":"TRACE",
-      "headline":"Now follow where the activity moved.",
-      "caption":"Outside → workstation → application. The database sits behind the application and could be next.",
-      "lesson":"The database is at risk, but there is no evidence yet that it was touched.",
-      "term":"Lateral Movement",
-      "term_definition":"Moving from one internal system to another after getting a foothold.",
-      "narration":"Now we follow the path. The activity came from outside, reached the engineer's workstation, and then a new connection appeared from that workstation to the application server. Moving from one internal machine toward another is called lateral movement. The application depends on the database, so the database is now important to watch. But notice the wording: it is at risk, not confirmed hacked. We only claim what the evidence actually supports.",
-      "focus":["attacker","edge","core","workstation","app","db"],
-      "route":[["attacker","internet","edge","core","workstation","app","db"]],
-      "states":{"workstation":"LIKELY ENTRY POINT","app":"ACTIVITY REACHED HERE","db":"AT RISK — NOT CONFIRMED"},
-      "silent_seconds":26,
-      "view":"map"
+      "id": "trace",
+      "chapter": "TRACE",
+      "headline": "Now follow where the activity moved.",
+      "caption": "Outside → workstation → application. The database sits behind the application and could be next.",
+      "lesson": "The database is at risk, but there is no evidence yet that it was touched.",
+      "term": "Lateral Movement",
+      "term_definition": "Moving from one internal system to another after getting a foothold.",
+      "narration": "Now we follow the path. The activity came from outside, reached the engineer's workstation, and then a new connection appeared from that workstation to the application server. Moving from one internal machine toward another is called lateral movement. The application depends on the database, so the database is now important to watch. But notice the wording: it is at risk, not confirmed hacked. We only claim what the evidence actually supports.",
+      "focus": [
+        "attacker",
+        "edge",
+        "core",
+        "workstation",
+        "app",
+        "db"
+      ],
+      "route": [
+        [
+          "attacker",
+          "internet",
+          "edge",
+          "core",
+          "workstation",
+          "app",
+          "db"
+        ]
+      ],
+      "states": {
+        "workstation": "LIKELY ENTRY POINT",
+        "app": "ACTIVITY REACHED HERE",
+        "db": "AT RISK — NOT CONFIRMED"
+      },
+      "silent_seconds": 26,
+      "view": "map"
     },
     {
-      "id":"contain",
-      "chapter":"CONTAIN",
-      "headline":"Stop the risky path without shutting down the business.",
-      "caption":"Instead of blocking the application or database, restrict the single workstation that is causing the risk.",
-      "lesson":"The safest response is usually the smallest response that actually stops the threat.",
-      "term":"Blast Radius · TTL · Rollback",
-      "term_definition":"Blast radius is how much a response may disrupt. TTL is its time limit. Rollback is the undo plan.",
-      "narration":"Now we need to stop the risky path. The easy but dangerous option would be to shut down large parts of the network. Instead, the safer choice is to restrict only the engineer's workstation using the nearby network control. That keeps the application and database online. The response also has a time limit, called a T T L, and an undo plan called rollback. In simple terms: block only what is necessary, for only as long as necessary, and know how to reverse it.",
-      "focus":["workstation","app","db","nac","site"],
-      "route":[["site","nac","workstation"]],
-      "states":{"workstation":"TEMPORARILY RESTRICTED","app":"STILL ONLINE","db":"STILL ONLINE","nac":"BLOCK HAPPENS HERE"},
-      "silent_seconds":29,
-      "view":"map"
+      "id": "contain",
+      "chapter": "CONTAIN",
+      "headline": "Stop the risky path without shutting down the business.",
+      "caption": "Instead of blocking the application or database, restrict the single workstation that is causing the risk.",
+      "lesson": "The safest response is usually the smallest response that actually stops the threat.",
+      "term": "Blast Radius · TTL · Rollback",
+      "term_definition": "Blast radius is how much a response may disrupt. TTL is its time limit. Rollback is the undo plan.",
+      "narration": "Now we need to stop the risky path. The easy but dangerous option would be to shut down large parts of the network. Instead, the safer choice is to restrict only the engineer's workstation using the nearby network control. That keeps the application and database online. The response also has a time limit, called a T T L, and an undo plan called rollback. In simple terms: block only what is necessary, for only as long as necessary, and know how to reverse it.",
+      "focus": [
+        "workstation",
+        "app",
+        "db",
+        "nac",
+        "site"
+      ],
+      "route": [
+        [
+          "site",
+          "nac",
+          "workstation"
+        ]
+      ],
+      "states": {
+        "workstation": "TEMPORARILY RESTRICTED",
+        "app": "STILL ONLINE",
+        "db": "STILL ONLINE",
+        "nac": "BLOCK HAPPENS HERE"
+      },
+      "silent_seconds": 29,
+      "view": "map"
     },
     {
-      "id":"verify",
-      "chapter":"VERIFY",
-      "headline":"Do not assume the block worked. Check it.",
-      "caption":"The risky workstation path stops, sensors keep reporting, and the application still reaches its database.",
-      "lesson":"A response is successful only if the threat is stopped and the business still works.",
-      "term":"Verification",
-      "term_definition":"Checking the result after an action instead of trusting that it worked.",
-      "narration":"Blocking something is not the end. We now check the result. The suspicious path from the workstation should stop. The sensors should still be reporting, so we have not blinded ourselves. The application should still reach the database, so the business service is healthy. The local controller can keep handling approved local actions even if the cloud link briefly disappears. The question is simple: did we stop the bad path without breaking the good path?",
-      "focus":["workstation","app","db","nac","site","saas"],
-      "route":[["workstation","nac"],["app","db"],["site","saas"]],
-      "states":{"workstation":"RISKY PATH STOPPED","app":"HEALTHY","db":"HEALTHY","site":"CHECKING RESULT"},
-      "silent_seconds":27,
-      "view":"map"
+      "id": "verify",
+      "chapter": "VERIFY",
+      "headline": "Do not assume the block worked. Check it.",
+      "caption": "The risky workstation path stops, sensors keep reporting, and the application still reaches its database.",
+      "lesson": "A response is successful only if the threat is stopped and the business still works.",
+      "term": "Verification",
+      "term_definition": "Checking the result after an action instead of trusting that it worked.",
+      "narration": "Blocking something is not the end. We now check the result. The suspicious path from the workstation should stop. The sensors should still be reporting, so we have not blinded ourselves. The application should still reach the database, so the business service is healthy. The local controller can keep handling approved local actions even if the cloud link briefly disappears. The question is simple: did we stop the bad path without breaking the good path?",
+      "focus": [
+        "workstation",
+        "app",
+        "db",
+        "nac",
+        "site",
+        "saas"
+      ],
+      "route": [
+        [
+          "workstation",
+          "nac"
+        ],
+        [
+          "app",
+          "db"
+        ],
+        [
+          "site",
+          "saas"
+        ]
+      ],
+      "states": {
+        "workstation": "RISKY PATH STOPPED",
+        "app": "HEALTHY",
+        "db": "HEALTHY",
+        "site": "CHECKING RESULT"
+      },
+      "silent_seconds": 27,
+      "view": "map"
     },
     {
-      "id":"recover",
-      "chapter":"RECOVER",
-      "headline":"When it is safe, undo the temporary block.",
-      "caption":"The workstation is restored carefully and watched for the problem returning.",
-      "lesson":"Recovery means getting normal work back safely, not just removing a rule.",
-      "term":"Rollback",
-      "term_definition":"Undoing a temporary security action in a controlled way.",
-      "narration":"When the situation is stable and policy allows it, the temporary restriction is removed. That is rollback: the undo step. The workstation is not simply forgotten. It is restored while the system keeps watching for the suspicious behavior to return. The application and database are checked again. Recovery is complete only when normal work is back and the evidence shows the environment stayed healthy.",
-      "focus":["workstation","app","db","nac","site","soc"],
-      "route":[["site","nac","workstation"],["workstation","app"],["app","db"]],
-      "states":{"workstation":"RESTORED + WATCHED","app":"HEALTHY","db":"HEALTHY","soc":"RECOVERY RECORDED"},
-      "silent_seconds":25,
-      "view":"map"
+      "id": "recover",
+      "chapter": "RECOVER",
+      "headline": "When it is safe, undo the temporary block.",
+      "caption": "The workstation is restored carefully and watched for the problem returning.",
+      "lesson": "Recovery means getting normal work back safely, not just removing a rule.",
+      "term": "Rollback",
+      "term_definition": "Undoing a temporary security action in a controlled way.",
+      "narration": "When the situation is stable and policy allows it, the temporary restriction is removed. That is rollback: the undo step. The workstation is not simply forgotten. It is restored while the system keeps watching for the suspicious behavior to return. The application and database are checked again. Recovery is complete only when normal work is back and the evidence shows the environment stayed healthy.",
+      "focus": [
+        "workstation",
+        "app",
+        "db",
+        "nac",
+        "site",
+        "soc"
+      ],
+      "route": [
+        [
+          "site",
+          "nac",
+          "workstation"
+        ],
+        [
+          "workstation",
+          "app"
+        ],
+        [
+          "app",
+          "db"
+        ]
+      ],
+      "states": {
+        "workstation": "RESTORED + WATCHED",
+        "app": "HEALTHY",
+        "db": "HEALTHY",
+        "soc": "RECOVERY RECORDED"
+      },
+      "silent_seconds": 25,
+      "view": "map"
     },
     {
-      "id":"summary",
-      "chapter":"THE WHOLE IDEA",
-      "headline":"Learn. Notice. Join the clues. Follow the path. Block safely. Check. Restore.",
-      "caption":"That is the whole incident story from beginning to end.",
-      "lesson":"The value is not one alert. The value is understanding the incident and handling it safely.",
-      "term":"MON Security Fabric",
-      "term_definition":"A system that turns security clues into an understandable path, a safe response and a checked recovery.",
-      "narration":"So the whole idea is simple. First learn what normal looks like. Then notice a clue. Join related clues into one incident. Follow the path to see what is involved. Block the risky path at the safest place. Check that the block actually worked. Then restore normal operation carefully. Instead of giving the security team one noisy alarm, the fabric gives them a story they can understand, an action they can control, and evidence that the network recovered.",
-      "focus":[],
-      "route":[],
-      "states":{},
-      "silent_seconds":25,
-      "view":"summary"
+      "id": "summary",
+      "chapter": "THE WHOLE IDEA",
+      "headline": "Learn. Notice. Join the clues. Follow the path. Block safely. Check. Restore.",
+      "caption": "That is the whole incident story from beginning to end.",
+      "lesson": "The value is not one alert. The value is understanding the incident and handling it safely.",
+      "term": "MON Security Fabric",
+      "term_definition": "A system that turns security clues into an understandable path, a safe response and a checked recovery.",
+      "narration": "So the whole idea is simple. First learn what normal looks like. Then notice a clue. Join related clues into one incident. Follow the path to see what is involved. Block the risky path at the safest place. Check that the block actually worked. Then restore normal operation carefully. Instead of giving the security team one noisy alarm, the fabric gives them a story they can understand, an action they can control, and evidence that the network recovered.",
+      "focus": [],
+      "route": [],
+      "states": {},
+      "silent_seconds": 25,
+      "view": "summary"
     }
   ]
 }

@@ -71,7 +71,9 @@ No extra package installation is required for the presentation. It uses the Pyth
 
 Click **START DEMO** once. Browsers generally require a user interaction before speech can begin.
 
-The presentation speaks the current scene, pauses briefly, and advances automatically. If browser speech is unavailable, the scenes still advance using their fallback timing.
+The presentation speaks the current scene, pauses briefly, and advances automatically. It now waits for the browser voice list before speaking, prefers higher-quality English voices when available, uses slightly more natural pacing, and adds a short startup delay so the first word is not clipped. If browser speech is unavailable, the scenes still advance using their fallback timing.
+
+Voice quality still depends on the browser and voices installed by the operating system. On browsers that expose Microsoft Natural/Neural or Google English voices, those are preferred automatically; otherwise the demo uses the best English fallback it can find.
 
 Controls:
 
