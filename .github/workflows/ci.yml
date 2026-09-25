@@ -108,6 +108,8 @@ jobs:
           cache-dependency-path: console/package.json
       - name: Install console dependencies
         run: npm install --no-audit --no-fund
+      - name: Check cinematic demo JavaScript
+        run: node --check ../demo/mon_cinematic/simulation.js
       - name: Test console
         run: npm test
       - name: Build console
