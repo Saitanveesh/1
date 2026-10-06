@@ -95,22 +95,23 @@ def _safe_token(value: str) -> str:
 
 
 class LinuxNftablesRouterAdapter:
-    """Linux router nftables enforcement adapter for forwarded traffic (BLOCK_IP only).
+    """Linux lab-router nftables adapter for forwarded traffic (BLOCK_IP only).
 
-    Unlike `DisposableNftablesAdapter` (netns-only, CI-only), this adapter is
-    designed to eventually run against a real endpoint host's own network
-    namespace. It is gated behind `MON_ENABLE_ENDPOINT_NFTABLES_ENFORCEMENT=1`
-    (disabled by default) and, when constructed with `namespace=...`, can
-    still be pointed at a disposable network namespace for certification --
-    which is how this milestone's CI exercises it. It is not yet certified
-    for arbitrary production hosts; see ADR for the documented scope.
+    The adapter is intentionally narrow. It creates only a MON-owned inet table
+    and a forward-hook chain, then drops forwarded packets whose source address
+    matches the validated response target. It never flushes or edits foreign
+    tables and is disabled unless MON_ENABLE_ROUTER_NFTABLES_ENFORCEMENT=1.
+
+    This is a lab candidate, not a production-certified enterprise router or
+    firewall connector. Production appliance integrations require independent
+    adapter and infrastructure certification.
 
     Safety invariants:
       - never flushes tables or touches rules it did not create;
       - only ever creates/deletes rules inside its own MON-owned table/chain;
       - never invokes a shell and never interpolates untrusted telemetry into
         one -- the only untrusted value (the target IP) is parsed through
-        `ipaddress.ip_address()` before it can reach any command text;
+        ipaddress.ip_address() before it can reach command text;
       - every owned rule carries a bounded, deterministic ownership comment
         tagging execution id and tenant/site scope.
     """
@@ -131,7 +132,7 @@ class LinuxNftablesRouterAdapter:
             raise EnforcementError("Linux nftables router adapter requires Linux")
         if os.environ.get(_ENABLE_ENV) != "1":
             raise EnforcementError(
-                f"{_ENABLE_ENV}=1 is required to enable endpoint nftables enforcement"
+                f"{_ENABLE_ENV}=1 is required to enable router nftables enforcement"
             )
         if namespace is not None and not _NAMESPACE_PATTERN.fullmatch(namespace):
             raise EnforcementError(
