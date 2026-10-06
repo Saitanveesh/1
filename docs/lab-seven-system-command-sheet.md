@@ -1,6 +1,6 @@
 # MON seven-system test-day command sheet
 
-Disposable lab only. Every command below is copy-paste; the only things you edit are the values in section 0. Run the numbered steps **in order**. Each step is tagged with the machine that runs it.
+Disposable lab only. Pinned code: `8f66baa9f8d287b8c05da379259b289c661c5828`. Every command below is copy-paste; the only things you edit are the values in section 0. Run the numbered steps **in order**. Each step is tagged with the machine that runs it.
 
 Live scenario (all real, nothing seeded): TCP probe -> Suricata flow evidence -> SSH/SMB authentication abuse -> Linux/Windows endpoint evidence -> correlation on the attacker source -> operator plan/approve/execute -> PC3 router `BLOCK_IP` -> packet-flow check from PC6 -> rollback -> connectivity restored -> audit trail.
 
@@ -28,7 +28,7 @@ Create this file on **every Ubuntu machine** (PC1, PC2, PC3, PC5, PC6), edit the
 
 ~~~bash
 cat > ~/lab.env <<'EOF'
-export MON_REF=lab/test-day-readiness
+export MON_REF=8f66baa9f8d287b8c05da379259b289c661c5828
 export LAB_USER=<ubuntu-login-user-on-the-lab-machines>
 export PC1_MGMT_IP=<PC1-management-IP>
 export PC3_MGMT_IP=<PC3-management-IP>
@@ -39,7 +39,7 @@ EOF
 source ~/lab.env
 ~~~
 
-`MON_REF` is the branch until PR 85 merges. After the merge, change that one line to the merge commit SHA on every machine (and in section 8.3 for PC4). All MON nodes must report the same `git rev-parse HEAD`.
+`MON_REF` is pinned to the PR 85 merge commit `8f66baa9f8d287b8c05da379259b289c661c5828`. Every MON node (and PC4 in section 8.3) must report exactly that `git rev-parse HEAD`. Do not change code on test day.
 
 ## 1. Every Ubuntu MON node — checkout (PC1, PC3, PC5; PC6 does not need MON)
 
@@ -684,7 +684,7 @@ Test-Connection 10.77.0.1 -Count 2
 ### 8.3 Checkout, install and audit policy
 
 ~~~powershell
-$MON_REF = "lab/test-day-readiness"   # replace with the merge SHA after PR 85 merges
+$MON_REF = "8f66baa9f8d287b8c05da379259b289c661c5828"
 cd C:\MON
 if (Test-Path C:\MON\mon) { Remove-Item -Recurse -Force C:\MON\mon }
 git clone https://github.com/Saitanveesh/1.git C:\MON\mon

@@ -69,14 +69,14 @@ Before any attack test, prove all four statements: PC6 reaches 10.77.0.40 and 10
 
 ## Software baseline
 
-Use the same code everywhere: branch lab/test-day-readiness. After this branch is merged, pin every machine to the merge commit SHA and do not change code during the demonstration.
+Use the same code everywhere: merge commit 8f66baa9f8d287b8c05da379259b289c661c5828. Do not change code during the demonstration.
 
 Ubuntu install:
 
 ~~~bash
 git clone https://github.com/Saitanveesh/1.git
 cd 1
-git checkout lab/test-day-readiness
+git checkout 8f66baa9f8d287b8c05da379259b289c661c5828
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
