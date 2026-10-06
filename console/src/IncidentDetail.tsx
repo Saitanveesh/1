@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { ApiError, fetchInvestigation } from "./api";
+import { ApiError, executeResponse, fetchInvestigation, planResponse, rollbackResponse } from "./api";
 import type {
   AuditRecord,
   Incident,
   IncidentInvestigation,
-  ResponseExecution
+  ResponseExecution,
+  ResponsePlan,
+  ResponseRequestPayload
 } from "./types";
 
 interface Props {
@@ -28,6 +30,14 @@ export default function IncidentDetail({
 }: Props) {
   const [investigation, setInvestigation] = useState<IncidentInvestigation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [targetIp, setTargetIp] = useState("");
+  const [ttlSeconds, setTtlSeconds] = useState(120);
+  const [enforcementPointId, setEnforcementPointId] = useState("");
+  const [planned, setPlanned] = useState<ResponsePlan | null>(null);
+  const [approvalReason, setApprovalReason] = useState("operator reviewed evidence and blast radius");
+  const [responseBusy, setResponseBusy] = useState(false);
+  const [responseMessage, setResponseMessage] = useState<string | null>(null);
+  const [responseError, setResponseError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +45,24 @@ export default function IncidentDetail({
     setError(null);
     fetchInvestigation(incident.incident_id, tenantId, siteId)
       .then((value) => {
-        if (!cancelled) setInvestigation(value);
+        if (cancelled) return;
+        setInvestigation(value);
+        const candidate = value.containment_capabilities.find(
+          (item) => item.health !== "UNAVAILABLE" && item.capabilities.includes("BLOCK_IP")
+        );
+        setEnforcementPointId(candidate?.enforcement_point_id ?? "");
+        const observedSource =
+          value.findings.find(
+            (item) =>
+              item.detector_id === "endpoint-auth-failure-pressure" &&
+              Boolean(item.src_ip)
+          )?.src_ip ??
+          value.findings.find((item) => Boolean(item.src_ip))?.src_ip;
+        const external = value.graph.nodes.find((item) => item.kind === "EXTERNAL_IP");
+        setTargetIp(observedSource ?? external?.label ?? "");
+        setPlanned(null);
+        setResponseMessage(null);
+        setResponseError(null);
       })
       .catch((reason: unknown) => {
         if (cancelled) return;
@@ -60,6 +87,94 @@ export default function IncidentDetail({
   const identities = (investigation?.evidence ?? []).filter(
     (item) => item.evidence_class === "IDENTITY"
   );
+
+  function buildRequest(): ResponseRequestPayload {
+    const ip = targetIp.trim();
+    if (!ip) throw new Error("target source IP is required");
+    if (!Number.isInteger(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > 604800) {
+      throw new Error("TTL must be an integer between 30 and 604800 seconds");
+    }
+    if (!enforcementPointId) throw new Error("select an enforcement point");
+    return {
+      request_id: `console-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      tenant_id: tenantId,
+      site_id: siteId,
+      incident_id: incident.incident_id,
+      target: { ip_address: ip },
+      action: "BLOCK_IP",
+      enforcement_point_id: enforcementPointId,
+      ttl_seconds: ttlSeconds,
+      reason: "operator containment from incident investigation"
+    };
+  }
+
+  async function handlePlan(): Promise<void> {
+    setResponseBusy(true);
+    setResponseError(null);
+    setResponseMessage(null);
+    try {
+      const request = buildRequest();
+      const plan = await planResponse(request);
+      setPlanned(plan);
+      setResponseMessage(
+        `Plan ${plan.decision.outcome}: ${plan.enforcement_point.enforcement_point_id}`
+      );
+    } catch (reason: unknown) {
+      setPlanned(null);
+      setResponseError(
+        reason instanceof Error ? reason.message : "response planning failed"
+      );
+    } finally {
+      setResponseBusy(false);
+    }
+  }
+
+  async function handleExecute(): Promise<void> {
+    if (!planned) return;
+    setResponseBusy(true);
+    setResponseError(null);
+    setResponseMessage(null);
+    try {
+      const approvalRequired = planned.decision.outcome === "REQUIRE_APPROVAL";
+      if (approvalRequired && !approvalReason.trim()) {
+        throw new Error("approval reason is required by policy");
+      }
+      const execution = await executeResponse(
+        planned.request,
+        approvalRequired,
+        approvalRequired ? approvalReason.trim() : undefined
+      );
+      setResponseMessage(`Execution ${execution.status}: ${execution.execution_id}`);
+      setPlanned(null);
+    } catch (reason: unknown) {
+      setResponseError(
+        reason instanceof Error ? reason.message : "response execution failed"
+      );
+    } finally {
+      setResponseBusy(false);
+    }
+  }
+
+  async function handleRollback(executionId: string): Promise<void> {
+    setResponseBusy(true);
+    setResponseError(null);
+    setResponseMessage(null);
+    try {
+      const execution = await rollbackResponse(
+        executionId,
+        tenantId,
+        siteId,
+        "operator requested recovery from incident investigation"
+      );
+      setResponseMessage(`Rollback ${execution.status}: ${execution.execution_id}`);
+    } catch (reason: unknown) {
+      setResponseError(
+        reason instanceof Error ? reason.message : "rollback failed"
+      );
+    } finally {
+      setResponseBusy(false);
+    }
+  }
 
   return (
     <section className="panel full" data-testid="incident-detail">
@@ -139,6 +254,94 @@ export default function IncidentDetail({
                 <li className="empty">No enforcement point is bound to the affected assets.</li>
               )}
             </ul>
+            <div className="response-controls" data-testid="response-controls">
+              <label>
+                TARGET SOURCE IP
+                <input
+                  value={targetIp}
+                  onChange={(event) => {
+                    setTargetIp(event.target.value);
+                    setPlanned(null);
+                  }}
+                  placeholder="IPv4 or IPv6 source address"
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                ENFORCEMENT POINT
+                <select
+                  value={enforcementPointId}
+                  onChange={(event) => {
+                    setEnforcementPointId(event.target.value);
+                    setPlanned(null);
+                  }}
+                >
+                  <option value="">Select</option>
+                  {investigation.containment_capabilities
+                    .filter((item) => item.capabilities.includes("BLOCK_IP"))
+                    .map((item) => (
+                      <option key={item.binding_id} value={item.enforcement_point_id}>
+                        {item.enforcement_point_id} · {item.kind} · {item.health}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                TTL SECONDS
+                <input
+                  type="number"
+                  min={30}
+                  max={604800}
+                  value={ttlSeconds}
+                  onChange={(event) => {
+                    setTtlSeconds(Number(event.target.value));
+                    setPlanned(null);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="control-button"
+                onClick={() => void handlePlan()}
+                disabled={responseBusy || !investigation.containment_capabilities.length}
+              >
+                PLAN BLOCK
+              </button>
+              {planned && (
+                <div className="planned-response" data-testid="planned-response">
+                  <strong>{planned.decision.outcome}</strong>
+                  <span>
+                    {planned.decision.reasons.join(" · ") || "policy returned no reasons"}
+                  </span>
+                  <span>
+                    blast radius: {planned.blast_radius_estimate ?? "UNKNOWN"}
+                  </span>
+                  <span>
+                    selected: {planned.enforcement_point.enforcement_point_id}
+                  </span>
+                  {planned.decision.outcome === "REQUIRE_APPROVAL" && (
+                    <label>
+                      APPROVAL REASON
+                      <input
+                        value={approvalReason}
+                        onChange={(event) => setApprovalReason(event.target.value)}
+                        maxLength={1000}
+                      />
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    className="control-button primary"
+                    onClick={() => void handleExecute()}
+                    disabled={responseBusy || planned.decision.outcome === "DENY"}
+                  >
+                    {planned.decision.outcome === "DENY" ? "POLICY DENIED" : "EXECUTE BLOCK"}
+                  </button>
+                </div>
+              )}
+              {responseMessage && <div className="action-state">{responseMessage}</div>}
+              {responseError && <div className="action-state error" role="alert">{responseError}</div>}
+            </div>
           </article>
         </div>
       )}
@@ -160,6 +363,16 @@ export default function IncidentDetail({
                 </span>
                 {item.rollback_result && (
                   <div className="subtle" data-testid="rollback-result">rollback: {item.rollback_result.message}</div>
+                )}
+                {["APPLIED", "ROLLBACK_FAILED"].includes(item.status) && (
+                  <button
+                    type="button"
+                    className="control-button compact"
+                    disabled={responseBusy}
+                    onClick={() => void handleRollback(item.execution_id)}
+                  >
+                    ROLLBACK
+                  </button>
                 )}
               </li>
             ))}

@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import ExtendedKeyUsageOID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mon.domain import SecurityEvent
 from mon.mtls_ingress import create_mtls_server_ssl_context
 from mon.sensor_fleet_models import (
     SensorAuthorizationResult,
@@ -451,6 +452,35 @@ class MtlsSensorIngress:
             },
         )
 
+    async def ingest_event(self, request: web.Request) -> web.Response:
+        try:
+            identity = await self._authorize(request)
+        except SensorCertificateError as exc:
+            raise web.HTTPUnauthorized(text=str(exc)) from exc
+        except SensorCertificateScopeError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+        try:
+            event = SecurityEvent.model_validate_json(await request.read())
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity(
+                text="invalid endpoint security event"
+            ) from exc
+
+        if (
+            event.tenant_id != identity.tenant_id
+            or event.site_id != identity.site_id
+            or event.sensor_id != identity.sensor_id
+        ):
+            raise web.HTTPForbidden(
+                text="endpoint event scope does not match verified sensor identity"
+            )
+
+        return await self._forward(
+            "/api/v1/site/events",
+            event.model_dump(mode="json"),
+        )
+
     async def ingest_suricata(self, request: web.Request) -> web.Response:
         try:
             identity = await self._authorize(request)
@@ -504,6 +534,10 @@ def create_app(
     app.router.add_post(
         "/api/v1/sensors/suricata/batch",
         ingress.ingest_suricata,
+    )
+    app.router.add_post(
+        "/api/v1/sensors/events",
+        ingress.ingest_event,
     )
     app.router.add_post(
         "/api/v1/sensors/heartbeat",

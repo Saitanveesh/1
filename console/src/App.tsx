@@ -25,9 +25,7 @@ type View =
   | "Enforcement"
   | "Response"
   | "Audit"
-  | "Fleet"
-  | "Sites"
-  | "System";
+  | "Fleet";
 
 const views: View[] = [
   "Overview",
@@ -38,9 +36,7 @@ const views: View[] = [
   "Enforcement",
   "Response",
   "Audit",
-  "Fleet",
-  "Sites",
-  "System"
+  "Fleet"
 ];
 
 const rank: Record<Severity, number> = {
@@ -542,13 +538,6 @@ export default function App() {
         {view === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
         {view === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
         {view === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
-        {["Sites","System"].includes(view) && (
-          <section className="panel full placeholder">
-            <span className="eyebrow">MODULE FOUNDATION</span>
-            <h2>{view}</h2>
-            <p>This module is wired into the command-center navigation. Its durable API and operational controls are being implemented next; no synthetic values are displayed.</p>
-          </section>
-        )}
       </main>
     </div>
   );

@@ -117,12 +117,11 @@ closed.
 
 ## Enforcement
 
-The service receives an enforcement-adapter registry from deployment code. The default
-`mon-site` executable does not silently activate a host firewall adapter.
+The service receives an enforcement-adapter registry from deployment code and does not silently activate host or network enforcement.
 
-The repository's nftables implementation intentionally operates only in disposable Linux
-network namespaces when its explicit sandbox environment guard is enabled. Do not use that
-adapter as a production host-firewall deployment path.
+For controlled lab routing, setting MON_ENABLE_ROUTER_NFTABLES_ENFORCEMENT=1 registers the narrow linux-nftables-router adapter as a ROUTER enforcement point implementation. It owns only its MON nftables table/forward chain, supports BLOCK_IP only, and remains disabled by default. See ADR 0075.
+
+This lab adapter is not production certification for arbitrary Linux routers, host firewall managers, enterprise appliances, or upstream mitigation. The disposable namespace adapter remains restricted to CI/sandbox use.
 
 ## Current restart boundary
 

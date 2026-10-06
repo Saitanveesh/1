@@ -9,6 +9,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+from mon.domain import SecurityEvent
+from mon.endpoint_transport import MtlsSensorEventSender
 from mon.mtls_ingress import create_mtls_server_ssl_context
 from mon.sensor_identity import (
     generate_sensor_key_and_csr,
@@ -669,3 +671,135 @@ async def test_sensor_ingress_fails_closed_when_local_trust_is_unavailable(
         assert response.status_code == 503
     finally:
         await runner.cleanup()
+
+@pytest.mark.asyncio
+async def test_endpoint_sender_delivers_event_through_verified_sensor_identity(
+    tmp_path,
+) -> None:
+    ca, ca_pem = make_ca()
+    server_cert, server_key = make_server_certificate(ca)
+    server_cert_path = tmp_path / "server.pem"
+    server_key_path = tmp_path / "server-key.pem"
+    ca_path = tmp_path / "sensor-ca.pem"
+    server_cert_path.write_text(server_cert, encoding="utf-8")
+    server_key_path.write_text(server_key, encoding="utf-8")
+    ca_path.write_text(ca_pem, encoding="utf-8")
+
+    ingress = MtlsSensorIngress(
+        "tenant-a",
+        "site-a",
+        "http://127.0.0.1:8090",
+    )
+    install_scope_only_authorizer(ingress)
+    captured: dict[str, object] = {}
+
+    async def fake_forward(path: str, payload: dict[str, object]):
+        captured["path"] = path
+        captured["payload"] = payload
+        return web.json_response({"accepted": True}, status=200)
+
+    ingress._forward = fake_forward
+    app = web.Application()
+    app.router.add_post("/api/v1/sensors/events", ingress.ingest_event)
+    runner, port = await start_ingress(
+        app,
+        create_mtls_server_ssl_context(
+            str(server_cert_path),
+            str(server_key_path),
+            str(ca_path),
+        ),
+    )
+    client_ca, client_cert, client_key = write_sensor_identity(
+        tmp_path,
+        ca,
+        ca_pem,
+        sensor_id="windows-victim-1",
+    )
+    sender = MtlsSensorEventSender(
+        f"https://localhost:{port}",
+        tenant_id="tenant-a",
+        site_id="site-a",
+        sensor_id="windows-victim-1",
+        ca_certificate_file=client_ca,
+        client_certificate_file=client_cert,
+        client_private_key_file=client_key,
+    )
+    event = SecurityEvent(
+        event_id="endpoint-live-1",
+        tenant_id="tenant-a",
+        site_id="site-a",
+        sensor_id="windows-victim-1",
+        category="endpoint.auth.failure",
+        src_ip="10.81.0.50",
+        dst_ip="10.82.0.20",
+    )
+    try:
+        await sender.send(event)
+        assert captured["path"] == "/api/v1/site/events"
+        payload = captured["payload"]
+        assert isinstance(payload, dict)
+        assert payload["event_id"] == "endpoint-live-1"
+        assert payload["sensor_id"] == "windows-victim-1"
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_sensor_ingress_rejects_endpoint_event_scope_spoofing(tmp_path) -> None:
+    ca, ca_pem = make_ca()
+    server_cert, server_key = make_server_certificate(ca)
+    server_cert_path = tmp_path / "server.pem"
+    server_key_path = tmp_path / "server-key.pem"
+    ca_path = tmp_path / "sensor-ca.pem"
+    server_cert_path.write_text(server_cert, encoding="utf-8")
+    server_key_path.write_text(server_key, encoding="utf-8")
+    ca_path.write_text(ca_pem, encoding="utf-8")
+
+    ingress = MtlsSensorIngress(
+        "tenant-a",
+        "site-a",
+        "http://127.0.0.1:8090",
+    )
+    install_scope_only_authorizer(ingress)
+    app = web.Application()
+    app.router.add_post("/api/v1/sensors/events", ingress.ingest_event)
+    runner, port = await start_ingress(
+        app,
+        create_mtls_server_ssl_context(
+            str(server_cert_path),
+            str(server_key_path),
+            str(ca_path),
+        ),
+    )
+    client_ca, client_cert, client_key = write_sensor_identity(
+        tmp_path,
+        ca,
+        ca_pem,
+        sensor_id="windows-victim-1",
+    )
+    client_context = create_mtls_client_ssl_context(
+        str(client_ca),
+        str(client_cert),
+        str(client_key),
+    )
+    try:
+        async with httpx.AsyncClient(
+            verify=client_context,
+            timeout=5,
+            trust_env=False,
+        ) as client:
+            response = await client.post(
+                f"https://localhost:{port}/api/v1/sensors/events",
+                json={
+                    "event_id": "spoof-1",
+                    "tenant_id": "tenant-a",
+                    "site_id": "site-a",
+                    "sensor_id": "other-sensor",
+                    "category": "endpoint.auth.failure",
+                },
+            )
+        assert response.status_code == 403
+        assert "verified sensor identity" in response.text
+    finally:
+        await runner.cleanup()
+

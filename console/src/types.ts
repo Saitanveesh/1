@@ -70,6 +70,31 @@ export interface EnforcementBinding {
   attributes: Record<string, unknown>;
 }
 
+export interface ResponseRequestPayload {
+  request_id: string;
+  tenant_id: string;
+  site_id: string;
+  incident_id: string;
+  target: { asset_id?: string; ip_address?: string };
+  action: string;
+  enforcement_point_id?: string;
+  ttl_seconds?: number;
+  reason: string;
+}
+
+export interface ResponsePlan {
+  request: ResponseRequestPayload;
+  decision: { outcome: string; reasons: string[] };
+  enforcement_point: {
+    enforcement_point_id: string;
+    kind: string;
+    vendor: string;
+  };
+  rollback_action: string;
+  selection_reasons: string[];
+  blast_radius_estimate?: string;
+}
+
 export interface ResponseExecution {
   execution_id: string;
   tenant_id: string;
@@ -83,21 +108,7 @@ export interface ResponseExecution {
   approval?: { actor_id: string; reason: string };
   result?: { success: boolean; message: string };
   rollback_result?: { success: boolean; message: string };
-  plan: {
-    request: {
-      incident_id: string;
-      action: string;
-      ttl_seconds?: number;
-      target: { asset_id?: string; ip_address?: string };
-    };
-    decision: { outcome: string; reasons: string[] };
-    enforcement_point: {
-      enforcement_point_id: string;
-      kind: string;
-      vendor: string;
-    };
-    blast_radius_estimate?: string;
-  };
+  plan: ResponsePlan;
 }
 
 export interface AuditRecord {
