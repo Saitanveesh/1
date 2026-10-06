@@ -191,6 +191,16 @@ load the new generation before continuing.
 
 The store retains at most the active and one previous generation after successful rotation.
 
+## Remote endpoint collectors
+
+Windows and Linux endpoint collectors may use the same authenticated sensor ingress instead of a loopback Site Controller. Configure the collector with --sensor-ingress-url plus --server-ca-file, --client-cert-file, and --client-key-file. The ingress URL must use HTTPS.
+
+The client certificate must be enrolled for the exact tenant/site/sensor identity passed to the collector. POST /api/v1/sensors/events accepts one normalized SecurityEvent, derives the trusted identity from the verified certificate, and rejects any payload whose tenant_id, site_id, or sensor_id differs from that certificate identity.
+
+The Site Controller local /api/v1/site/events endpoint remains loopback-only. Do not expose it to remote endpoints.
+
+Existing local endpoint deployments remain compatible: if --sensor-ingress-url is omitted, the collector continues to use the loopback-only LocalSiteEventSender path.
+
 ## Managed enrollment and revocation
 
 Create a one-time sensor enrollment token through the control-plane
