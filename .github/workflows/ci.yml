@@ -215,7 +215,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
           sudo apt-get update
-          sudo apt-get install -y iproute2 nftables
+          sudo apt-get install -y iproute2 nftables iputils-ping
       - name: Validate disposable nftables adapter
         run: |
           set -euo pipefail
