@@ -51,8 +51,15 @@ export default function IncidentDetail({
           (item) => item.health !== "UNAVAILABLE" && item.capabilities.includes("BLOCK_IP")
         );
         setEnforcementPointId(candidate?.enforcement_point_id ?? "");
+        const observedSource =
+          value.findings.find(
+            (item) =>
+              item.detector_id === "endpoint-auth-failure-pressure" &&
+              Boolean(item.src_ip)
+          )?.src_ip ??
+          value.findings.find((item) => Boolean(item.src_ip))?.src_ip;
         const external = value.graph.nodes.find((item) => item.kind === "EXTERNAL_IP");
-        setTargetIp(external?.label ?? "");
+        setTargetIp(observedSource ?? external?.label ?? "");
         setPlanned(null);
         setResponseMessage(null);
         setResponseError(null);
