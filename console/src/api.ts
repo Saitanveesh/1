@@ -1,4 +1,4 @@
-import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, SensorFleetView } from "./types";
+import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView } from "./types";
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -60,3 +60,47 @@ export function liveWebSocketUrl(tenantId: string, siteId: string): string {
   const params = query({ tenantId, siteId });
   return `${scheme}://${window.location.host}/ws/v1/live?${params}`;
 }
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...jsonHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ApiError(response.status, detail || `${path} failed: HTTP ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function planResponse(request: ResponseRequestPayload): Promise<ResponsePlan> {
+  return postJson<ResponsePlan>("/api/v1/responses/plan", request);
+}
+
+export function executeResponse(
+  request: ResponseRequestPayload,
+  approve: boolean,
+  approvalReason?: string
+): Promise<ResponseExecution> {
+  return postJson<ResponseExecution>("/api/v1/responses/execute", {
+    request,
+    approve,
+    ...(approvalReason ? { approval_reason: approvalReason } : {})
+  });
+}
+
+export function rollbackResponse(
+  executionId: string,
+  tenantId: string,
+  siteId: string,
+  reason: string
+): Promise<ResponseExecution> {
+  const scope = query({ tenantId, siteId });
+  return postJson<ResponseExecution>(
+    `/api/v1/responses/${encodeURIComponent(executionId)}/rollback?${scope}`,
+    { reason }
+  );
+}
+
