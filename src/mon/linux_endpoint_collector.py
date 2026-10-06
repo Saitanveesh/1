@@ -23,8 +23,8 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from mon.domain import SecurityEvent
-from mon.endpoint_transport import MtlsSensorEventSender
 from mon.endpoint import EndpointEventKind, EndpointTelemetryEvent, normalize_endpoint_event
+from mon.endpoint_transport import MtlsSensorEventSender
 
 _CHECKPOINT_SCHEMA_VERSION = 1
 _BUFFER_SCHEMA_VERSION = "1"
