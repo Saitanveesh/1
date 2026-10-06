@@ -116,6 +116,16 @@ class CorrelationEngine:
 
     @staticmethod
     def _actor(finding: Finding) -> str:
+        # Authentication-abuse findings describe activity *against* an endpoint,
+        # so asset_id is the victim while src_ip is the observed remote actor.
+        # Prefer that source for correlation so independent network telemetry
+        # from the same source can join the same incident without claiming
+        # causality beyond the shared observed entity/time window.
+        if (
+            finding.detector_id == "endpoint-auth-failure-pressure"
+            and finding.src_ip
+        ):
+            return finding.src_ip
         return finding.asset_id or finding.src_ip or finding.dst_ip or finding.finding_id
 
     @staticmethod
