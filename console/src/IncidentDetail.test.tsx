@@ -120,6 +120,43 @@ describe("IncidentDetail", () => {
     expect(JSON.parse(secondCall[1].body as string).enforcement_point_id).toBe("router-1");
   });
 
+  it("prefills a private attacker source from endpoint evidence", async () => {
+    const privateSource: IncidentInvestigation = {
+      ...investigation,
+      findings: [
+        {
+          finding_id: "f-auth",
+          detector_id: "endpoint-auth-failure-pressure",
+          title: "Repeated endpoint authentication failures",
+          severity: "MEDIUM",
+          confidence: 0.72,
+          src_ip: "10.77.0.60",
+          dst_ip: "10.77.0.50",
+          asset_id: "linux-host:web-01",
+          last_seen: "2026-09-20T00:00:00Z"
+        }
+      ],
+      graph: {
+        tenant_id: "t",
+        site_id: "s",
+        nodes: [
+          { node_id: "ip:10.77.0.60", kind: "INTERNAL_IP", label: "10.77.0.60" }
+        ],
+        edges: []
+      }
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => privateSource })
+    );
+
+    render(
+      <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
+    );
+
+    await waitFor(() => expect(screen.getByDisplayValue("10.77.0.60")).toBeTruthy());
+  });
+
   it("surfaces an authorization failure instead of showing data", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({}) }));
     render(
