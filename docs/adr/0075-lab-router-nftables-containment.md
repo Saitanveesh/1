@@ -24,6 +24,10 @@ This is not certification for an arbitrary production Linux router, enterprise f
 
 Production deployments should move privileged enforcement behind a separately hardened local connector/service and certify coexistence with the host firewall manager before use.
 
+## Verification gate
+
+CI must exercise this adapter with a real routed packet path inside disposable Linux network namespaces: establish baseline attacker-to-victim reachability through the router namespace, apply the MON source block, prove the forwarded traffic is stopped, roll back the exact owned rule, and prove connectivity recovers. A unit-test-only pass is insufficient for this lab adapter.
+
 ## Consequences
 
 The lab can demonstrate a real packet-path change and verify removal during rollback while the normal MON policy, TTL, blast-radius, audit, and response-state lifecycle remains in force.
