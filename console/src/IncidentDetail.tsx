@@ -263,7 +263,7 @@ export default function IncidentDetail({
                     setTargetIp(event.target.value);
                     setPlanned(null);
                   }}
-                  placeholder="10.77.0.60"
+                  placeholder="IPv4 or IPv6 source address"
                   autoComplete="off"
                 />
               </label>

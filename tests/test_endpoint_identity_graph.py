@@ -247,7 +247,8 @@ def test_endpoint_and_network_findings_correlate_without_claiming_compromise() -
                 sensor_id="network-sensor-1",
                 observed_at=BASE + dt.timedelta(seconds=20 + index),
                 category="network.connection",
-                asset_id="asset-1",
+                # Network sensors observe the remote source, not the victim asset;
+                # the incidents join on that shared observed source address.
                 src_ip="10.0.0.17",
                 dst_ip=f"10.0.1.{index + 10}",
                 protocol="tcp",

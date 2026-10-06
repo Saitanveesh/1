@@ -2,6 +2,8 @@
 
 This runbook is for a controlled private lab. Do not bridge adversary traffic directly onto the physical management LAN. The physical LAN carries management and encrypted tunnel traffic only.
 
+Exact copy-paste commands for every machine, in execution order, are in `docs/lab-seven-system-command-sheet.md`. This document explains the topology and the pass/fail rules.
+
 ## Professor poster -> MON
 
 The poster maps to MON as: red-team action -> victim evidence -> Suricata + endpoint telemetry -> detection -> correlation -> incident/attack path -> policy decision -> router containment -> verification -> rollback/recovery.
@@ -110,7 +112,7 @@ Windows example:
 MONWindows.exe foreground `
   --tenant-id <TENANT> --site-id <SITE> --sensor-id windows-pc4 `
   --state-dir C:\ProgramData\MON\WindowsCollectorState `
-  --sensor-ingress-url https://<PC3_SENSOR_INGRESS_NAME>:9443 `
+  --sensor-ingress-url https://10.77.0.1:9443 `
   --server-ca-file C:\MON\sensor-ca.pem `
   --client-cert-file C:\MON\windows-pc4.pem `
   --client-key-file C:\MON\windows-pc4-key.pem
@@ -122,7 +124,7 @@ Linux example:
 sudo mon-linux-endpoint-collector foreground \
   --tenant-id <TENANT> --site-id <SITE> --sensor-id linux-pc5 \
   --state-dir /var/lib/mon-linux-endpoint-collector \
-  --sensor-ingress-url https://<PC3_SENSOR_INGRESS_NAME>:9443 \
+  --sensor-ingress-url https://10.77.0.1:9443 \
   --server-ca-file /etc/mon/sensor-ca.pem \
   --client-cert-file /etc/mon/linux-pc5.pem \
   --client-key-file /etc/mon/linux-pc5-key.pem
@@ -135,7 +137,7 @@ Each client certificate must be enrolled for the exact tenant/site/sensor identi
 Use one bounded scenario. Do not improvise destructive payloads on test day.
 
 1. Baseline: show PC4/PC5 assets and normal victim service reachability through the overlay.
-2. Reconnaissance: from PC6, scan only one victim over at least 18 explicitly chosen TCP ports and generate at least 60 SYN attempts inside a 10-second observation window. Those are the current `tcp-syn-recon` detector conditions; do not broaden the target set to satisfy them. Confirm the resulting network-flow evidence reaches MON.
+2. Reconnaissance: from PC6, scan only one victim over at least 18 explicitly chosen TCP ports and generate at least 60 SYN attempts inside a 10-second observation window. Those are the current `tcp-syn-recon` detector conditions; do not broaden the target set to satisfy them. Confirm the resulting network-flow evidence reaches MON. The detector counts unanswered SYNs, so the scanned range must be silently filtered on that victim (a closed port answers RST/ACK and is not that shape); the command sheet makes a bounded range filtered for the attacker address only.
 3. Authentication abuse: generate at least 8 failed logins within 300 seconds against one dedicated lab account from the same PC6 source address. Those are the current `endpoint-auth-failure-pressure` detector conditions. Do not harvest or reuse real credentials.
 4. Correlation: the network and endpoint findings should join when they share the same observed attacker source address inside the correlation window. Show both detector IDs, evidence classes, affected asset, entities, and attack-graph edges. Describe confidence exactly as shown; do not call it a confirmed compromise unless evidence supports that claim.
 5. Contain: operator selects/approves BLOCK_IP 10.77.0.60 with a short TTL. Confirm the selected point is the PC3 router and blast radius is one hostile source IP.
