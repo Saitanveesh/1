@@ -20,6 +20,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from mon.domain import SecurityEvent
+from mon.endpoint_transport import MtlsSensorEventSender
 from mon.endpoint import (
     EndpointEventKind,
     EndpointTelemetryEvent,
@@ -1052,6 +1053,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sensor-id", required=True)
     parser.add_argument("--state-dir", required=True, type=Path)
     parser.add_argument("--site-url", default="http://127.0.0.1:8090")
+    parser.add_argument("--sensor-ingress-url", default=None)
+    parser.add_argument("--server-ca-file", type=Path, default=None)
+    parser.add_argument("--client-cert-file", type=Path, default=None)
+    parser.add_argument("--client-key-file", type=Path, default=None)
+    parser.add_argument("--client-key-password", default=None)
+    parser.add_argument("--transport-timeout-seconds", type=float, default=10.0)
     parser.add_argument("--channel", default="Security")
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--poll-interval-seconds", type=float, default=30.0)
@@ -1073,6 +1080,32 @@ def build_collector_from_args(
         site_id=args.site_id,
         sensor_id=args.sensor_id,
     )
+    sensor_ingress_url = getattr(args, "sensor_ingress_url", None)
+    if sensor_ingress_url:
+        required = {
+            "--server-ca-file": getattr(args, "server_ca_file", None),
+            "--client-cert-file": getattr(args, "client_cert_file", None),
+            "--client-key-file": getattr(args, "client_key_file", None),
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if missing:
+            raise ValueError(
+                "remote endpoint transport requires " + ", ".join(missing)
+            )
+        sender: SecurityEventSender = MtlsSensorEventSender(
+            sensor_ingress_url,
+            tenant_id=args.tenant_id,
+            site_id=args.site_id,
+            sensor_id=args.sensor_id,
+            ca_certificate_file=required["--server-ca-file"],
+            client_certificate_file=required["--client-cert-file"],
+            client_private_key_file=required["--client-key-file"],
+            client_private_key_password=getattr(args, "client_key_password", None),
+            timeout_seconds=getattr(args, "transport_timeout_seconds", 10.0),
+        )
+    else:
+        sender = LocalSiteEventSender(args.site_url)
+
     collector = WindowsEndpointCollector(
         tenant_id=args.tenant_id,
         site_id=args.site_id,
@@ -1081,7 +1114,7 @@ def build_collector_from_args(
         source=source,
         checkpoint_store=checkpoint,
         buffer=buffer,
-        sender=LocalSiteEventSender(args.site_url),
+        sender=sender,
         batch_size=args.batch_size,
     )
     return collector, (buffer,)
