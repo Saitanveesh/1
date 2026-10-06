@@ -39,7 +39,9 @@ On PC3, block any overlay packet from escaping to a non-WireGuard interface and 
 
 ~~~bash
 sudo nft add table inet mon_lab_guard
+sudo nft 'add chain inet mon_lab_guard input { type filter hook input priority -100; policy accept; }'
 sudo nft 'add chain inet mon_lab_guard forward { type filter hook forward priority -100; policy accept; }'
+sudo nft 'add rule inet mon_lab_guard input iifname "wg0" ip saddr 10.77.0.60 drop'
 sudo nft 'add rule inet mon_lab_guard forward iifname "wg0" ip saddr 10.77.0.60 ip daddr { 10.77.0.40, 10.77.0.50 } accept'
 sudo nft 'add rule inet mon_lab_guard forward iifname "wg0" ip saddr 10.77.0.60 drop'
 sudo nft 'add rule inet mon_lab_guard forward iifname "wg0" oifname != "wg0" drop'
@@ -61,7 +63,7 @@ sudo nft list table inet mon_lab_egress
 
 The second guard blocks all other PC6 traffic on the management interface, including IPv6, while leaving the wg0 test path available. Use IP addresses during the exercise so DNS is not required from PC6.
 
-Before any attack test, prove all four statements: PC6 reaches 10.77.0.40 and 10.77.0.50 through wg0; PC6 cannot reach a management-LAN host; PC6 can still maintain the WireGuard peer to PC3; and PC3 cannot forward wg0 traffic onto its management interface. If any check fails, do not continue.
+Before any attack test, prove all four statements: PC6 reaches 10.77.0.40 and 10.77.0.50 through wg0; PC6 cannot reach a management-LAN host; PC6 can still maintain the WireGuard peer to PC3; and PC3 cannot forward wg0 traffic onto its management interface; and PC6 cannot reach PC3 itself over the overlay. If any check fails, do not continue.
 
 ## Software baseline
 
