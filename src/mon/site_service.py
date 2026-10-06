@@ -472,6 +472,24 @@ def main() -> None:
             ),
         )
 
+    if os.environ.get("MON_ENABLE_ROUTER_NFTABLES_ENFORCEMENT") == "1":
+        from mon.connectors.nftables_router import LinuxNftablesRouterAdapter
+
+        router_vendor = os.environ.get(
+            "MON_SITE_ROUTER_NFTABLES_VENDOR",
+            "linux-nftables-router",
+        ).strip()
+        router_namespace = (
+            os.environ.get("MON_SITE_ROUTER_NFTABLES_NETNS", "").strip() or None
+        )
+        router_adapter = LinuxNftablesRouterAdapter(namespace=router_namespace)
+        registry.register(
+            EnforcementKind.ROUTER,
+            router_vendor,
+            router_adapter,
+            capabilities=router_adapter.capabilities,
+        )
+
     app = create_site_service_app(config, registry=registry)
     uvicorn.run(
         app,
