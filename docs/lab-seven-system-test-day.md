@@ -33,7 +33,35 @@ Because the physical machines share one private LAN, create a WireGuard overlay 
 
 Configure PC4/PC5/PC6 as peers of PC3 and route 10.77.0.0/24 through PC3. Enable IPv4 forwarding on PC3. Do not enable NAT from the overlay to the physical LAN. Suricata should capture wg0; the nftables router adapter controls forwarded traffic crossing PC3.
 
-Before any attack test, prove from PC6 that only the two victim overlay addresses are in the intended test scope. Management-LAN addresses are not attack targets.
+WireGuard alone is not an isolation boundary for the physical management LAN because PC6 still needs an underlay address to reach PC3's WireGuard UDP endpoint. Enforce that boundary before any attack traffic.
+
+On PC3, block any overlay packet from escaping to a non-WireGuard interface and restrict the attacker overlay address to the two victims:
+
+~~~bash
+sudo nft add table inet mon_lab_guard
+sudo nft 'add chain inet mon_lab_guard forward { type filter hook forward priority -100; policy accept; }'
+sudo nft 'add rule inet mon_lab_guard forward iifname "wg0" ip saddr 10.77.0.60 ip daddr { 10.77.0.40, 10.77.0.50 } accept'
+sudo nft 'add rule inet mon_lab_guard forward iifname "wg0" ip saddr 10.77.0.60 drop'
+sudo nft 'add rule inet mon_lab_guard forward iifname "wg0" oifname != "wg0" drop'
+sudo nft list table inet mon_lab_guard
+~~~
+
+On PC6, after WireGuard is established, prevent direct management-LAN egress. Replace the two values first:
+
+~~~bash
+export MGMT_IF=<pc6-management-interface>
+export PC3_MGMT_IP=<pc3-management-ip>
+sudo nft add table inet mon_lab_egress
+sudo nft 'add chain inet mon_lab_egress output { type filter hook output priority -100; policy accept; }'
+sudo nft add rule inet mon_lab_egress output oifname "$MGMT_IF" ip daddr "$PC3_MGMT_IP" udp dport 51820 accept
+sudo nft add rule inet mon_lab_egress output oifname "$MGMT_IF" udp sport 68 udp dport 67 accept
+sudo nft add rule inet mon_lab_egress output oifname "$MGMT_IF" drop
+sudo nft list table inet mon_lab_egress
+~~~
+
+The second guard blocks all other PC6 traffic on the management interface, including IPv6, while leaving the wg0 test path available. Use IP addresses during the exercise so DNS is not required from PC6.
+
+Before any attack test, prove all four statements: PC6 reaches 10.77.0.40 and 10.77.0.50 through wg0; PC6 cannot reach a management-LAN host; PC6 can still maintain the WireGuard peer to PC3; and PC3 cannot forward wg0 traffic onto its management interface. If any check fails, do not continue.
 
 ## Software baseline
 
@@ -105,9 +133,9 @@ Each client certificate must be enrolled for the exact tenant/site/sensor identi
 Use one bounded scenario. Do not improvise destructive payloads on test day.
 
 1. Baseline: show PC4/PC5 assets and normal victim service reachability through the overlay.
-2. Reconnaissance: from PC6, scan only 10.77.0.40 and 10.77.0.50 with a low-rate TCP service scan. Confirm network evidence reaches MON.
-3. Authentication abuse: generate repeated failed logins only against dedicated lab accounts. Confirm endpoint authentication evidence reaches MON. Do not harvest real credentials.
-4. Correlation: show the resulting finding/incident, evidence sources, affected asset, and attack-graph edges. Describe confidence exactly as shown; do not call it a confirmed compromise unless evidence supports that claim.
+2. Reconnaissance: from PC6, scan only one victim over at least 18 explicitly chosen TCP ports and generate at least 60 SYN attempts inside a 10-second observation window. Those are the current `tcp-syn-recon` detector conditions; do not broaden the target set to satisfy them. Confirm the resulting network-flow evidence reaches MON.
+3. Authentication abuse: generate at least 8 failed logins within 300 seconds against one dedicated lab account from the same PC6 source address. Those are the current `endpoint-auth-failure-pressure` detector conditions. Do not harvest or reuse real credentials.
+4. Correlation: the network and endpoint findings should join when they share the same observed attacker source address inside the correlation window. Show both detector IDs, evidence classes, affected asset, entities, and attack-graph edges. Describe confidence exactly as shown; do not call it a confirmed compromise unless evidence supports that claim.
 5. Contain: operator selects/approves BLOCK_IP 10.77.0.60 with a short TTL. Confirm the selected point is the PC3 router and blast radius is one hostile source IP.
 6. Verify: prove the MON-owned rule exists and repeat the victim connection test from PC6. Also prove victim and MON management paths remain healthy.
 7. Recover: manually roll back before TTL expiry (or demonstrate TTL recovery), verify the exact rule is gone, and prove allowed victim connectivity is restored.
