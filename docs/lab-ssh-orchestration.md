@@ -35,6 +35,6 @@ To recover at PC6's physical keyboard:
 sudo nft delete table inet mon_lab_egress
 ```
 
-**Current limitation:** this bootstrap is a starting point requiring disposable-VM integration tests. It does not yet configure the PC3 router input/forward guard or verify tenant/site certificates, so `isolate-attacker` must not be used as proof of a complete safe test topology. For the real lab, keep following the known runbook's PC3 guard and readiness gates before controlled attack traffic.
+**Current limitation:** this bootstrap is a starting point requiring disposable-VM integration tests. The explicit isolation stage configures PC3's input/forward guard **before** PC6's egress guard. It still does not prove tenant/site certificates, correct VM interfaces, or complete lab safety; run the readiness/isolation checks on the actual disposable lab before generating test traffic. For the real lab, keep following the known runbook's PC3 guard and readiness gates before controlled attack traffic.
 
 If a command fails, stop and capture its terminal output. Do not fall through to the next phase. Never fabricate health or telemetry.
