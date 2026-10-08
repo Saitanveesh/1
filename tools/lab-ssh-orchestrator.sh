@@ -116,22 +116,32 @@ CONF
 #!/bin/bash
 set -Eeuo pipefail
 umask 077
+owner=$(stat -c '%U' /tmp/mon-wg-public.conf)
+userhome=$(getent passwd "$owner" | cut -d: -f6)
+[[ -n "$userhome" && -s "$userhome/wg-private.key" ]] || exit 1
 test ! -f /etc/wireguard/wg0.conf || cp -a /etc/wireguard/wg0.conf "/etc/wireguard/wg0.conf.mon-backup-$(date +%s)"
 {
-  sed -n '1,/^\[Peer\]/{ /^\[Peer\]/!p; }' /tmp/mon-wg-public.conf
-  printf 'PrivateKey = %s\n' "$(cat "/home/$(logname 2>/dev/null || echo lab)/wg-private.key")"
-  sed -n '/^\[Peer\]/,$p' /tmp/mon-wg-public.conf
+  sed -n '1,/^\\[Peer\\]/{ /^\\[Peer\\]/!p; }' /tmp/mon-wg-public.conf
+  printf 'PrivateKey = %s\\n' "$(cat "$userhome/wg-private.key")"
+  sed -n '/^\\[Peer\\]/,$p' /tmp/mon-wg-public.conf
 } > /etc/wireguard/wg0.conf
 chmod 600 /etc/wireguard/wg0.conf
 wg-quick down wg0 2>/dev/null || true
 systemctl enable --now wg-quick@wg0
 rm -f /tmp/mon-wg-public.conf
 SCRIPT
-    # Avoid relying on logname: write user-bound key path as fixed argument.
-    sed -i "s|/home/\$(logname 2>/dev/null \|\| echo lab)/wg-private.key|/home/$LAB_USER/wg-private.key|" "$setup"
     root_script "$host" "$setup"
     rm -f "$setup"
   done
+  setup=$(mktemp)
+  cat >"$setup" <<'SCRIPT'
+#!/bin/bash
+set -Eeuo pipefail
+printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-mon-lab.conf
+sysctl -w net.ipv4.ip_forward=1
+SCRIPT
+  root_script "$PC3_IP" "$setup"
+  rm -f "$setup"
   echo "WireGuard configured. Check handshakes; isolation has NOT been enabled."
   ;;
 verify)
