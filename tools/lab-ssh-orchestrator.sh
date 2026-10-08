@@ -6,6 +6,7 @@ usage() {
   cat <<'USAGE'
 Usage: bash tools/lab-ssh-orchestrator.sh INVENTORY preflight|install|wireguard-keys|wireguard-config|verify|isolate-attacker
 Run from PC2. Inventory is a trusted local shell file; do not use untrusted input.
+Set PC1_USER, PC3_USER, PC4_USER, PC5_USER, PC6_USER, PC7_USER as appropriate.
 Order: preflight -> install -> wireguard-keys -> wireguard-config -> verify.
 isolate-attacker is an explicit LAST STEP; it will terminate PC2 SSH access to PC6.
 USAGE
@@ -15,11 +16,25 @@ inventory=$1 action=$2
 [[ -f "$inventory" ]] || { echo "Missing inventory: $inventory" >&2; exit 2; }
 # shellcheck source=/dev/null
 source "$inventory"
-: "${LAB_USER:?set LAB_USER}"
+LAB_USER=${LAB_USER:-}
 : "${PC1_IP:?set PC1_IP}" "${PC2_IP:?set PC2_IP}" "${PC3_IP:?set PC3_IP}"
 : "${PC4_IP:?set PC4_IP}" "${PC5_IP:?set PC5_IP}" "${PC6_IP:?set PC6_IP}" "${PC7_IP:?set PC7_IP}"
 MON_REF=${MON_REF:-8f66baa9f8d287b8c05da379259b289c661c5828}
-[[ "$LAB_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Invalid username" >&2; exit 2; }
+user_for_host() {
+  local wanted=$1 n v
+  for n in 1 3 4 5 6 7; do
+    v=PC${n}_IP
+    if [[ "$wanted" == "${!v}" ]]; then
+      v=PC${n}_USER
+      local u=${!v:-$LAB_USER}
+      [[ "$u" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Invalid/missing username for PC$n (set $v)" >&2; return 2; }
+      printf '%s' "$u"
+      return 0
+    fi
+  done
+  echo "Refusing unknown host IP $wanted" >&2
+  return 2
+}
 [[ "$MON_REF" =~ ^[a-fA-F0-9]{40}$ ]] || { echo "MON_REF must be a 40-character SHA" >&2; exit 2; }
 for n in 1 2 3 4 5 6 7; do
   x=PC${n}_IP
@@ -27,14 +42,15 @@ for n in 1 2 3 4 5 6 7; do
 done
 hosts=("$PC1_IP" "$PC3_IP" "$PC4_IP" "$PC5_IP" "$PC6_IP" "$PC7_IP")
 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes)
-remote() { local host=$1; shift; ssh "${ssh_opts[@]}" "$LAB_USER@$host" "$@"; }
+remote() { local host=$1 user; shift; user=$(user_for_host "$host"); ssh "${ssh_opts[@]}" "$user@$host" "$@"; }
 # A command file on disk avoids sudo consuming script stdin.
 root_script() {
-  local host=$1 file=$2 name
+  local host=$1 file=$2 name user
+  user=$(user_for_host "$host")
   name=$(basename "$file")
-  scp -q "${ssh_opts[@]}" "$file" "$LAB_USER@$host:/tmp/$name"
+  scp -q "${ssh_opts[@]}" "$file" "$user@$host:/tmp/$name"
   echo "[$host] One interactive sudo prompt may appear."
-  ssh -tt -o ConnectTimeout=10 -o StrictHostKeyChecking=yes "$LAB_USER@$host" "sudo bash /tmp/$name; rc=\$?; rm -f /tmp/$name; exit \$rc"
+  ssh -tt -o ConnectTimeout=10 -o StrictHostKeyChecking=yes "$user@$host" "sudo bash /tmp/$name; rc=\$?; rm -f /tmp/$name; exit \$rc"
 }
 command -v ssh >/dev/null
 command -v scp >/dev/null
@@ -109,7 +125,8 @@ AllowedIPs = 10.77.0.0/24
 PersistentKeepalive = 15
 CONF
     fi
-    scp -q "${ssh_opts[@]}" "$localfile" "$LAB_USER@$host:/tmp/mon-wg-public.conf"
+    user=$(user_for_host "$host")
+    scp -q "${ssh_opts[@]}" "$localfile" "$user@$host:/tmp/mon-wg-public.conf"
     rm -f "$localfile"
     setup=$(mktemp)
     cat >"$setup" <<'SCRIPT'
@@ -121,9 +138,9 @@ userhome=$(getent passwd "$owner" | cut -d: -f6)
 [[ -n "$userhome" && -s "$userhome/wg-private.key" ]] || exit 1
 test ! -f /etc/wireguard/wg0.conf || cp -a /etc/wireguard/wg0.conf "/etc/wireguard/wg0.conf.mon-backup-$(date +%s)"
 {
-  sed -n '1,/^\\[Peer\\]/{ /^\\[Peer\\]/!p; }' /tmp/mon-wg-public.conf
-  printf 'PrivateKey = %s\\n' "$(cat "$userhome/wg-private.key")"
-  sed -n '/^\\[Peer\\]/,$p' /tmp/mon-wg-public.conf
+  awk '$0=="[Peer]" {exit} {print}' /tmp/mon-wg-public.conf
+  printf 'PrivateKey = %s\n' "$(cat "$userhome/wg-private.key")"
+  awk 'seen {print; next} $0=="[Peer]" {seen=1;print}' /tmp/mon-wg-public.conf
 } > /etc/wireguard/wg0.conf
 chmod 600 /etc/wireguard/wg0.conf
 wg-quick down wg0 2>/dev/null || true
@@ -138,7 +155,7 @@ SCRIPT
   cat >"$setup" <<'SCRIPT'
 #!/bin/bash
 set -Eeuo pipefail
-printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-mon-lab.conf
+printf 'net.ipv4.ip_forward=1\n' > /etc/sysctl.d/99-mon-lab.conf
 sysctl -w net.ipv4.ip_forward=1
 SCRIPT
   root_script "$PC3_IP" "$setup"
@@ -147,7 +164,7 @@ SCRIPT
   ;;
 verify)
   echo "Checking WireGuard hub:"
-  remote "$PC3_IP" 'sudo -n wg show wg0 || wg show wg0' || exit 1
+  remote "$PC3_IP" 'ip -br addr show wg0' || exit 1
   for n in 4 5 6; do
     hvar=PC${n}_IP
     echo "Testing PC$n -> hub"
