@@ -1,0 +1,19 @@
+name: lab-ssh-automation
+on:
+  pull_request:
+    paths:
+      - "lab/ssh-automation/**"
+      - ".github/workflows/lab-ssh-automation.yml"
+  push:
+    paths:
+      - "lab/ssh-automation/**"
+      - ".github/workflows/lab-ssh-automation.yml"
+jobs:
+  syntax-and-config-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test syntax and reject unsafe config
+        run: |
+          bash lab/ssh-automation/tests/test_static.sh
+          bash lab/ssh-automation/tests/test_mock_controller.sh
