@@ -14,4 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Test syntax and reject unsafe config
-        run: bash lab/ssh-automation/tests/test_static.sh
+        run: |
+          bash lab/ssh-automation/tests/test_static.sh
+          bash lab/ssh-automation/tests/test_mock_controller.sh
