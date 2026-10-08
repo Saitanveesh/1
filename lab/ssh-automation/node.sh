@@ -23,7 +23,7 @@ log() { echo "[MON][$PC][$STAGE] $*"; }
 need() { command -v "$1" >/dev/null || { log "Missing executable: $1"; exit 1; }; }
 finish() { log 'PASS'; }
 install_copy() { local name="$1" to="$2" mode="${3:-600}"; install -m "$mode" "$STAGING/incoming/$name" "$to"; }
-copy_out() { local from="$1" name="$2"; install -m 600 -o "$LOGIN_USER" -g "$LOGIN_USER" "$from" "$STAGING/outgoing/$name"; }
+copy_out() { local from="$1" name="$2"; install -m 600 -o "$LOGIN_USER" -g "$(id -gn "$LOGIN_USER")" "$from" "$STAGING/outgoing/$name"; }
 
 case "$PC" in
   PC1) IPV4="$PC1_MGMT_IP" ;;
@@ -190,7 +190,7 @@ control() {
       -e POSTGRES_DB=mon -e POSTGRES_USER=mon -e POSTGRES_PASSWORD="$MON_DB_ADMIN_PASSWORD" \
       -p 127.0.0.1:5432:5432 -v mon-lab-pgdata:/var/lib/postgresql/data postgres:17-alpine
   else
-    docker start mon-postgres >/dev/null || :
+    [[ "$(docker inspect --format '{{.State.Running}}' mon-postgres)" == true ]] || docker start mon-postgres >/dev/null
   fi
   local retries=30
   until docker exec mon-postgres pg_isready -U mon -d mon >/dev/null 2>&1; do
