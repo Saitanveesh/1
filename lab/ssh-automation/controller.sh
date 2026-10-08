@@ -50,6 +50,9 @@ for i in 1 2 3 4 5 6 7; do
   for j in $(seq 1 $((i-1))); do other="PC${j}_MGMT_IP"; [[ "${!other}" != "$value" ]] || { echo "$var duplicates $other" >&2; exit 2; }; done
 done
 [[ "${PC2_MGMT_IP}" != 10.77.* && "${PC3_MGMT_IP}" != 10.77.* ]] || { echo 'Management LAN must not overlap 10.77.0.0/24' >&2; exit 2; }
+if command -v ip >/dev/null 2>&1; then
+  ip -4 -o addr show | grep -Fq " $PC2_MGMT_IP/" || { echo "Run this from PC2 ($PC2_MGMT_IP), not another PC" >&2; exit 2; }
+fi
 
 ip_of() { local v="${1^^}_MGMT_IP"; printf '%s' "${!v}"; }
 ssh_host() { local pc="$1"; shift; ssh "${SSH_OPTS[@]}" "${LAB_USER}@$(ip_of "$pc")" "$@"; }
@@ -78,7 +81,7 @@ push_node() {
 run_node() {
   local pc="$1" stage="$2" root="$(remote_dir)"
   msg "$pc :: $stage"
-  push_node "$pc"
+  push_node "$pc" || return 1
   # -tt lets remote sudo prompt interactively, unlike SSH-stdin heredocs.
   ssh -tt "${SSH_OPTS[@]}" "${LAB_USER}@$(ip_of "$pc")" \
     "sudo bash '$root/node.sh' '$pc' '$stage'"
