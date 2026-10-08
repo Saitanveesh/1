@@ -382,13 +382,18 @@ victim_start() {
   [[ "$PC" == PC4 || "$PC" == PC5 ]] || exit 2
   apt-get install -y openssh-server python3-systemd auditd
   systemctl enable --now ssh auditd
-  if ! getent passwd monlab >/dev/null; then
+  if getent passwd monlab >/dev/null; then
+    [[ -f /etc/mon-lab/monlab-created ]] || { echo 'Existing monlab user was not created by MON automation; refusing to change its password' >&2; exit 1; }
+  else
     useradd -m -s /bin/bash monlab
     touch /etc/mon-lab/monlab-created
   fi
-  # Only the throwaway monlab user has password-based SSH on the overlay.
+  # Use a strong per-host secret, not the fixed password from the old PDF.
+  if [[ ! -f /etc/mon-lab/test-user-password ]]; then openssl rand -hex 24 > /etc/mon-lab/test-user-password; fi
+  chmod 600 /etc/mon-lab/test-user-password
+  printf 'monlab:%s\n' "$(cat /etc/mon-lab/test-user-password)" | chpasswd
+  # Restrict the test user's password auth rule to the designated overlay.
   printf 'Match User monlab Address 10.77.0.0/24\n    PasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/99-monlab-lab.conf
-  printf '%s\n' 'monlab:Lab-Only-Not-A-Real-Password-1' | chpasswd
   if ! sshd -t; then
     rm -f /etc/ssh/sshd_config.d/99-monlab-lab.conf
     echo 'SSH config validation failed; restored the previous config' >&2
