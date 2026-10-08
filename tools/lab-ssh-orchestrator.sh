@@ -127,7 +127,8 @@ test ! -f /etc/wireguard/wg0.conf || cp -a /etc/wireguard/wg0.conf "/etc/wiregua
 } > /etc/wireguard/wg0.conf
 chmod 600 /etc/wireguard/wg0.conf
 wg-quick down wg0 2>/dev/null || true
-systemctl enable --now wg-quick@wg0
+systemctl enable wg-quick@wg0
+systemctl restart wg-quick@wg0
 rm -f /tmp/mon-wg-public.conf
 SCRIPT
     root_script "$host" "$setup"
@@ -158,6 +159,22 @@ isolate-attacker)
   echo "WARNING: this cuts PC2 SSH to PC6. Must be at physical PC6 console to undo."
   read -r -p "Type ISOLATE to proceed: " confirmation
   [[ "$confirmation" == ISOLATE ]] || exit 1
+  guard=$(mktemp)
+  cat >"$guard" <<'SCRIPT'
+#!/bin/bash
+set -Eeuo pipefail
+nft list table inet mon_lab_guard >/dev/null 2>&1 && { echo "Existing guard; inspect manually"; exit 1; }
+nft add table inet mon_lab_guard
+nft 'add chain inet mon_lab_guard input { type filter hook input priority -100; policy accept; }'
+nft 'add chain inet mon_lab_guard forward { type filter hook forward priority -100; policy accept; }'
+nft 'add rule inet mon_lab_guard input iifname "wg0" ip saddr 10.77.0.60 drop'
+nft 'add rule inet mon_lab_guard forward iifname "wg0" ip saddr 10.77.0.60 ip daddr { 10.77.0.40, 10.77.0.50 } accept'
+nft 'add rule inet mon_lab_guard forward iifname "wg0" ip saddr 10.77.0.60 drop'
+nft 'add rule inet mon_lab_guard forward iifname "wg0" oifname != "wg0" drop'
+nft list table inet mon_lab_guard
+SCRIPT
+  root_script "$PC3_IP" "$guard"
+  rm -f "$guard"
   tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
   cat >"$tmp" <<SCRIPT
 #!/bin/bash
