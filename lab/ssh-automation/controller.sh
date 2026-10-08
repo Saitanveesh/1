@@ -49,7 +49,10 @@ for i in 1 2 3 4 5 6 7; do
   for oct in "$a" "$b" "$c" "$d"; do ((10#$oct <= 255)) || { echo "Invalid $var" >&2; exit 2; }; done
   for j in $(seq 1 $((i-1))); do other="PC${j}_MGMT_IP"; [[ "${!other}" != "$value" ]] || { echo "$var duplicates $other" >&2; exit 2; }; done
 done
-[[ "${PC2_MGMT_IP}" != 10.77.* && "${PC3_MGMT_IP}" != 10.77.* ]] || { echo 'Management LAN must not overlap 10.77.0.0/24' >&2; exit 2; }
+for i in 1 2 3 4 5 6 7; do
+  var="PC${i}_MGMT_IP"; value="${!var}"
+  [[ "$value" != 10.77.* && "$value" != 127.* && "$value" != 0.* ]] || { echo "Invalid management network in $var" >&2; exit 2; }
+done
 if command -v ip >/dev/null 2>&1; then
   ip -4 -o addr show | grep -Fq " $PC2_MGMT_IP/" || { echo "Run this from PC2 ($PC2_MGMT_IP), not another PC" >&2; exit 2; }
 fi
