@@ -306,7 +306,7 @@ MON_SITE_ID=site-a
 MON_SENSOR_INGRESS_SERVER_CERT_FILE=$PRIVATE/sensor-ingress-server.pem
 MON_SENSOR_INGRESS_SERVER_KEY_FILE=$PRIVATE/sensor-ingress-server-key.pem
 MON_SENSOR_CA_CERT_FILE=$PRIVATE/sensor-ca.pem
-MON_SENSOR_INGRESS_HOST=0.0.0.0
+MON_SENSOR_INGRESS_HOST=10.77.0.1
 MON_SENSOR_INGRESS_PORT=9443
 MON_SENSOR_INTERNAL_SITE_URL=http://127.0.0.1:8090
 EOF2
@@ -433,7 +433,9 @@ status() {
       curl -fsS http://127.0.0.1:8080/health | jq -e '.state=="READY"'
       curl -fsS -o /dev/null http://127.0.0.1:5173/
       ss -ltn | grep -q ':8443 '
-      api_get '/api/v1/sensors?tenant_id=mon-lab&site_id=site-a' | jq -c '.[] | {sensor_id,state,collector_kind,heartbeat_age_seconds}'
+      api_get '/api/v1/sensors?tenant_id=mon-lab&site_id=site-a' | tee /tmp/mon-lab-sensor-status.json | jq -c '.[] | {sensor_id,state,collector_kind,heartbeat_age_seconds}'
+      jq -e 'any(.[]; .sensor_id=="suricata-pc3")' /tmp/mon-lab-sensor-status.json >/dev/null
+      rm -f /tmp/mon-lab-sensor-status.json
       api_get '/api/v1/enforcement-points?tenant_id=mon-lab&site_id=site-a' | jq -e 'any(.[]; .enforcement_point_id=="pc3-router")'
       ;;
     PC3)
