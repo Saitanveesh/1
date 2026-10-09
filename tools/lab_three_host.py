@@ -21,6 +21,10 @@ from pathlib import Path
 
 PINNED_REF = "8f66baa9f8d287b8c05da379259b289c661c5828"
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
+RFC1918 = tuple(
+    ipaddress.ip_network(block)
+    for block in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
 USER_RE = re.compile(r"[a-z_][a-z0-9_-]*\Z")
 ROLES = ("mon", "victim", "attacker")
 WG_ADDR = {"mon": "10.77.0.1", "victim": "10.77.0.50", "attacker": "10.77.0.60"}
@@ -32,6 +36,8 @@ SSH_ARGS = ("-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
 class Peer:
     host: str
     user: str
+    network: str = "tailscale"
+    lan_ip: str | None = None
 
     @property
     def dest(self) -> str:
@@ -40,26 +46,48 @@ class Peer:
 
 def read_inventory(path: Path) -> dict[str, Peer]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    if set(data) != set(ROLES):
+    if not isinstance(data, dict) or set(data) != set(ROLES):
         raise ValueError(f"inventory must contain exactly {', '.join(ROLES)}")
     peers: dict[str, Peer] = {}
-    seen = set()
+    seen: set[str] = set()
     for role in ROLES:
         item = data[role]
-        if not isinstance(item, dict) or set(item) != {"host", "user"}:
-            raise ValueError(f"{role}: require only host and user")
+        if not isinstance(item, dict):
+            raise ValueError(f"{role}: expected a host/user record")
+        allowed = {"host", "user", "network"}
+        if role == "mon":
+            allowed.add("lan_ip")
+        if not {"host", "user"}.issubset(item) or set(item) - allowed:
+            raise ValueError(f"{role}: unexpected or missing inventory fields")
         address = ipaddress.ip_address(item["host"])
-        if address.version != 4 or address not in TAILNET:
-            raise ValueError(f"{role}: use the peer's actual Tailscale IPv4 address")
+        if address.version != 4:
+            raise ValueError(f"{role}: IPv4 addresses only")
+        network = item.get("network", "tailscale")
+        if network == "tailscale":
+            if address not in TAILNET:
+                raise ValueError(f"{role}: expected a Tailscale IPv4 address")
+        elif network == "lan":
+            if role == "mon" or not any(address in subnet for subnet in RFC1918):
+                raise ValueError(f"{role}: LAN mode requires a dedicated RFC1918 victim/attacker")
+        else:
+            raise ValueError(f"{role}: network must be tailscale or lan")
         user = item["user"]
         if not isinstance(user, str) or not USER_RE.fullmatch(user):
             raise ValueError(f"{role}: invalid SSH username")
         if str(address) in seen:
             raise ValueError("all three roles must be on separate computers")
         seen.add(str(address))
-        peers[role] = Peer(str(address), user)
+        lan_ip = item.get("lan_ip")
+        if lan_ip is not None:
+            if role != "mon" or not isinstance(lan_ip, str):
+                raise ValueError("only MON may specify its LAN underlay address")
+            ip_lan = ipaddress.ip_address(lan_ip)
+            if ip_lan.version != 4 or not any(ip_lan in x for x in RFC1918):
+                raise ValueError("MON LAN underlay must be an RFC1918 IPv4 address")
+        peers[role] = Peer(str(address), user, network, lan_ip)
+    if any(p.network == "lan" for p in peers.values()) and not peers["mon"].lan_ip:
+        raise ValueError("MON lan_ip is required when victim or attacker uses college LAN")
     return peers
-
 
 class Remote:
     def __init__(self, peers: dict[str, Peer]):
@@ -107,29 +135,47 @@ class Remote:
 
 
 def preflight(remote: Remote) -> None:
-    """No mutations or port sweeps; SSH host keys must already be trusted."""
+    """Read-only identity proof; no discovery scans of shared networks."""
     for role in ROLES:
         peer = remote.peers[role]
         output = remote.ssh(role, """set -e
 printf 'host=%s user=%s\\n' "$(hostname)" "$(id -un)"
 . /etc/os-release
 printf 'os=%s version=%s\\n' "$ID" "$VERSION_ID"
-printf 'tail-ip='; tailscale ip -4
+if command -v tailscale >/dev/null; then
+  printf 'tail-ip='; tailscale ip -4 2>/dev/null || true
+fi
+ip -o -4 addr show | awk '{print "addr4=" $4}'
 command -v sudo
 command -v apt-get
 """, capture=True)
         print(f"[{role}] {peer.dest}\n{output}", flush=True)
-        fields = output.splitlines()
-        if f"user={peer.user}" not in fields[0]:
-            raise RuntimeError(f"{role}: SSH account is not the expected user")
-        if f"tail-ip={peer.host}" not in fields:
-            raise RuntimeError(f"{role}: connected host's Tailscale IP does not match inventory")
+        lines = output.splitlines()
+        if not any(line.startswith("host=") and f" user={peer.user}" in line
+                   for line in lines):
+            raise RuntimeError(f"{role}: SSH account differs from inventory")
         if "os=ubuntu" not in output:
-            raise RuntimeError(f"{role}: requires Ubuntu")
+            raise RuntimeError(f"{role}: expected Ubuntu")
         if not any(v in output for v in ("version=24.04", "version=26.04")):
-            raise RuntimeError(f"{role}: Ubuntu version requires manual qualification")
-    print("Three remote Tailscale identities verified; no remote configuration changed.")
-
+            raise RuntimeError(f"{role}: Ubuntu version requires qualification")
+        if peer.network == "tailscale":
+            if f"tail-ip={peer.host}" not in lines:
+                raise RuntimeError(f"{role}: Tailscale identity does not match inventory")
+        else:
+            interfaces = [
+                ipaddress.ip_interface(line.removeprefix("addr4="))
+                for line in lines if line.startswith("addr4=")
+            ]
+            if not any(str(interface.ip) == peer.host for interface in interfaces):
+                raise RuntimeError(f"{role}: LAN IP not assigned to target host")
+        if role == "mon" and peer.lan_ip is not None:
+            interfaces = [
+                ipaddress.ip_interface(line.removeprefix("addr4="))
+                for line in lines if line.startswith("addr4=")
+            ]
+            if not any(str(interface.ip) == peer.lan_ip for interface in interfaces):
+                raise RuntimeError("MON lan_ip is not assigned to the MON host")
+    print("All three host identities verified. No remote settings changed.")
 
 def base_script(role: str) -> str:
     common = "git python3 python3-venv python3-pip openssl curl jq tmux wireguard nftables"
@@ -187,7 +233,7 @@ wg pubkey < "$HOME/mon-three/wg.key" > "$HOME/mon-three/wg.pub"
 
 def overlay(remote: Remote) -> None:
     keys = {role: remote_public_key(remote, role) for role in ROLES}
-    mon_host = remote.peers["mon"].host
+    mon_peer = remote.peers["mon"]
     for role in ROLES:
         addr = WG_ADDR[role]
         if role == "mon":
@@ -197,9 +243,10 @@ def overlay(remote: Remote) -> None:
             conf = (f"[Interface]\nAddress = {addr}/24\nListenPort = 51820\n"
                     "PrivateKey = MON_LOCAL_KEY\n" + peers)
         else:
+            endpoint = mon_peer.lan_ip if remote.peers[role].network == "lan" else mon_peer.host
             conf = (f"[Interface]\nAddress = {addr}/32\nPrivateKey = MON_LOCAL_KEY\n"
                     f"[Peer]\nPublicKey = {keys['mon']}\n"
-                    f"Endpoint = {mon_host}:51820\nAllowedIPs = 10.77.0.0/24\n"
+                    f"Endpoint = {endpoint}:51820\nAllowedIPs = 10.77.0.0/24\n"
                     "PersistentKeepalive = 15\n")
         # Key remains on the corresponding host; config incorporates only that host's private key.
         remote.run(role, f"""umask 077
