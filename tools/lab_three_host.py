@@ -217,9 +217,7 @@ grep -q '^PrivateKey = ' /etc/wireguard/wg0.conf
 chmod 600 /etc/wireguard/wg0.conf
 systemctl enable --now wg-quick@wg0
 """, root=True, label="wireguard-config")
-    remote.run("mon", """printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-mon-three.conf
-sysctl -w net.ipv4.ip_forward=1
-""", root=True, label="overlay-forwarding")
+    # Install the guard BEFORE enabling forwarding to avoid a momentary open path.
     # Refuse to mutate any other nftables tables/chains. No egress lockdown via remote SSH.
     remote.run("mon", """if nft list table inet mon_three_guard >/dev/null 2>&1; then
   echo 'MON overlay guard already exists; inspect before rerun'
@@ -234,6 +232,9 @@ nft 'add rule inet mon_three_guard forward iifname "wg0" ip saddr 10.77.0.60 dro
 nft 'add rule inet mon_three_guard forward iifname "wg0" oifname != "wg0" drop'
 nft list table inet mon_three_guard
 """, root=True, label="guard-attacker-overlay")
+    remote.run("mon", """printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-mon-three.conf
+sysctl -w net.ipv4.ip_forward=1
+""", root=True, label="overlay-forwarding")
     for role in ("victim", "attacker"):
         remote.run(role, """ping -c 1 -W 2 10.77.0.1 >/dev/null 2>&1 || true
 sleep 2
@@ -472,6 +473,11 @@ echo
 
 
 def victim(remote: Remote) -> None:
+    existing = remote.ssh("victim", "test -s ~/mon-three/victim-id/sensor-client-cert.pem && echo yes || true", capture=True)
+    if existing == "yes":
+        print("[victim] certificate already present; preserving credentials")
+        start_victim_collector(remote)
+        return
     remote.run("victim", """umask 077
 mkdir -p "$HOME/mon-three/victim-id"
 cd "$HOME/mon-three-code"
@@ -503,6 +509,10 @@ python tools/lab_identity.py enroll-sensor-csr \
         remote.copy_from("mon", "mon-three/identity/sensor-ca.pem", ca)
         remote.copy_to("victim", cert, "mon-three/victim-id/sensor-client-cert.pem")
         remote.copy_to("victim", ca, "mon-three/victim-id/sensor-ca.pem")
+    start_victim_collector(remote)
+
+
+def start_victim_collector(remote: Remote) -> None:
     user = shlex.quote(remote.peers["victim"].user)
     remote.run("victim", f"""VH=$(getent passwd {user} | cut -d: -f6)
 mkdir -p -m 700 /etc/mon /var/lib/mon-linux-endpoint-collector
