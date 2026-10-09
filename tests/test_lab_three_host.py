@@ -169,3 +169,25 @@ def test_live_sensor_gate_requires_both_fresh_heartbeats() -> None:
         mod.validate_live_sensors([
             good[0], {"sensor_id": "linux-victim-three", "heartbeat_age_seconds": None}
         ])
+
+
+
+def test_demo_preparation_is_explicitly_scoped_and_never_starts_a_scan(
+) -> None:
+    mod = load_module()
+    calls = []
+
+    class Fake:
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script, root, label))
+
+    mod.demo_prepare(Fake())
+    assert len(calls) == 1
+    role, script, root, label = calls[0]
+    assert role == "victim" and root is True
+    assert label == "bounded-recon-port-filter"
+    assert 'iifname "wg0"' in script
+    assert "ip saddr 10.77.0.60" in script
+    assert "tcp dport 20000-20099 drop" in script
+    assert "nmap " not in script
+    assert "nft flush ruleset" not in script
