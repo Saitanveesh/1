@@ -292,3 +292,33 @@ def test_lan_wireguard_peer_uses_mon_verified_underlay(tmp_path: Path) -> None:
         assert "Endpoint = 10.5.112.94:51820" in conf
         assert "AllowedIPs = 10.77.0.0/24" in conf
         assert "0.0.0.0/0" not in conf
+
+
+
+def test_bootstrap_waits_for_package_manager_lock() -> None:
+    mod = load_module()
+    for role in ("mon", "victim", "attacker"):
+        script = mod.base_script(role)
+        assert "DPkg::Lock::Timeout=600" in script
+
+
+def test_overlay_rejects_existing_wg0_before_mutations(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    calls = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            if "sys/class/net/wg0" in command:
+                return "present" if role == "victim" else ""
+            return "A" * 43 + "="
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, label))
+
+    with pytest.raises(RuntimeError, match="existing wg0 is active"):
+        mod.overlay(Fake())
+    assert calls == []
