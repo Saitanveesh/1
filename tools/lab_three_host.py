@@ -541,6 +541,21 @@ fi
     print("Victim collector started; check its live heartbeat before any exercise.")
 
 
+def demo_prepare(remote: Remote) -> None:
+    """Optional, bounded victim-only response to the lab source's test SYNs."""
+    remote.run("victim", """if nft list table inet mon_three_victim >/dev/null 2>&1; then
+  echo 'Existing MON victim demonstration rules; inspect before rerun'
+  exit 1
+fi
+nft add table inet mon_three_victim
+nft 'add chain inet mon_three_victim input { type filter hook input priority 0; policy accept; }'
+nft 'add rule inet mon_three_victim input iifname "wg0" ip saddr 10.77.0.60 tcp dport 20000-20099 drop'
+nft list table inet mon_three_victim
+""", root=True, label="bounded-recon-port-filter")
+    print("Only the 100 lab TCP ports from overlay source 10.77.0.60 are filtered.")
+    print("No test traffic has been generated.")
+
+
 def validate_live_sensors(rows: object) -> None:
     """Fail closed rather than interpreting an empty sensor list as healthy."""
     if not isinstance(rows, list):
@@ -601,8 +616,9 @@ def main() -> int:
     parser.add_argument("--ref", default=PINNED_REF)
     parser.add_argument("--approve-install", action="store_true")
     parser.add_argument("--approve-overlay", action="store_true")
+    parser.add_argument("--approve-demo-setup", action="store_true")
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
-                                           "console", "site", "victim", "ready"))
+                                           "console", "site", "victim", "demo-prepare", "ready"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -628,6 +644,10 @@ def main() -> int:
         site(remote)
     elif args.stage == "victim":
         victim(remote)
+    elif args.stage == "demo-prepare":
+        if not args.approve_demo_setup:
+            parser.error("demo-prepare changes victim test ports: requires --approve-demo-setup")
+        demo_prepare(remote)
     elif args.stage == "ready":
         readiness(remote)
     return 0
