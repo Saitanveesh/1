@@ -95,7 +95,7 @@ class Remote:
         shell = ("sudo bash " if root else "bash ") + remote_path
         print(f"\n[{role}] {label}" + (" (sudo password may be requested)" if root else ""),
               flush=True)
-        self.ssh(role, shell, interactive=root)
+        self.ssh(role, shell, interactive=True)
 
     def copy_from(self, role: str, path: str, local: Path) -> None:
         subprocess.run(["scp", *SSH_ARGS, f"{self.peers[role].dest}:{path}",
@@ -195,9 +195,9 @@ def overlay(remote: Remote) -> None:
                 f"[Peer]\nPublicKey = {keys[r]}\nAllowedIPs = {WG_ADDR[r]}/32\n"
                 for r in ("victim", "attacker"))
             conf = (f"[Interface]\nAddress = {addr}/24\nListenPort = 51820\n"
-                    f"{peers}")
+                    "PrivateKey = MON_LOCAL_KEY\n" + peers)
         else:
-            conf = (f"[Interface]\nAddress = {addr}/32\n"
+            conf = (f"[Interface]\nAddress = {addr}/32\nPrivateKey = MON_LOCAL_KEY\n"
                     f"[Peer]\nPublicKey = {keys['mon']}\n"
                     f"Endpoint = {mon_host}:51820\nAllowedIPs = 10.77.0.0/24\n"
                     "PersistentKeepalive = 15\n")
@@ -212,7 +212,8 @@ if [ -e /etc/wireguard/wg0.conf ]; then
 fi
 cat > /etc/wireguard/wg0.conf <<'MON_CONFIG'
 {conf}MON_CONFIG
-printf 'PrivateKey = %s\\n' "$(cat "$ME/mon-three/wg.key")" >> /etc/wireguard/wg0.conf
+sed -i "s@^PrivateKey = MON_LOCAL_KEY$@PrivateKey = $(cat "$ME/mon-three/wg.key")@" /etc/wireguard/wg0.conf
+grep -q '^PrivateKey = ' /etc/wireguard/wg0.conf
 chmod 600 /etc/wireguard/wg0.conf
 systemctl enable --now wg-quick@wg0
 """, root=True, label="wireguard-config")
@@ -234,10 +235,12 @@ nft 'add rule inet mon_three_guard forward iifname "wg0" oifname != "wg0" drop'
 nft list table inet mon_three_guard
 """, root=True, label="guard-attacker-overlay")
     for role in ("victim", "attacker"):
-        # Handshake test uses an authorized private overlay endpoint.
-        print(f"[{role}] tunnel handshake check")
-        print(remote.ssh(role, "wg show wg0 latest-handshakes", capture=True))
-    print("Overlay configured. Verify handshake freshness and routing before test traffic.")
+        remote.run(role, """ping -c 1 -W 2 10.77.0.1 >/dev/null 2>&1 || true
+sleep 2
+wg show wg0 latest-handshakes
+wg show wg0 latest-handshakes | awk '$2 > 0 {good=1} END{exit !good}'
+""", root=True, label="verify-wireguard-handshake")
+    print("Overlay handshakes observed. Confirm route and guard before any test traffic.")
 
 
 def control(remote: Remote) -> None:
