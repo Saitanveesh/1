@@ -579,7 +579,8 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
     validate_live_sensors(rows)
 
     remote.run("mon", """wg show wg0 latest-handshakes
-wg show wg0 latest-handshakes | awk '$2 > 0 {seen++} END {exit !(seen >= 2)}'
+NOW=$(date +%s)
+wg show wg0 latest-handshakes | awk -v now="$NOW"   '$2 > 0 && now - $2 <= 120 {seen++} END {exit !(seen >= 2)}'
 nft list table inet mon_three_guard
 """, root=True, label="verify-overlay-and-guard")
     print("READY gate: API, site endpoint, two live sensor heartbeats, "
