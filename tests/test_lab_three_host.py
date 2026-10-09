@@ -128,6 +128,7 @@ def test_overlay_owns_only_scoped_guard_and_preserves_tailscale(tmp_path: Path) 
     mod.overlay(Fake())
     names = [x[3] for x in issued]
     assert names.index("guard-attacker-overlay") < names.index("overlay-forwarding")
+    assert names.index("guard-attacker-overlay") < names.index("wireguard-config")
     assert names.count("wireguard-config") == 3
     configs = [script for _, script, _, label in issued if label == "wireguard-config"]
     assert all("PrivateKey = MON_LOCAL_KEY" in script for script in configs)
