@@ -327,17 +327,36 @@ if ! tmux has-session -t mon-three-ingress 2>/dev/null; then
   tmux new-session -d -s mon-three-ingress \
     "cd $HOME/mon-three-code && . .venv/bin/activate && set -a && . $HOME/mon-three/site-ingress.env && set +a && python -m mon.mtls_ingress"
 fi
-node --version
-node -e 'let v=process.versions.node.split(".").map(Number); if(v[0]<22 && !(v[0]===20&&v[1]>=19)) process.exit(1)'
-cd "$HOME/mon-three-code/console"
-npm ci --no-audit --no-fund
-TAIL=$(tailscale ip -4)
-if ! tmux has-session -t mon-three-console 2>/dev/null; then
-  tmux new-session -d -s mon-three-console \
-    "cd $HOME/mon-three-code/console && npm run dev -- --host $TAIL --port 5173"
-fi
-echo "Console (Tailscale-only): http://$TAIL:5173/?tenant=mon-lab&site=site-a"
 """, label="mon-control-plane")
+
+
+def console(remote: Remote) -> None:
+    """Serve the real console using pinned Node 22 in a Docker container."""
+    user = shlex.quote(remote.peers["mon"].user)
+    remote.run("mon", f"""LAB_HOME=$(getent passwd {user} | cut -d: -f6)
+TAIL=$(tailscale ip -4)
+test -d "$LAB_HOME/mon-three-code/console"
+docker volume create mon-three-console-node-modules >/dev/null
+if ! docker container inspect mon-three-console >/dev/null 2>&1; then
+  docker run --rm --network host \
+    -v "$LAB_HOME/mon-three-code/console:/app" \
+    -v mon-three-console-node-modules:/app/node_modules \
+    -w /app node:22-alpine npm ci --no-audit --no-fund
+  docker run -d --name mon-three-console --restart unless-stopped --network host \
+    -v "$LAB_HOME/mon-three-code/console:/app" \
+    -v mon-three-console-node-modules:/app/node_modules \
+    -w /app node:22-alpine npm run dev -- --host "$TAIL" --port 5173
+else
+  docker start mon-three-console >/dev/null 2>&1 || true
+fi
+for i in $(seq 1 25); do
+  curl -fsS --max-time 3 "http://$TAIL:5173/" >/dev/null 2>&1 && break
+  sleep 1
+done
+curl -fsS --max-time 3 "http://$TAIL:5173/" >/dev/null
+echo "Console URL: http://$TAIL:5173/?tenant=mon-lab&site=site-a"
+""", root=True, label="operator-console-node22")
+
 
 
 def enroll_local(remote: Remote, kind: str, sensor: str = "") -> None:
@@ -529,7 +548,7 @@ def main() -> int:
     parser.add_argument("--approve-install", action="store_true")
     parser.add_argument("--approve-overlay", action="store_true")
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
-                                           "site", "victim", "ready"))
+                                           "console", "site", "victim", "ready"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -549,6 +568,8 @@ def main() -> int:
         overlay(remote)
     elif args.stage == "control":
         control(remote)
+    elif args.stage == "console":
+        console(remote)
     elif args.stage == "site":
         site(remote)
     elif args.stage == "victim":
