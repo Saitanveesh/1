@@ -1,6 +1,6 @@
 # Three-Ubuntu MON laboratory: Tailscale management, WireGuard evidence path
 
-**Status:** implementation staged in a PR. Do not claim successful deployment before the disposable-VM integration and an observed physical/remote lab acceptance run. No production tenants or real targets.
+**Status:** implementation staged in a PR. Supports three Tailscale-managed hosts or a mixed Tailscale-MON/LAN-victim-and-attacker setup, with the orchestrator launched from the MON host when using LAN addresses. Do not claim successful deployment before the disposable-VM integration and an observed physical/remote lab acceptance run. No production tenants or real targets.
 
 This consolidates the seven-PC proof into **three independent Ubuntu machines** without weakening core MON security boundaries.
 
@@ -29,9 +29,9 @@ Operator's Ubuntu workstation
 
 ## Prerequisites: do this before running a deployment stage
 
-All three hosts are dedicated, disposable Ubuntu 24.04 or 26.04 instances, awake and managed by the user with explicit permission. In particular, this script **does not** configure Tailscale or SSH for you; those must already work. Run it from the operator's Ubuntu workstation, **not necessarily PC2**, because all three nodes are now on Tailscale. Verify each real Tailscale IPv4 address and username with `tailscale ip -4` and `whoami` locally on that node.
+All three hosts are authorized Ubuntu 24.04 or 26.04 instances, awake and managed by the user with explicit permission. In particular, this script **does not** configure Tailscale or SSH for you; those must already work. For an all-Tailscale inventory, run it from the operator's Ubuntu workstation. If the MON host has Tailscale but victim/attacker have only college LAN addresses, **SSH into MON first and run the orchestrator there**, so no campus subnet route is needed from home. In both cases independently verify machine identities. Verify each real Tailscale IPv4 address and username with `tailscale ip -4` and `whoami` locally on that node.
 
-Configure the operator workstation's SSH key (do not put the shared password in inventory or scripts). For each of three known authorized addresses, verify the host-key fingerprint out-of-band, then manually install the operator public key using `ssh-copy-id USER@TAILSCALE_IP`. The script uses `StrictHostKeyChecking=yes` and `BatchMode=yes`; it will fail, not bypass either trust check, if key-based SSH is not ready. Sudo may prompt *interactively* for each privileged stage. **No unattended execution of privileged firewall stages.**
+Configure the deployment controller's SSH key (do not put the shared password in inventory or scripts). For each of three known authorized addresses, verify the host-key fingerprint out-of-band, then manually install that controller's public key using `ssh-copy-id USER@IP`. If running inside MON, install its public key for its own Tailscale SSH identity too. Remote SSH public-key authentication must be operational. The script uses `StrictHostKeyChecking=yes` and `BatchMode=yes`; it will fail, not bypass either trust check, if key-based SSH is not ready. Sudo may prompt *interactively* for each privileged stage. **No unattended execution of privileged firewall stages.**
 
 From an operator checkout of the PR branch:
 
@@ -46,6 +46,56 @@ python3 tools/lab_three_host.py --inventory ~/lab-three.json preflight
 ```
 
 Confirm it prints the real host + user + Ubuntu version + matching Tailscale IP for **all three**, not a fictitious success report. `preflight` is read-only. Do not proceed when any identity does not match.
+
+## Verified mixed-network example: PC2 + PC5 + PC6
+
+These addresses were supplied during the lab discussion and **must be verified again** before use (DHCP can change addresses):
+
+| Role | SSH login used by the script | Management address |
+| --- | --- | --- |
+| MON | `pc-2@100.75.116.62` (Tailscale); LAN underlay `10.5.112.94` | Tailscale |
+| Victim | `pc-5@10.5.112.23` | College LAN, via PC2 |
+| Attacker | `pc-6@10.5.112.4` | College LAN, via PC2 |
+
+PC7 (`100.126.27.115` on Tailscale) is optional as an operator browser; the MON architecture needs only three hosts.
+
+From your Ubuntu terminal at home:
+
+```bash
+ssh pc-2@100.75.116.62
+```
+
+Then **on PC2**, before installing MON, verify the two dedicated lab computers:
+
+```bash
+ssh pc-5@10.5.112.23 'hostname; whoami; ip -br -4 addr'
+ssh pc-6@10.5.112.4 'hostname; whoami; ip -br -4 addr'
+```
+
+Do not continue if either IP resolves to an unexpected computer. Do not scan the college subnet. The script is intended for individually authorized hosts only.
+
+Create `~/lab-three.json` **on PC2** (no passwords):
+
+```json
+{
+  "mon": {
+    "host": "100.75.116.62", "user": "pc-2",
+    "network": "tailscale", "lan_ip": "10.5.112.94"
+  },
+  "victim": {"host": "10.5.112.23", "user": "pc-5", "network": "lan"},
+  "attacker": {"host": "10.5.112.4", "user": "pc-6", "network": "lan"}
+}
+```
+
+The `lan_ip` is used only as the WireGuard endpoint for victim and attacker; the operator console binds to MON's Tailscale IP. The preflight requires the configured management address to appear on each relevant network interface. This is separate from test-traffic addresses `10.77.0.1`, `10.77.0.50`, and `10.77.0.60`.
+
+To run the **read-only** preflight from PC2 after checking out the PR branch:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json preflight
+```
+
+The script intentionally uses SSH `BatchMode=yes`, so set up trusted host keys and key-based access before starting. Do not run the privileged deployment or traffic-test stages while away from the computers until the mixed-network layout has been validated in disposable VMs and an onsite recovery route is available.
 
 ## Deployment, one stage at a time
 
