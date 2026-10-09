@@ -4,12 +4,12 @@
 No attacks, password storage, SSH host-key bypass, or automatic PC isolation.
 Invoke from an operator workstation, not a privileged MON service.
 """
+# ruff: noqa: E501  # multi-line shell templates preserve copy-paste command readability.
 from __future__ import annotations
 
 import argparse
 import ipaddress
 import json
-import os
 import re
 import shlex
 import subprocess
