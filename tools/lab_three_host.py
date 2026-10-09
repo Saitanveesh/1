@@ -464,11 +464,18 @@ if ! tmux has-session -t mon-three-suricata-collector 2>/dev/null; then
 fi
 """, root=True, label="suricata-sensor")
     remote.run("mon", r"""TOKEN=$(cat "$HOME/mon-three/identity/operator.jwt")
-curl -fsS -X POST \
- -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
- -d '{"enforcement_point_id":"mon-three-router","tenant_id":"mon-lab","site_id":"site-a","kind":"ROUTER","vendor":"linux-nftables-router","capabilities":["BLOCK_IP"],"priority":100,"attributes":{}}' \
- http://127.0.0.1:8080/api/v1/enforcement-points
-echo
+BASE='http://127.0.0.1:8080/api/v1/enforcement-points'
+EXISTING=$(curl -fsS -H "Authorization: Bearer $TOKEN" \
+  "$BASE?tenant_id=mon-lab&site_id=site-a")
+if printf '%s' "$EXISTING" | jq -e '.[] | select(.enforcement_point_id=="mon-three-router")' >/dev/null; then
+  echo 'mon-three-router already registered; preserving the existing enforcement point'
+else
+  curl -fsS -X POST \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d '{"enforcement_point_id":"mon-three-router","tenant_id":"mon-lab","site_id":"site-a","kind":"ROUTER","vendor":"linux-nftables-router","capabilities":["BLOCK_IP"],"priority":100,"attributes":{}}' \
+    "$BASE"
+  echo
+fi
 """, label="register-enforcement-point")
 
 
