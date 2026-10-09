@@ -59,6 +59,8 @@ python3 tools/lab_three_host.py --inventory ~/lab-three.json console
 python3 tools/lab_three_host.py --inventory ~/lab-three.json site
 python3 tools/lab_three_host.py --inventory ~/lab-three.json victim
 python3 tools/lab_three_host.py --inventory ~/lab-three.json ready
+# Optional, only after the readiness gate and before an authorized recon demonstration:
+python3 tools/lab_three_host.py --inventory ~/lab-three.json --approve-demo-setup demo-prepare
 ```
 
 The stages are deliberately independent. **Stop on the first failed stage and inspect the full output.** Do not run the `site` stage before MON is `READY` or the `victim` stage before sensor ingress/trust synchronization.
@@ -69,9 +71,11 @@ The stages are deliberately independent. **Stop on the first failed stage and in
 - `console`: real React SOC console using pinned Node 22 Docker image and API proxy; bound to **MON's Tailscale IP** on port 5173. Does not enable mock or seed data. The UI is an HTTP development server over the encrypted tailnet, not a public production web server.
 - `site`: local site identity enrollment + Suricata sensor enrollment, local Site Controller, sensor mTLS ingress on `10.77.0.1:9443`, Suricata on `wg0`, real collector and router enforcement-point registration. Do **not** approve containment against infrastructure or sensitive systems.
 - `victim`: locally-generated private CSR/key, controlled certificate enrollment by MON (only CSR and signed public certificates transit the operator workstation), Linux journald/auditd endpoint collector. No SSH password policy change, common attack account creation, or permanent firewall isolation.
-- `ready`: reports raw API/sensor/site and WireGuard checks; verify both sensors' fresh heartbeats before calling the lab healthy. Even fresh heartbeats do not prove correlation/containment until verified with approved, real traffic and rollback.
+- `ready`: fails unless control-plane state is READY, both real sensor heartbeats are recent, and both WireGuard peers have recent handshakes. This does not yet establish containment or correlation. Even fresh heartbeats do not prove correlation/containment until verified with approved, real traffic and rollback.
 
 **Operator UI:** browse `http://MON_TAILSCALE_IP:5173/?tenant=mon-lab&site=site-a` from a machine in the same tailnet. Signed `operator.jwt` remains private on the MON host under `~/mon-three/identity/`. It expires after 12 hours; subsequent sessions require an explicitly documented identity refresh, not a forged auth bypass. Use the existing test-day operator login procedure only in this disposable lab. No operator token is copied into the code, inventory, console build or reports.
+
+- `demo-prepare`: optional victim-only nftables rule for 100 filtered TCP ports (20000-20099), strictly from the attacker overlay IP and on `wg0`. It enables the detector's unanswered SYN test shape without running any probes. Remove only `mon_three_victim` to revert. No broad firewall changes.
 
 **Scope:** Because the third computer is Linux, we can demonstrate Suricata network evidence, Linux endpoint evidence, correlation, site-policy approval, MON-owned nftables router BLOCK_IP, rollback, and auditing *if* observed end-to-end. We **cannot claim a live Windows collector**, multi-site isolation, real volumetric upstream DDoS protection, or production-grade HA from this topology.
 
@@ -84,6 +88,8 @@ If the WireGuard/guard stage fails, stop. A privileged local operator can inspec
 ```bash
 sudo nft list table inet mon_three_guard
 sudo nft delete table inet mon_three_guard
+# On the victim only, if the optional demonstration rule was installed:
+sudo nft delete table inet mon_three_victim
 sudo systemctl disable --now wg-quick@wg0
 ```
 
