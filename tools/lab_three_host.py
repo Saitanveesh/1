@@ -234,6 +234,21 @@ wg pubkey < "$HOME/mon-three/wg.key" > "$HOME/mon-three/wg.pub"
 def overlay(remote: Remote) -> None:
     keys = {role: remote_public_key(remote, role) for role in ROLES}
     mon_peer = remote.peers["mon"]
+    # Install the guard BEFORE enabling forwarding to avoid a momentary open path.
+    # Refuse to mutate any other nftables tables/chains. No egress lockdown via remote SSH.
+    remote.run("mon", """if nft list table inet mon_three_guard >/dev/null 2>&1; then
+  echo 'MON overlay guard already exists; inspect before rerun'
+  exit 1
+fi
+nft add table inet mon_three_guard
+nft 'add chain inet mon_three_guard input { type filter hook input priority -100; policy accept; }'
+nft 'add chain inet mon_three_guard forward { type filter hook forward priority -100; policy accept; }'
+nft 'add rule inet mon_three_guard input iifname "wg0" ip saddr 10.77.0.60 drop'
+nft 'add rule inet mon_three_guard forward iifname "wg0" ip saddr 10.77.0.60 ip daddr 10.77.0.50 accept'
+nft 'add rule inet mon_three_guard forward iifname "wg0" ip saddr 10.77.0.60 drop'
+nft 'add rule inet mon_three_guard forward iifname "wg0" oifname != "wg0" drop'
+nft list table inet mon_three_guard
+""", root=True, label="guard-attacker-overlay")
     for role in ROLES:
         addr = WG_ADDR[role]
         if role == "mon":
@@ -264,21 +279,6 @@ grep -q '^PrivateKey = ' /etc/wireguard/wg0.conf
 chmod 600 /etc/wireguard/wg0.conf
 systemctl enable --now wg-quick@wg0
 """, root=True, label="wireguard-config")
-    # Install the guard BEFORE enabling forwarding to avoid a momentary open path.
-    # Refuse to mutate any other nftables tables/chains. No egress lockdown via remote SSH.
-    remote.run("mon", """if nft list table inet mon_three_guard >/dev/null 2>&1; then
-  echo 'MON overlay guard already exists; inspect before rerun'
-  exit 1
-fi
-nft add table inet mon_three_guard
-nft 'add chain inet mon_three_guard input { type filter hook input priority -100; policy accept; }'
-nft 'add chain inet mon_three_guard forward { type filter hook forward priority -100; policy accept; }'
-nft 'add rule inet mon_three_guard input iifname "wg0" ip saddr 10.77.0.60 drop'
-nft 'add rule inet mon_three_guard forward iifname "wg0" ip saddr 10.77.0.60 ip daddr 10.77.0.50 accept'
-nft 'add rule inet mon_three_guard forward iifname "wg0" ip saddr 10.77.0.60 drop'
-nft 'add rule inet mon_three_guard forward iifname "wg0" oifname != "wg0" drop'
-nft list table inet mon_three_guard
-""", root=True, label="guard-attacker-overlay")
     remote.run("mon", """printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-mon-three.conf
 sysctl -w net.ipv4.ip_forward=1
 """, root=True, label="overlay-forwarding")
