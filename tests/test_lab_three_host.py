@@ -191,3 +191,103 @@ def test_demo_preparation_is_explicitly_scoped_and_never_starts_a_scan(
     assert "tcp dport 20000-20099 drop" in script
     assert "nmap " not in script
     assert "nft flush ruleset" not in script
+
+
+
+def mixed_inventory(tmp_path: Path) -> Path:
+    path = tmp_path / "mixed.json"
+    path.write_text(json.dumps({
+        "mon": {
+            "host": "100.75.116.62",
+            "user": "pc-2",
+            "network": "tailscale",
+            "lan_ip": "10.5.112.94",
+        },
+        "victim": {
+            "host": "10.5.112.23", "user": "pc-5", "network": "lan",
+        },
+        "attacker": {
+            "host": "10.5.112.4", "user": "pc-6", "network": "lan",
+        },
+    }), encoding="utf-8")
+    return path
+
+
+def test_mixed_tailnet_and_lan_inventory(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    assert peers["mon"].lan_ip == "10.5.112.94"
+    assert peers["victim"].network == "lan"
+    assert peers["attacker"].dest == "pc-6@10.5.112.4"
+
+
+def test_mixed_inventory_requires_mon_lan_endpoint(tmp_path: Path) -> None:
+    mod = load_module()
+    path = mixed_inventory(tmp_path)
+    data = json.loads(path.read_text())
+    data["mon"].pop("lan_ip")
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="lan_ip is required"):
+        mod.read_inventory(path)
+
+
+def test_mixed_inventory_rejects_unexpected_public_or_special_ips(tmp_path: Path) -> None:
+    mod = load_module()
+    path = mixed_inventory(tmp_path)
+    for invalid in ("8.8.8.8", "100.75.116.62", "127.0.0.1"):
+        data = json.loads(path.read_text())
+        data["victim"]["host"] = invalid
+        path.write_text(json.dumps(data))
+        with pytest.raises(ValueError):
+            mod.read_inventory(path)
+
+
+def test_mixed_preflight_verifies_all_local_ipv4_interfaces(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+
+    class Fake:
+        def __init__(self, override=None):
+            self.peers = peers
+            self.override = override or {}
+
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            peer = peers[role]
+            addr = self.override.get(role, peer.host)
+            if role == "mon":
+                ip_lines = "tail-ip=100.75.116.62\naddr4=10.5.112.94/20"
+            else:
+                ip_lines = f"addr4={addr}/20"
+            return (
+                f"host=lab-{role} user={peer.user}\n"
+                f"os=ubuntu version=26.04\n{ip_lines}\n"
+                "/usr/bin/sudo\n/usr/bin/apt-get"
+            )
+
+    mod.preflight(Fake())
+    with pytest.raises(RuntimeError, match="LAN IP not assigned"):
+        mod.preflight(Fake({"attacker": "10.5.112.99"}))
+
+
+def test_lan_wireguard_peer_uses_mon_verified_underlay(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    calls = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, label, script))
+
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            return "A" * 43 + "="
+
+    mod.overlay(Fake())
+    for role in ("victim", "attacker"):
+        conf = next(script for r, label, script in calls
+                    if r == role and label == "wireguard-config")
+        assert "Endpoint = 10.5.112.94:51820" in conf
+        assert "AllowedIPs = 10.77.0.0/24" in conf
+        assert "0.0.0.0/0" not in conf
