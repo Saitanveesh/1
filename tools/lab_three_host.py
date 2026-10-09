@@ -184,7 +184,7 @@ def base_script(role: str) -> str:
              "attacker": "nmap netcat-openbsd"}[role]
     return f"""export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y {common} {extra}
+apt-get -o DPkg::Lock::Timeout=600 install -y {common} {extra}
 """ + ("""systemctl enable --now docker
 """ if role == "mon" else """true
 """) + ("""systemctl enable --now ssh auditd
@@ -232,6 +232,19 @@ wg pubkey < "$HOME/mon-three/wg.key" > "$HOME/mon-three/wg.pub"
 
 
 def overlay(remote: Remote) -> None:
+    # Preflight all three interfaces BEFORE any key generation, nftables changes or routing.
+    # A running wg0 may be carrying an earlier lab's traffic.
+    for role in ROLES:
+        active = remote.ssh(
+            role,
+            "test -d /sys/class/net/wg0 && printf 'present' || true",
+            capture=True,
+        )
+        if active == "present":
+            raise RuntimeError(
+                f"{role}: existing wg0 is active. "
+                "Stop: migration requires a separate backed-up, explicit cutover plan."
+            )
     keys = {role: remote_public_key(remote, role) for role in ROLES}
     mon_peer = remote.peers["mon"]
     # Install the guard BEFORE enabling forwarding to avoid a momentary open path.
