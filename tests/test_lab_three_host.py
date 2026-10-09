@@ -149,3 +149,23 @@ def test_no_automatic_exercise_traffic() -> None:
     assert "StrictHostKeyChecking=no" not in source
     assert "NOPASSWD:ALL" not in source
     assert "sudo nft flush ruleset" not in source
+
+
+
+def test_live_sensor_gate_requires_both_fresh_heartbeats() -> None:
+    mod = load_module()
+    good = [
+        {"sensor_id": "suricata-three", "heartbeat_age_seconds": 10},
+        {"sensor_id": "linux-victim-three", "heartbeat_age_seconds": 12},
+    ]
+    mod.validate_live_sensors(good)
+    with pytest.raises(RuntimeError, match="missing live sensor"):
+        mod.validate_live_sensors(good[:1])
+    with pytest.raises(RuntimeError, match="stale heartbeat"):
+        mod.validate_live_sensors([
+            good[0], {"sensor_id": "linux-victim-three", "heartbeat_age_seconds": 95}
+        ])
+    with pytest.raises(RuntimeError, match="missing numeric"):
+        mod.validate_live_sensors([
+            good[0], {"sensor_id": "linux-victim-three", "heartbeat_age_seconds": None}
+        ])
