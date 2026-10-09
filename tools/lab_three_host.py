@@ -534,21 +534,57 @@ fi
     print("Victim collector started; check its live heartbeat before any exercise.")
 
 
+def validate_live_sensors(rows: object) -> None:
+    """Fail closed rather than interpreting an empty sensor list as healthy."""
+    if not isinstance(rows, list):
+        raise RuntimeError("sensor API did not return a list")
+    expected = {"suricata-three", "linux-victim-three"}
+    matched = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sensor_id = row.get("sensor_id")
+        if sensor_id not in expected:
+            continue
+        age = row.get("heartbeat_age_seconds")
+        if isinstance(age, bool) or not isinstance(age, (int, float)):
+            raise RuntimeError(f"{sensor_id}: missing numeric heartbeat age")
+        if age < 0 or age > 90:
+            raise RuntimeError(f"{sensor_id}: stale heartbeat ({age}s)")
+        matched[sensor_id] = row
+    missing = expected - matched.keys()
+    if missing:
+        raise RuntimeError(f"missing live sensor heartbeat(s): {', '.join(sorted(missing))}")
+
+
 def readiness(remote: Remote) -> None:
-    print("\nMON health:")
-    print(remote.ssh("mon", "curl -fsS http://127.0.0.1:8080/health", capture=True))
-    print("\nSite health:")
-    print(remote.ssh("mon", "curl -fsS http://127.0.0.1:8090/health", capture=True))
-    print("\nSensors (real backend):")
-    print(remote.ssh("mon", r"""TOKEN=$(cat "$HOME/mon-three/identity/operator.jwt")
+    control_health = json.loads(remote.ssh(
+        "mon", "curl -fsS http://127.0.0.1:8080/health", capture=True
+    ))
+    print("MON health:", json.dumps(control_health, indent=2))
+    if control_health.get("state") != "READY":
+        raise RuntimeError("MON control plane is not READY")
+
+    site_health = json.loads(remote.ssh(
+        "mon", "curl -fsS http://127.0.0.1:8090/health", capture=True
+    ))
+    print("Site health:", json.dumps(site_health, indent=2))
+
+    payload = remote.ssh("mon", r"""TOKEN=$(cat "$HOME/mon-three/identity/operator.jwt")
 curl -fsS -H "Authorization: Bearer $TOKEN" \
  'http://127.0.0.1:8080/api/v1/sensors?tenant_id=mon-lab&site_id=site-a'
-""", capture=True))
-    print("\nWireGuard handshakes on hub:")
-    print(remote.ssh("mon", "sudo -n wg show wg0 latest-handshakes", capture=True))
-    print("\nThis is raw evidence, NOT a claim of healthy sensors.")
-    print("Check both sensor IDs, freshness, and tunnel connectivity manually.")
-    print("Do not demonstrate an attack until these checks succeed.")
+""", capture=True)
+    rows = json.loads(payload)
+    print("Real sensor inventory:", json.dumps(rows, indent=2))
+    validate_live_sensors(rows)
+
+    remote.run("mon", """wg show wg0 latest-handshakes
+wg show wg0 latest-handshakes | awk '$2 > 0 {seen++} END {exit !(seen >= 2)}'
+nft list table inet mon_three_guard
+""", root=True, label="verify-overlay-and-guard")
+    print("READY gate: API, site endpoint, two live sensor heartbeats, "
+          "WireGuard peers and scoped guard observed.")
+    print("This is not yet proof of an incident, containment or rollback.")
 
 
 def main() -> int:
