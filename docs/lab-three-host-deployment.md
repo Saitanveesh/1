@@ -97,6 +97,20 @@ python3 tools/lab_three_host.py --inventory ~/lab-three.json preflight
 
 The script intentionally uses SSH `BatchMode=yes`, so set up trusted host keys and key-based access before starting. Do not run the privileged deployment or traffic-test stages while away from the computers until the mixed-network layout has been validated in disposable VMs and an onsite recovery route is available.
 
+## Existing VPN and apt lock gate (PC5/PC6 legacy lab)
+
+In the first verified physical lab, PC5 and PC6 already had active `wg0` addresses `10.77.0.50/32` and `10.77.0.60/32`. Both reported a WireGuard peer endpoint `10.5.115.5:51820`, which is **not** PC2's LAN address `10.5.112.94`. Consequently the existing overlay may be routed through the earlier PC3 lab hub. **Do not run the `overlay` stage in this state.** The orchestrator now refuses any active `wg0` before touching keys, routes, nftables or interfaces. Existing peer keys, identities and tunnel configuration must be backed up and an explicit, tested cutover/rollback plan approved before any migration. Do not delete an old config, kill an SSH session or flush nftables to force the setup.
+
+The initial `bootstrap` also stopped on PC5 because another `apt` process held `/var/lib/dpkg/lock-frontend`. Never remove the lock file or kill the package manager. Wait until the process has finished. The installer now uses `DPkg::Lock::Timeout=600` for package installation, but **still stops** on a timeout or other apt error. Installation on PC2 may already have succeeded before PC5 failed, so reruns must stay idempotent and be verified independently.
+
+Inspect package status from PC2 using:
+
+```bash
+ssh pc-5@10.5.112.23 'ps -p 53238 -o pid,ppid,etime,stat,args || true; systemctl is-active apt-daily.service apt-daily-upgrade.service || true'
+```
+
+After the apt lock is released, rerun `bootstrap` from the updated PR checkout and inspect its output before doing anything to the overlay. The existing active `wg0` state is a hard **migration gate**; the regular `overlay` stage is intended only for previously unused interfaces.
+
 ## Deployment, one stage at a time
 
 Use the same `--inventory ~/lab-three.json` argument in every command below. We intentionally require explicit flags before privileged installation or overlay routing.
