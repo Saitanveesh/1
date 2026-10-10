@@ -20,3 +20,13 @@ def test_mon_three_ux_deploy_isolated_to_console_and_local_portal() -> None:
     assert "wg-quick down" not in script
     assert "nft flush ruleset" not in script
     assert "/api/v1/responses/execute" not in script
+
+
+def test_mon_three_ux_recovers_stopped_frontend_before_upgrade() -> None:
+    source = SCRIPT.read_text()
+    assert "mon-console-ux" in source
+    assert "tmux new-session -d" in source
+    assert "--host 0.0.0.0 --port 5173 --strictPort" in source
+    assert "mon-three-code/console" in source
+    assert "Port 5173 is occupied" in source
+    assert '[[ "$online" != 1 ]]' in source
