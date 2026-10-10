@@ -501,7 +501,77 @@ fi
 """, label=f"enroll-{sid}")
 
 
+def site_preflight(remote: Remote) -> None:
+    """Read-only and fail-closed: ensure that PC2, not a former hub, owns the path."""
+    preflight(remote)
+    mon_ip = remote.peers["mon"].lan_ip
+    if not mon_ip:
+        raise RuntimeError("site setup requires the verified MON management LAN IP")
+    remote.run("mon", """set -e
+test -d /sys/class/net/wg0 || { echo 'MON wg0 is missing'; exit 1; }
+ip -o -4 addr show dev wg0 | grep -F '10.77.0.1/24' >/dev/null || {
+  echo 'MON wg0 does not own the lab hub address'; exit 1;
+}
+test "$(wg show wg0 peers | wc -l)" -eq 2 || {
+  echo 'MON wg0 must have precisely two authorized peers'; exit 1;
+}
+test "$(wg show wg0 listen-port)" = "51820" || {
+  echo 'MON wg0 is not listening on expected port'; exit 1;
+}
+nft list table inet mon_three_guard >/dev/null || {
+  echo 'MON bounded forwarding guard is absent'; exit 1;
+}
+now=$(date +%s)
+wg show wg0 latest-handshakes |
+  awk -v now="$now" '$2 > 0 && now - $2 <= 120 {valid++} END {exit !(valid == 2)}' || {
+    echo 'Both WireGuard peers must have fresh handshakes'; exit 1;
+}
+test "$(curl -fsS --max-time 5 http://127.0.0.1:8080/health | jq -r .state)" = READY || {
+  echo 'MON authenticated control plane is not READY'; exit 1;
+}
+echo 'MON hub, guard, two real handshakes and control-plane health verified'
+""", root=True, label="site-preflight-hub")
+    for role in ("victim", "attacker"):
+        dest = remote.peers[role].host
+        address = WG_ADDR[role]
+        endpoint = f"{mon_ip}:51820"
+        remote.run(role, f"""set -e
+test -d /sys/class/net/wg0 || {{
+  echo 'Legacy or migrated wg0 is absent'; exit 1;
+}}
+ip -o -4 addr show dev wg0 | grep -F {shlex.quote(address + '/32')} >/dev/null || {{
+  echo 'Unexpected overlay address'; exit 1;
+}}
+test "$(wg show wg0 peers | wc -l)" -eq 1 || {{
+  echo 'Unexpected WireGuard peer count'; exit 1;
+}}
+wg show wg0 endpoints | awk '$2 == {shlex.quote(endpoint)} {{seen=1}} END {{exit !seen}}' || {{
+  echo 'WireGuard is still using a different hub; no sensor startup'; exit 1;
+}}
+test "$(wg show wg0 allowed-ips | awk '{{print $2}}')" = "10.77.0.0/24" || {{
+  echo 'Unexpected tunnel route authorization'; exit 1;
+}}
+ip -4 route get 10.77.0.1 | grep -F 'dev wg0' >/dev/null || {{
+  echo 'Lab hub route does not use wg0'; exit 1;
+}}
+ip -4 route get {shlex.quote(mon_ip)} | grep -v 'dev wg0' >/dev/null || {{
+  echo 'Management route unexpectedly uses WireGuard'; exit 1;
+}}
+now=$(date +%s)
+wg show wg0 latest-handshakes |
+  awk -v now="$now" '$2 > 0 && now - $2 <= 120 {{valid=1}} END {{exit !valid}}' || {{
+    echo 'No recent WireGuard handshake with the MON hub'; exit 1;
+}}
+echo 'Verified migrated peer and separate management route for {role}'
+""", root=True, label=f"site-preflight-{role}")
+    print(
+        "Read-only site preflight passed: telemetry can be configured for "
+        "the verified PC2 hub. This does NOT itself confirm captured traffic."
+    )
+
+
 def site(remote: Remote) -> None:
+    site_preflight(remote)
     enroll_local(remote, "site")
     enroll_local(remote, "suricata", "suricata-three")
     user = shlex.quote(remote.peers["mon"].user)
@@ -594,6 +664,7 @@ fi
 
 
 def victim(remote: Remote) -> None:
+    site_preflight(remote)
     existing = remote.ssh("victim", "test -s ~/mon-three/victim-id/sensor-client-cert.pem && echo yes || true", capture=True)
     if existing == "yes":
         print("[victim] certificate already present; preserving credentials")
@@ -932,7 +1003,7 @@ def main() -> int:
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
                                            "console", "site", "victim", "demo-prepare", "ready",
                                            "doctor", "evidence", "migration-audit", "migration-backup",
-                                           "browser-login"))
+                                           "browser-login", "site-preflight"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -956,6 +1027,8 @@ def main() -> int:
         console(remote)
     elif args.stage == "browser-login":
         browser_login(remote)
+    elif args.stage == "site-preflight":
+        site_preflight(remote)
     elif args.stage == "site":
         site(remote)
     elif args.stage == "victim":
