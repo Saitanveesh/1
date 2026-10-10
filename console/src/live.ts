@@ -17,6 +17,8 @@ export type ConnectionState = "CONNECTING" | "LIVE" | "RECOVERING" | "OFFLINE";
 export interface LiveState extends LiveSnapshot {
   connection: ConnectionState;
   lastMessageAt?: string;
+  /** Timestamp of last actual MON event; stream.ready and heartbeats are excluded. */
+  lastEventAt?: string;
   droppedMessages: number;
 }
 
@@ -97,8 +99,7 @@ export class LiveClient {
         const snapshot = await fetchSnapshot(this.tenantId, this.siteId);
         this.emit({
           ...snapshot,
-          connection: "LIVE",
-          lastMessageAt: new Date().toISOString()
+          connection: "LIVE"
         });
         this.reconnectAttempt = 0;
       } catch {
@@ -120,9 +121,14 @@ export class LiveClient {
       return;
     }
 
+    const isControlMessage = envelope.kind === "stream.heartbeat"
+      || envelope.kind === "stream.ready";
     const common = {
       sequence: Math.max(this.state.sequence, envelope.sequence),
-      lastMessageAt: envelope.emitted_at,
+      // Use the time the browser actually receives a WebSocket frame to
+      // measure transport freshness, not a frozen initial API snapshot time.
+      lastMessageAt: new Date().toISOString(),
+      lastEventAt: isControlMessage ? this.state.lastEventAt : envelope.emitted_at,
       connection: "LIVE" as const
     };
 
