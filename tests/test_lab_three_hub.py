@@ -157,3 +157,17 @@ def test_rollback_order_stops_hub_before_removing_its_guard(monkeypatch) -> None
     assert commands.index(("systemctl", "disable", "--now", "wg-quick@wg0")) \
         < commands.index(("delete", "mon-owned-config")) \
         < commands.index(("nft", "delete", "table", "inet", "mon_three_guard"))
+
+
+
+def test_volatile_firewall_guard_precedes_manual_hub_start_only() -> None:
+    """Never enable auto-start if nft guard has no guard-first boot persistence."""
+    import inspect
+
+    hub = load()
+    source = inspect.getsource(hub.prepare)
+    assert source.index('checked("nft", "-f", str(guard_staging))') \
+        < source.index('checked("systemctl", "start", "wg-quick@wg0")')
+    assert 'checked("systemctl", "enable"' not in source
+    check_source = inspect.getsource(hub.assert_prepared)
+    assert '"is-enabled", "wg-quick@wg0"' in check_source
