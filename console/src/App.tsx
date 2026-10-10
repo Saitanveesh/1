@@ -9,7 +9,7 @@ import type {
   EnforcementPoint,
   Finding,
   Incident,
-   ResponseExecution,
+  ResponseExecution,
   SensorFleetView,
   Severity
 } from "./types";
@@ -425,10 +425,8 @@ export default function App() {
     let cancelled = false;
     setAuthState("CHECKING");
     fetchOperator()
-      .then(async (principal) => {
+      .then(async () => {
         if (cancelled) return;
-        // JWT-backed operator authentication remains enforced by the control plane.
-        void principal;
         try {
           await fetchSnapshot(tenantId, siteId);
           if (!cancelled) setAuthState("OK");
