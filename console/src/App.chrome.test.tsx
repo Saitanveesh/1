@@ -75,7 +75,8 @@ vi.mock("./live", () => ({
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
+  // Keep the module-level async API mock implementations across test cases.
+  vi.clearAllMocks();
 });
 
 describe("SOC operator chrome", () => {
