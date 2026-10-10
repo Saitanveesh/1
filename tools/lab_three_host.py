@@ -725,7 +725,6 @@ nft list tables | grep -E 'mon_lab|mon_three|mon_router' || true
 """, root=True, label="migration-audit-hub")
     for role in ("victim", "attacker"):
         target = WG_ADDR[role]
-        peer = remote.peers[role]
         remote.run(role, f"""set -e
 test -d /sys/class/net/wg0 || {{
   echo "Expected existing wg0 missing; no automatic migration"; exit 1;
