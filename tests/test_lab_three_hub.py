@@ -107,7 +107,8 @@ def test_checked_does_not_use_shell_and_fails_closed(monkeypatch) -> None:
         raise subprocess.CalledProcessError(1, args)
 
     monkeypatch.setattr(hub.subprocess, "run", fake_run)
-    with pytest.raises(hub.HubSafetyError, match=r"WireGuard interface inspection failed \(exit=1\)"):
+    error = r"WireGuard interface inspection failed \(exit=1\)"
+    with pytest.raises(hub.HubSafetyError, match=error):
         hub.checked("wg", "show", "wg0", "listen-port")
     args, kwargs = called[0]
     assert args == ("wg", "show", "wg0", "listen-port")
