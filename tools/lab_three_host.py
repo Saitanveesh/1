@@ -401,10 +401,12 @@ TAIL=$(tailscale ip -4)
 test -d "$LAB_HOME/mon-three-code/console"
 docker volume create mon-three-console-node-modules >/dev/null
 if ! docker container inspect mon-three-console >/dev/null 2>&1; then
+  # This repo does not yet track console/package-lock.json. CI also uses
+  # npm install. Avoid generating an untracked lockfile in the pinned checkout.
   docker run --rm --network host \
     -v "$LAB_HOME/mon-three-code/console:/app" \
     -v mon-three-console-node-modules:/app/node_modules \
-    -w /app node:22-alpine npm ci --no-audit --no-fund
+    -w /app node:22-alpine npm install --no-package-lock --no-audit --no-fund
   docker run -d --name mon-three-console --restart unless-stopped --network host \
     -v "$LAB_HOME/mon-three-code/console:/app" \
     -v mon-three-console-node-modules:/app/node_modules \
