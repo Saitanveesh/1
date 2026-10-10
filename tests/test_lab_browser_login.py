@@ -160,6 +160,7 @@ def test_http_claim_sets_http_only_cookie_once_and_does_not_echo_jwt(monkeypatch
             "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
             headers={
                 "Origin": pairing.expected_origin,
+                "Sec-Fetch-Site": "same-origin",
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
@@ -178,6 +179,7 @@ def test_http_claim_sets_http_only_cookie_once_and_does_not_echo_jwt(monkeypatch
             "POST", "/lab-session/claim",
             "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
             headers={"Origin": pairing.expected_origin,
+                     "Sec-Fetch-Site": "same-origin",
                      "Content-Type": "application/x-www-form-urlencoded"},
         )
         reused = client.getresponse()
@@ -202,6 +204,7 @@ def test_http_claim_rejects_cross_origin_and_oversized_payload(monkeypatch) -> N
             "POST", "/lab-session/claim",
             "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
             headers={"Origin": "http://other.test",
+                     "Sec-Fetch-Site": "cross-site",
                      "Content-Type": "application/x-www-form-urlencoded"},
         )
         denied = conn.getresponse()
@@ -246,9 +249,11 @@ def test_missing_origin_allowed_only_with_verified_same_origin_metadata_and_nonc
 
     for origin, fetch_site in [
         ("", ""),
+        ("http://100.75.116.62:5173", ""),
         ("", "cross-site"),
         ("null", "cross-site"),
         ("http://evil.invalid", "same-origin"),
+        ("http://127.0.0.1:8766", "cross-site"),
     ]:
         attempt = state(mod)
         assert not attempt.claim(
@@ -293,6 +298,76 @@ def test_http_same_origin_chrome_form_without_origin_header_succeeds(monkeypatch
         result.read()
         assert result.status == 303
         assert result.getheader("Set-Cookie", "").startswith("mon_session=")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+
+def test_vite_loopback_proxy_origin_is_accepted_only_for_same_origin_with_nonce(
+    monkeypatch,
+) -> None:
+    """Reproduces a Chromium/Vite POST whose upstream Origin is the proxy target."""
+    mod = module()
+    validated = []
+    monkeypatch.setattr(mod, "validate_operator", lambda t: validated.append(t))
+
+    session = state(mod)
+    assert session.claim(
+        challenge=session.challenge,
+        form_nonce=session.form_nonce,
+        origin="http://127.0.0.1:8766",
+        fetch_site="same-origin",
+    )
+    assert validated == ["signed-jwt-do-not-expose"]
+    assert session.used
+
+    for fetch_site in ("", "cross-site", "same-site"):
+        rejected = state(mod)
+        assert not rejected.claim(
+            challenge=rejected.challenge,
+            form_nonce=rejected.form_nonce,
+            origin="http://127.0.0.1:8766",
+            fetch_site=fetch_site,
+        )
+        assert not rejected.used
+
+    bad_nonce = state(mod)
+    assert not bad_nonce.claim(
+        challenge=bad_nonce.challenge,
+        form_nonce="not-the-server-nonce",
+        origin="http://127.0.0.1:8766",
+        fetch_site="same-origin",
+    )
+    assert not bad_nonce.used
+
+
+def test_http_vite_rewritten_origin_only_works_with_real_browser_metadata(
+    monkeypatch,
+) -> None:
+    mod = module()
+    monkeypatch.setattr(mod, "validate_operator", lambda _: {"roles": ["tenant_admin"]})
+    pairing = state(mod)
+    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(pairing))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        client.request(
+            "POST",
+            "/lab-session/claim",
+            "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
+            headers={
+                "Origin": "http://127.0.0.1:8766",
+                "Sec-Fetch-Site": "same-origin",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        result = client.getresponse()
+        result.read()
+        assert result.status == 303
+        assert "HttpOnly" in result.getheader("Set-Cookie", "")
     finally:
         server.shutdown()
         server.server_close()
