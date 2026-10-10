@@ -1,5 +1,5 @@
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "mon-three-one-shot.sh"
