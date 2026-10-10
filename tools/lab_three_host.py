@@ -501,7 +501,7 @@ fi
 """, label=f"enroll-{sid}")
 
 
-def migration_plan(remote: Remote) -> None:
+def migration_plan(remote: Remote) -> dict[str, str]:
     """No-route-change hub plan using actual peer public keys and verified backups."""
     legacy_overlay_audit(remote)
     peer_public_keys: dict[str, str] = {}
@@ -563,6 +563,52 @@ test ! -e /etc/wireguard/wg0.conf || {
 """, root=True, label="migration-plan-hub-readonly")
     print("Migration hub plan (PUBLIC material only):", json.dumps(report, indent=2))
     print("No peer routing changes applied. Manual review and supervised cutover remain required.")
+    return {**peer_public_keys, "mon": mon_key}
+
+
+def prepare_hub(remote: Remote) -> None:
+    """Guard PC2 but keep PC5/PC6 on their existing WireGuard hub."""
+    keys = migration_plan(remote)
+    mon = remote.peers["mon"]
+    if not mon.lan_ip:
+        raise RuntimeError("MON hub LAN IP must be verified")
+    helper = shlex.quote(str(Path.home() / "mon-three-operator/tools/lab_three_hub.py"))
+    args = [
+        "prepare",
+        "--mon-user", mon.user,
+        "--hub-public-key", keys["mon"],
+        "--victim-public-key", keys["victim"],
+        "--attacker-public-key", keys["attacker"],
+        "--victim-management", remote.peers["victim"].host,
+        "--attacker-management", remote.peers["attacker"].host,
+    ]
+    quoted = " ".join(shlex.quote(value) for value in args)
+    remote.run(
+        "mon", f"python3 {helper} {quoted}",
+        root=True, label="pc2-hub-prepare-only",
+    )
+    print("PC2-only hub prepared. Do not migrate peers yet.")
+
+
+def verify_hub(remote: Remote) -> None:
+    args = [
+        "--victim-management", remote.peers["victim"].host,
+        "--attacker-management", remote.peers["attacker"].host,
+    ]
+    quoted = " ".join(shlex.quote(value) for value in args)
+    remote.run(
+        "mon",
+        f"python3 {shlex.quote(str(Path.home() / 'mon-three-operator/tools/lab_three_hub.py'))} verify {quoted}",
+        root=True, label="pc2-hub-verify",
+    )
+
+
+def rollback_unused_hub(remote: Remote) -> None:
+    remote.run(
+        "mon",
+        f"python3 {shlex.quote(str(Path.home() / 'mon-three-operator/tools/lab_three_hub.py'))} rollback",
+        root=True, label="pc2-unused-hub-rollback",
+    )
 
 
 def site_preflight(remote: Remote) -> None:
@@ -1063,10 +1109,13 @@ def main() -> int:
     parser.add_argument("--approve-demo-setup", action="store_true")
     parser.add_argument("--evidence-out", type=Path)
     parser.add_argument("--approve-migration-backup", action="store_true")
+    parser.add_argument("--approve-hub-prepare", action="store_true")
+    parser.add_argument("--approve-hub-rollback", action="store_true")
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
                                            "console", "site", "victim", "demo-prepare", "ready",
                                            "doctor", "evidence", "migration-audit", "migration-backup",
-                                           "browser-login", "site-preflight", "migration-plan"))
+                                           "browser-login", "site-preflight", "migration-plan",
+                                           "hub-prepare", "hub-verify", "hub-rollback"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -1108,6 +1157,16 @@ def main() -> int:
         legacy_overlay_audit(remote)
     elif args.stage == "migration-plan":
         migration_plan(remote)
+    elif args.stage == "hub-prepare":
+        if not args.approve_hub_prepare:
+            parser.error("hub-prepare requires --approve-hub-prepare")
+        prepare_hub(remote)
+    elif args.stage == "hub-verify":
+        verify_hub(remote)
+    elif args.stage == "hub-rollback":
+        if not args.approve_hub_rollback:
+            parser.error("hub-rollback requires --approve-hub-rollback")
+        rollback_unused_hub(remote)
     elif args.stage == "migration-backup":
         if not args.approve_migration_backup:
             parser.error("migration-backup requires --approve-migration-backup")
