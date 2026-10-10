@@ -51,3 +51,14 @@ def test_build_tool_recovery_requires_real_tsc_binary_and_dev_dependencies() -> 
     assert "npm run build" in source
     assert "set -euo pipefail" in source
     assert "set -Eeuo pipefail" not in source
+
+
+def test_upgrade_repairs_mixed_console_ownership_before_npm() -> None:
+    source = SCRIPT.read_text()
+    assert 'EXPECTED_FRONTEND=$(realpath -e "$CODE/console")' in source
+    assert '[[ "$FRONTEND" == "$EXPECTED_FRONTEND"' in source
+    assert 'sudo chown -hR --' in source
+    assert 'find "$FRONTEND/node_modules" -xdev' in source
+    assert source.index("sudo chown -hR --") < source.index("npm install --include=dev")
+    assert "sudo npm" not in source
+    assert "chown -R pc-2:pc-2 $HOME" not in source
