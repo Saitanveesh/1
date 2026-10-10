@@ -179,6 +179,8 @@ if b'MON_ENABLE_ROUTER_NFTABLES_ENFORCEMENT=1' not in env.split(b'\0'):
 print('[PASS] Router adapter enabled, CAP_NET_ADMIN granted to unprivileged site service')
 PY
 good "Site Controller ready; state, identity and WireGuard preserved"
+# The service is now proven healthy; retain it if later API configuration fails.
+swapped=0
 
 info 'REGISTER CAPABILITY AND BIND THE REAL PC5 ASSET'
 "$CODE/.venv/bin/python" - "$ROOT/identity/operator.jwt" <<'PY'
