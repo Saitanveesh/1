@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -670,6 +671,111 @@ nft list table inet mon_three_guard
     print("This is not yet proof of an incident, containment or rollback.")
 
 
+def doctor(remote: Remote) -> None:
+    """Read-only inspection: APT contention, WireGuard legacy hub, and resources."""
+    for role in ROLES:
+        print(f"\n===== {role}: package/network inspection =====", flush=True)
+        remote.ssh(role, """set -u
+hostname
+printf '\\n-- package manager --\\n'
+ps -eo pid,ppid,etime,stat,args | grep -E '[a]pt(-get)?|[d]pkg|[u]nattended-upgrade' || true
+printf '\\n-- wg0 --\\n'
+ip -br -4 addr show wg0 2>/dev/null || echo 'wg0 not present'
+systemctl is-active wg-quick@wg0 || true
+printf '\\n-- routes to victim/hub --\\n'
+ip route get 10.77.0.1 || true
+ip route get 10.77.0.50 || true
+printf '\\n-- available resources --\\n'
+free -m | head -3
+df -h / | tail -1
+""", interactive=True)
+        remote.run(role, """printf '%s\\n' '-- wg0 peer endpoints (public, not private keys) --'
+if [ -d /sys/class/net/wg0 ]; then
+  wg show wg0 endpoints
+  wg show wg0 latest-handshakes
+fi
+printf '%s\\n' '-- dpkg/apt lock holders --'
+fuser -v /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock 2>&1 || true
+""", root=True, label="read-only-network-and-package-inspection")
+    print("Inspection complete; no packages, VPN settings or firewall rules were changed.")
+
+
+def scrub_secrets(value: object) -> object:
+    """Allow security evidence without leaking credentials into operator reports."""
+    secret_fragments = ("password", "secret", "token", "private_key", "authorization",
+                        "cookie", "credential", "bearer")
+    if isinstance(value, dict):
+        return {
+            k: ("[REDACTED]" if any(fragment in str(k).lower()
+                                     for fragment in secret_fragments)
+                else scrub_secrets(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [scrub_secrets(v) for v in value]
+    return value
+
+
+def capture_evidence(remote: Remote, path: Path) -> None:
+    """Collect actual MON API data; never manufacture findings or incidents."""
+    endpoints = {
+        "health": "/health",
+        "sensors": "/api/v1/sensors?tenant_id=mon-lab&site_id=site-a",
+        "assets": "/api/v1/assets?tenant_id=mon-lab&site_id=site-a",
+        "findings": "/api/v1/findings?tenant_id=mon-lab&site_id=site-a",
+        "incidents": "/api/v1/incidents?tenant_id=mon-lab&site_id=site-a",
+        "enforcement": "/api/v1/enforcement-points?tenant_id=mon-lab&site_id=site-a",
+        "responses": "/api/v1/responses?tenant_id=mon-lab&site_id=site-a",
+        "audit": "/api/v1/audit?tenant_id=mon-lab&site_id=site-a",
+    }
+    collected: dict[str, object] = {}
+    errors: dict[str, str] = {}
+    for name, endpoint in endpoints.items():
+        try:
+            command = (
+                'TOKEN=$(cat "$HOME/mon-three/identity/operator.jwt"); '
+                'curl --fail --silent --show-error --max-time 12 '
+                '-H "Authorization: Bearer $TOKEN" '
+                + shlex.quote("http://127.0.0.1:8080" + endpoint)
+            )
+            raw = remote.ssh("mon", command, capture=True)
+            collected[name] = scrub_secrets(json.loads(raw))
+        except (json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+            errors[name] = f"{type(exc).__name__}: collection failed"
+    try:
+        site_raw = remote.ssh(
+            "mon", "curl --fail --silent --show-error --max-time 12 "
+                   "http://127.0.0.1:8090/health", capture=True
+        )
+        collected["site_health"] = scrub_secrets(json.loads(site_raw))
+    except (json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+        errors["site_health"] = f"{type(exc).__name__}: collection failed"
+
+    report = {
+        "schema_version": "mon.lab.evidence.v1",
+        "evidence_provenance": "live_api_responses_from_mon_host",
+        "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "collector": os.getlogin() if sys.stdin.isatty() else "noninteractive",
+        "tenant_id": "mon-lab",
+        "site_id": "site-a",
+        "result": "COMPLETE" if not errors else "INCOMPLETE",
+        "sources": collected,
+        "errors": errors,
+        "note": "Snapshot is not proof of incident causality, remediation or physical recovery.",
+    }
+    path = path.expanduser()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.exists():
+        raise RuntimeError(f"refusing to overwrite evidence file: {path}")
+    with path.open("x", encoding="utf-8") as handle:
+        os.chmod(path, 0o600)
+        json.dump(report, handle, indent=2)
+        handle.write("\n")
+    print(f"Raw observed MON evidence saved at {path}; status={report['result']}")
+    if errors:
+        raise RuntimeError(f"Some evidence endpoints failed: {', '.join(errors)}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", required=True, type=Path)
@@ -677,8 +783,10 @@ def main() -> int:
     parser.add_argument("--approve-install", action="store_true")
     parser.add_argument("--approve-overlay", action="store_true")
     parser.add_argument("--approve-demo-setup", action="store_true")
+    parser.add_argument("--evidence-out", type=Path)
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
-                                           "console", "site", "victim", "demo-prepare", "ready"))
+                                           "console", "site", "victim", "demo-prepare", "ready",
+                                           "doctor", "evidence"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -710,6 +818,12 @@ def main() -> int:
         demo_prepare(remote)
     elif args.stage == "ready":
         readiness(remote)
+    elif args.stage == "doctor":
+        doctor(remote)
+    elif args.stage == "evidence":
+        if args.evidence_out is None:
+            parser.error("evidence requires --evidence-out")
+        capture_evidence(remote, args.evidence_out)
     return 0
 
 
