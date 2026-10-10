@@ -398,12 +398,16 @@ def console(remote: Remote) -> None:
     user = shlex.quote(remote.peers["mon"].user)
     remote.run("mon", f"""LAB_HOME=$(getent passwd {user} | cut -d: -f6)
 TAIL=$(tailscale ip -4)
-test -d "$LAB_HOME/mon-three-code/console"
+# Console follows this reviewed operator PR checkout; the separate Python
+# control-plane checkout remains pinned and is never modified by UI updates.
+CONSOLE_SOURCE="$LAB_HOME/mon-three-operator/console"
+test -d "$CONSOLE_SOURCE"
 LAB_CONFIG="$LAB_HOME/mon-three-operator/tools/lab_vite_config.ts"
 test -f "$LAB_CONFIG" || {{ echo "Lab Vite config missing; fetch operator PR"; exit 1; }}
 docker volume create mon-three-console-node-modules >/dev/null
 if docker container inspect mon-three-console >/dev/null 2>&1 && \
-   ! docker inspect mon-three-console | grep -Fq '/app/vite.config.ts'; then
+   ( ! docker inspect mon-three-console | grep -Fq "$CONSOLE_SOURCE" || \
+     ! docker inspect mon-three-console | grep -Fq '/app/vite.config.ts' ); then
   echo "Upgrading only MON's existing console container for secure lab pairing"
   docker stop --time 10 mon-three-console >/dev/null
   docker rm mon-three-console >/dev/null
@@ -412,11 +416,11 @@ if ! docker container inspect mon-three-console >/dev/null 2>&1; then
   # This repo does not yet track console/package-lock.json. CI also uses
   # npm install. Avoid generating an untracked lockfile in the pinned checkout.
   docker run --rm --network host \
-    -v "$LAB_HOME/mon-three-code/console:/app" \
+    -v "$CONSOLE_SOURCE:/app" \
     -v mon-three-console-node-modules:/app/node_modules \
     -w /app node:22-alpine npm install --no-package-lock --no-audit --no-fund
   docker run -d --name mon-three-console --restart unless-stopped --network host \
-    -v "$LAB_HOME/mon-three-code/console:/app" \
+    -v "$CONSOLE_SOURCE:/app" \
     -v "$LAB_CONFIG:/app/vite.config.ts:ro" \
     -v mon-three-console-node-modules:/app/node_modules \
     -w /app node:22-alpine npm run dev -- --host "$TAIL" --port 5173
