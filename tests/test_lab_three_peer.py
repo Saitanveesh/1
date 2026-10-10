@@ -209,3 +209,112 @@ def test_no_unbounded_pressure_or_network_probe_executed_by_cutover():
     assert "TT L" not in src
     assert "TTL_SECONDS = 900" in src
     assert '["systemctl", "stop", timer_name()]' in src
+
+
+
+def test_successful_independent_rollback_restores_original_live_peer(
+    tmp_path, monkeypatch
+) -> None:
+    import hashlib
+
+    mod = load()
+    root = tmp_path / "cutover"
+    root.mkdir(mode=0o700)
+    monkeypatch.setattr(mod, "BASE", root)
+    monkeypatch.setattr(mod, "STATE", root / "state.json")
+    original = (
+        "[Interface]\nPrivateKey = TEST_KEY_NOT_PRINTED\n"
+        "[Peer]\nPublicKey = " + OLD + "\n"
+        "Endpoint = " + mod.ORIGINAL_HUB + "\nAllowedIPs = 10.77.0.0/24\n"
+    )
+    backup = tmp_path / "backups" / "precutover.safe" / "wg0.conf"
+    backup.parent.mkdir(parents=True)
+    backup.write_text(original)
+    backup.chmod(0o600)
+    backup.with_name("wg0.sha256").write_text(
+        hashlib.sha256(original.encode()).hexdigest() + "  " + str(backup)
+    )
+    conf = tmp_path / "wg0.conf"
+    conf.write_text(original)
+    monkeypatch.setattr(mod, "CONF", conf)
+    mod.save_state({
+        "role": "victim", "phase": "PENDING_ROLLBACK",
+        "original_backup": str(backup), "old_public_key": OLD,
+    })
+    called = []
+
+    def fake_call(*args, **kwargs):
+        called.append(args)
+        if args[:2] == ("wg-quick", "strip"):
+            assert args[-1] == str(backup)
+            return "[Interface]\nPrivateKey = TEST_KEY_NOT_PRINTED\n"
+        if args[:3] == ("wg", "show", "wg0"):
+            return OLD
+        return ""
+
+    monkeypatch.setattr(mod, "call", fake_call)
+    mod.restore("victim")
+    assert any(c[:3] == ("wg", "syncconf", "wg0") for c in called)
+    assert mod.load_state()["phase"] == "ROLLED_BACK"
+    assert conf.read_text() == original
+    assert backup.read_text() == original
+
+
+def test_verified_commit_preserves_private_key_allowed_ips_and_backup(
+    tmp_path, monkeypatch
+) -> None:
+    import contextlib
+
+    mod = load()
+    root = tmp_path / "cutover"
+    root.mkdir(mode=0o700)
+    monkeypatch.setattr(mod, "BASE", root)
+    monkeypatch.setattr(mod, "STATE", root / "state.json")
+    conf = tmp_path / "wg0.conf"
+    original = (
+        "[Interface]\nPrivateKey = NEVER_PRINT_OR_REPLACE\n"
+        "Address = 10.77.0.50/32\n"
+        "[Peer]\nPublicKey = " + OLD + "\n"
+        "AllowedIPs = 10.77.0.0/24\nEndpoint = " + mod.ORIGINAL_HUB + "\n"
+    )
+    conf.write_text(original)
+    backup = tmp_path / "backups" / "precutover.safe" / "wg0.conf"
+    backup.parent.mkdir(parents=True)
+    backup.write_text(original)
+    monkeypatch.setattr(mod, "CONF", conf)
+    mod.save_state({
+        "role": "victim", "phase": "PENDING_ROLLBACK",
+        "old_public_key": OLD, "hub_public_key": NEW,
+        "original_backup": str(backup),
+        "expires_at_utc_epoch": int(time.time()) + 300,
+    })
+    monkeypatch.setattr(mod, "check_root", lambda role: None)
+    monkeypatch.setattr(mod, "locked", lambda: contextlib.nullcontext())
+    monkeypatch.setattr(mod, "is_timer_running", lambda: True)
+    verified = []
+    monkeypatch.setattr(
+        mod, "check_live_target", lambda state: verified.append(state["hub_public_key"])
+    )
+    native = []
+
+    def fake_call(*args, **kwargs):
+        native.append(args)
+        return "[Interface]\n" if args[:2] == ("wg-quick", "strip") else ""
+
+    monkeypatch.setattr(mod, "call", fake_call)
+    monkeypatch.setattr(
+        mod.subprocess, "run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 0})(),
+    )
+    mod.commit("victim")
+    assert verified == [NEW]
+    changed = conf.read_text()
+    assert "PrivateKey = NEVER_PRINT_OR_REPLACE" in changed
+    assert "Address = 10.77.0.50/32" in changed
+    assert "AllowedIPs = 10.77.0.0/24" in changed
+    assert f"PublicKey = {NEW}" in changed
+    assert "Endpoint = " + mod.NEW_HUB in changed
+    assert OLD not in changed
+    assert backup.read_text() == original
+    assert mod.load_state()["phase"] == "COMMITTED"
+    assert any(x[:2] == ("wg-quick", "strip") for x in native)
