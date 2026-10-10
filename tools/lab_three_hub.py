@@ -174,7 +174,9 @@ def prepare(args: argparse.Namespace) -> None:
             raise HubSafetyError("wg0 appeared during preparation; stop")
         conf_staging.replace(WG_CONF)
         installed_conf = True
-        checked("systemctl", "enable", "--now", "wg-quick@wg0")
+        # The guard is volatile. Do NOT enable wg-quick at boot without a
+        # persistent guard-first systemd dependency, which is a separate gate.
+        checked("systemctl", "start", "wg-quick@wg0")
         assert_prepared()
     except (HubSafetyError, OSError, subprocess.CalledProcessError):
         if installed_conf:
@@ -216,6 +218,13 @@ def assert_prepared() -> None:
         raise HubSafetyError("unexpected hub peer count")
     if not guard_exists():
         raise HubSafetyError("MON-owned firewall guard absent")
+    enabled = subprocess.run(
+        ["systemctl", "is-enabled", "wg-quick@wg0"], capture_output=True, text=True
+    )
+    if enabled.returncode == 0:
+        raise HubSafetyError(
+            "wg0 is enabled at boot without a persistent guard-first unit; stop"
+        )
     table = checked("nft", "list", "table", "inet", GUARD)
     for guard in (
         'iifname "wg0" ip saddr 10.77.0.60 drop',
