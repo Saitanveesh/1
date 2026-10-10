@@ -533,3 +533,88 @@ def test_browser_login_stage_uses_verified_existing_credential(tmp_path: Path) -
     assert "jwt.encode" not in script
     assert "cat $LAB_HOME/mon-three/identity/operator.jwt" not in script
     assert "tmux kill-session -t mon-three-browser-login" in script
+
+
+
+def test_site_preflight_checks_real_mon_hub_and_scoped_guard(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    calls = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            peer = peers[role]
+            if role == "mon":
+                addresses = "tail-ip=100.75.116.62\naddr4=100.75.116.62/32\naddr4=10.5.112.94/20"
+            else:
+                addresses = f"addr4={peer.host}/20"
+            return (
+                f"host=lab-{role} user={peer.user}\n"
+                f"os=ubuntu version=26.04\n{addresses}\n"
+                "/usr/bin/sudo\n/usr/bin/apt-get"
+            )
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script, root, label))
+
+    mod.site_preflight(Fake())
+    assert [label for _, _, _, label in calls] == [
+        "site-preflight-hub", "site-preflight-victim", "site-preflight-attacker"
+    ]
+    assert all(root for _, _, root, _ in calls)
+    assert "nft list table inet mon_three_guard" in calls[0][1]
+    assert "10.77.0.1/24" in calls[0][1]
+    assert "wg show wg0 latest-handshakes" in calls[0][1]
+    assert "10.5.112.94:51820" in calls[1][1]
+    assert "10.5.112.94:51820" in calls[2][1]
+    assert "10.77.0.50/32" in calls[1][1]
+    assert "10.77.0.60/32" in calls[2][1]
+    for _, script, _, _ in calls:
+        assert "wg set " not in script
+        assert "wg-quick down" not in script
+        assert "nft add " not in script
+        assert "systemctl stop" not in script
+
+
+def test_site_and_victim_refuse_to_mutate_before_verified_overlay(monkeypatch) -> None:
+    mod = load_module()
+    def reject(remote):
+        raise RuntimeError("Old WireGuard hub is not the verified MON hub")
+
+    monkeypatch.setattr(mod, "site_preflight", reject)
+
+    class Fake:
+        def run(self, *args, **kwargs):
+            raise AssertionError("mutation reached despite failed site preflight")
+
+        def ssh(self, *args, **kwargs):
+            raise AssertionError("remote identity touched before the preflight gate")
+
+    for stage in (mod.site, mod.victim):
+        with pytest.raises(RuntimeError, match="Old WireGuard hub"):
+            stage(Fake())
+
+
+def test_console_serves_current_operator_pr_without_mutating_pinned_backend(tmp_path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    result = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def run(self, role, script, *, root=False, label=""):
+            result.append(script)
+
+    mod.console(Fake())
+    assert len(result) == 1
+    assert 'CONSOLE_SOURCE="$LAB_HOME/mon-three-operator/console"' in result[0]
+    assert '-v "$CONSOLE_SOURCE:/app"' in result[0]
+    assert "mon-three-code/console:/app" not in result[0]
+    assert "docker stop --time 10 mon-three-console" in result[0]
+    assert "wg-quick" not in result[0]
+    assert "mon-three-postgres" not in result[0]
