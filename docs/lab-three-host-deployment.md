@@ -175,6 +175,8 @@ python3 tools/lab_three_host.py --inventory ~/lab-three.json \
   --approve-hub-prepare hub-prepare
 ```
 
+**Physical PC2 failure recorded (2026-10-10):** After an earlier `hub-prepare` attempt, the `hub-verify` stage reported `MON-owned WG0 configuration missing or unexpected`. A real read-only PC2 check confirmed `/etc/wireguard/wg0.conf` **ABSENT**, `wg0` **ABSENT**, `wg-quick@wg0` **inactive**, and `inet mon_three_guard` **ABSENT**. A subsequent explicitly approved `hub-prepare` returned only `CalledProcessError: OS/native command failure` with exit 1. The earlier implementation deliberately masked the native stage, which prevented diagnosis. Review found a likely parser regression: the staged temporary config used prefix `.mon-wg0-` and eight random characters, exceeding the 15-character WireGuard interface-name limit during `wg-quick strip`. Changed this to `wgmon-` plus eight characters (14 total), extended native CI to reproduce the original failure **and** prove the new name succeeds, and added sanitized native-phase diagnostics (no private key, argv or stderr). **Do not retry until these CI gates pass and the unchanged PC2 state is confirmed**. The word `HUB_PREPARED_GUARDED` is a success message from the program, **not** a terminal command. The old PC5/PC6 WireGuard tunnels remain on their previous hub until a separately supervised cutover.
+
 **Expected stage signature:** `HUB_PREPARED_GUARDED`. This claims only the new PC2 hub and MON-owned guard were installed. It does not claim any peer migration or telemetry.
 
 Then run the **read-only** confirmation:
