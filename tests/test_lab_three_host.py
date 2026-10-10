@@ -457,3 +457,29 @@ def test_migration_backup_is_root_only_and_does_not_change_tunnel(
         assert "wg set " not in script
         assert "wg-quick down" not in script
         assert "nft flush" not in script
+
+
+
+def test_console_stage_installs_without_missing_lockfile(tmp_path: Path) -> None:
+    """The legacy console has package.json but no committed package-lock."""
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    calls = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script, root, label))
+
+    mod.console(Fake())
+    assert len(calls) == 1
+    role, script, root, label = calls[0]
+    assert role == "mon" and root and label == "operator-console-node22"
+    assert "npm install --no-package-lock --no-audit --no-fund" in script
+    assert "npm ci" not in script
+    assert "mon-three-console-node-modules:/app/node_modules" in script
+    assert 'npm run dev -- --host "$TAIL" --port 5173' in script
+    assert 'curl -fsS --max-time 3 "http://$TAIL:5173/"' in script
+    assert "http://$TAIL:5173/?tenant=mon-lab&site=site-a" in script
