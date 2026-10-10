@@ -15,7 +15,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 1180px; min-height: 100vh; background: var(--bg); color: var(--text); }
+body { margin: 0; min-width: 360px; min-height: 100vh; background: var(--bg); color: var(--text); }
 button { font: inherit; }
 
 .shell { display: grid; grid-template-columns: 228px 1fr; min-height: 100vh; }
@@ -168,3 +168,155 @@ tr.selected { outline: 1px solid currentColor; }
 }
 .action-state.error { border: 1px solid #000; font-weight: 700; }
 
+
+
+/* MON 2.0 — white/black only, responsive operations interface */
+:root { --mon-white:#fff; --mon-black:#0b0b0b; --mon-gray:#f6f6f6; --mon-border:#d6d6d6; }
+.shell { grid-template-columns: 250px minmax(0, 1fr); }
+.sidebar { padding: 28px 16px 20px; z-index: 10; }
+.sidebar .mark { width: 40px; height: 40px; border: 2px solid #101010; font-size: 22px; }
+.sidebar .brand strong { font-size: 17px; letter-spacing: .18em; }
+.sidebar nav { gap: 5px; }
+.sidebar nav button { border-radius: 2px; padding: 13px 14px; font-size: 13px; }
+main { min-width: 0; }
+.panel, .metric { overflow: hidden; }
+.graph-edge { overflow-wrap: anywhere; min-width: 0; }
+.topbar h1 { font-size: clamp(24px, 2.7vw, 38px); font-weight: 600; letter-spacing: -.045em; }
+.topbar { padding: 24px 36px; min-height: 105px; }
+.metric-value { font-size: clamp(21px, 2.2vw, 32px); font-weight: 600; }
+.mon-logout {
+  width:100%; margin-bottom:17px; padding:12px 14px; cursor:pointer;
+  border:1px solid #000; color:#fff; background:#000; letter-spacing:.14em;
+  text-align:left; font-size:10px; font-weight:700;
+}
+.mon-logout:hover { background:#3d3d3d; }
+
+.mon-panel { background:#fff; margin:24px 28px; border:1px solid var(--mon-border); min-width:0; }
+.mon-panel-heading {
+  padding:24px 27px; display:flex; justify-content:space-between; align-items:flex-start;
+  gap:25px; border-bottom:1px solid #dedede;
+}
+.mon-panel-heading h2 { font-size:24px; letter-spacing:-.045em; font-weight:650; margin:6px 0; }
+.mon-panel-heading p { font-size:11px; color:#666; line-height:1.7; margin:4px 0 0; }
+.mon-eyebrow { display:block; color:#666; letter-spacing:.22em; font-size:10px; font-weight:750; }
+.mon-tag {
+  flex-shrink:0; display:inline-flex; align-items:center; gap:8px;
+  border:1px solid #bdbdbd; padding:9px 12px; font:700 10px ui-monospace,monospace;
+  letter-spacing:.075em; background:#fafafa;
+}
+.mon-tag-active { background:#090909; border-color:#090909; color:#fff; }
+.mon-dot { width:6px; height:6px; border-radius:100%; background:currentColor; }
+.mon-flow-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-bottom:1px solid #ddd; }
+.mon-flow-metrics>div { padding:22px 26px; min-width:0; border-right:1px solid #ddd; display:grid; gap:12px; }
+.mon-flow-metrics>div:last-child { border-right:0; }
+.mon-flow-metrics span { font:700 10px ui-monospace,monospace; color:#555; letter-spacing:.09em; }
+.mon-flow-metrics strong { font:600 35px ui-monospace,monospace; letter-spacing:-.07em; line-height:1.1; }
+.mon-flow-metrics strong.mon-smaller { font-size:15px; letter-spacing:-.02em; }
+.mon-chart-frame { padding:18px 25px 2px; }
+.mon-chart-frame svg { display:block; width:100%; height:auto; max-height:285px; }
+.mon-grid-line { stroke:#dedede; stroke-width:1; stroke-dasharray:3 5; }
+.mon-svg-label { font:10px ui-monospace,monospace; fill:#666; }
+.mon-chart-empty { font:13px ui-monospace,monospace; fill:#444; letter-spacing:.04em; }
+.mon-packet-area { fill:#efefef; }
+.mon-packet-line { stroke:#080808; stroke-width:2.7; fill:none; stroke-linejoin:round; stroke-linecap:round; }
+.mon-chart-footer {
+  display:flex; justify-content:space-between; gap:12px;
+  padding:15px 27px 20px; font:700 10px ui-monospace,monospace;
+  letter-spacing:.035em; color:#666;
+}
+.mon-topology-canvas { padding:10px 25px 0; overflow-x:auto; }
+.mon-topology-canvas svg { width:100%; height:auto; max-height:420px; display:block; min-width:700px; }
+.mon-route { stroke:#888; stroke-width:2.5; stroke-dasharray:7 6; fill:none; color:#090909; }
+.mon-route-active { stroke:#000; stroke-width:3; stroke-dasharray:none; }
+.mon-traffic-pulse { fill:#000; }
+.mon-node { fill:#fff; stroke:#090909; stroke-width:2; }
+.mon-node-attacker { fill:#0b0b0b; }
+.mon-node-label { font:700 10px ui-monospace,monospace; fill:#777; letter-spacing:.075em; }
+.mon-node-title { font:650 19px system-ui,sans-serif; fill:#111; }
+.mon-node-ip { font:14px ui-monospace,monospace; fill:#222; }
+.mon-node-info { font:10px system-ui,sans-serif; fill:#666; }
+.mon-inverse { fill:#fff; }
+.mon-link-label { font:700 9px ui-monospace,monospace; fill:#666; letter-spacing:.09em; }
+.mon-route-note { font:650 14px ui-monospace,monospace; fill:#111; }
+.mon-flow-section { border-top:1px solid #ddd; }
+.mon-panel-heading-small { padding:15px 25px; border-bottom:0; align-items:center; }
+.mon-panel-heading-small h3 { font-weight:650; font-size:15px; margin:0; }
+.mon-panel-heading-small h3 span { font:10px ui-monospace,monospace; margin-left:15px; color:#555; }
+.mon-panel-heading-small>span { font:11px ui-monospace,monospace; color:#666; }
+.mon-flow-table-wrapper { overflow:auto; margin:0 25px 25px; border:1px solid #ddd; }
+.mon-flow-table { width:100%; border-collapse:collapse; text-align:left; font:12px ui-monospace,monospace; }
+.mon-flow-table th { background:#f1f1f1; color:#555; padding:12px 14px; letter-spacing:.055em; font-size:10px; border-bottom:1px solid #ccc; }
+.mon-flow-table td { padding:12px 14px; border-bottom:1px solid #eee; }
+.mon-flow-table tbody tr:hover { background:#fafafa; }
+.mon-flow-empty { color:#666; padding:22px !important; }
+.mon-advanced-evidence { margin:0 28px 30px; border:1px solid #ddd; }
+.mon-advanced-evidence>summary { cursor:pointer; padding:18px 24px; font:700 12px ui-monospace,monospace; }
+.mon-advanced-evidence .graph-panel { border:0; }
+.mon-advanced-evidence .graph-edge { font-size:10px; white-space:normal; }
+.mon-raw-evidence { margin:14px 0; }
+.mon-raw-evidence summary { cursor:pointer; font-size:11px; color:#444; font-weight:700; padding:10px 0; }
+.mon-raw-evidence .graph-edge { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto; gap:10px; overflow-wrap:anywhere; }
+.mon-path-summary {
+  padding:16px; margin:13px 0; border:1px solid #ddd; background:#f9f9f9;
+  display:grid; gap:7px; font:12px ui-monospace,monospace;
+}
+.mon-path-summary b { font-size:14px; }
+
+/* First-party server-side operator sign-in */
+.mon-login-page { min-height:100vh; display:grid; grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr); background:#fff; }
+.mon-login-left {
+  background:#080808; color:#fff; padding:43px clamp(25px,4vw,70px);
+  display:flex; flex-direction:column; justify-content:space-between; min-height:100vh;
+}
+.mon-login-brand { display:flex; align-items:center; gap:16px; font-weight:700; font-size:25px; letter-spacing:.15em; }
+.mon-brand-mark { height:48px; width:48px; border:2px solid #fff; display:grid; place-items:center; font-size:27px; }
+.mon-login-brand small { color:#b0b0b0; font-size:9px; letter-spacing:.19em; vertical-align:middle; }
+.mon-light { color:#aaa; }
+.mon-login-statement { max-width:660px; margin:90px 0 70px; }
+.mon-login-statement h1 { font-size:clamp(57px,7vw,115px); font-weight:450; line-height:1.08; letter-spacing:-.075em; margin:26px 0 24px; }
+.mon-login-statement h1 strong { font-weight:790; }
+.mon-full-form { font-size:clamp(16px,2vw,24px); letter-spacing:-.02em; }
+.mon-login-rule { width:80px; height:2px; background:white; margin:40px 0; }
+.mon-login-statement>p:last-child { color:#aaa; font-size:15px; line-height:1.8; max-width:440px; }
+.mon-login-left-footer { display:grid; grid-template-columns:1fr 1fr; gap:12px; border-top:1px solid #444; padding-top:19px; font:10px ui-monospace,monospace; letter-spacing:.08em; color:#bbb; }
+.mon-login-right { display:flex; flex-direction:column; justify-content:space-between; padding:45px clamp(30px,7vw,120px) 33px; min-height:100vh; }
+.mon-login-topline,.mon-login-bottomline { display:flex; justify-content:space-between; gap:14px; font:10px ui-monospace,monospace; letter-spacing:.13em; color:#666; }
+.mon-login-form-wrap { max-width:470px; width:100%; align-self:center; margin:60px 0; }
+.mon-login-form-wrap h2 { font-size:clamp(31px,3vw,48px); font-weight:680; letter-spacing:-.065em; margin:16px 0; }
+.mon-login-form-wrap>p { color:#666; font-size:13px; line-height:1.8; max-width:390px; }
+.mon-login-form { display:grid; margin:40px 0 0; }
+.mon-login-form label { font:700 10px ui-monospace,monospace; letter-spacing:.13em; margin:0 0 10px; }
+.mon-login-form input {
+  border:1px solid #aaa; background:#fff; padding:17px 18px; color:#000; outline:0;
+  font:15px system-ui,sans-serif; margin-bottom:25px; min-height:54px;
+}
+.mon-login-form input:focus { border-color:#000; box-shadow:inset 0 0 0 1px #000; }
+.mon-login-form button {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:20px 22px; border:1px solid #000; color:#fff; background:#000;
+  font:750 11px ui-monospace,monospace; letter-spacing:.14em; cursor:pointer;
+}
+.mon-login-form button:hover:not(:disabled) { background:#323232; }
+.mon-login-form button:disabled { opacity:.55; cursor:wait; }
+.mon-login-form button span { font-size:20px; }
+.mon-login-error { font-size:13px !important; font-weight:650; color:#111 !important; border-left:3px solid #000; padding:12px; background:#efefef; }
+.mon-login-legal { border-top:1px solid #ddd; padding-top:20px; font-size:11px !important; }
+@media(max-width:1200px) {
+  .metric-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .mon-flow-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mon-flow-metrics>div:nth-child(2) { border-right:0; }
+  .mon-flow-metrics>div:nth-child(-n+2) { border-bottom:1px solid #ddd; }
+}
+@media(max-width:800px) {
+  .shell { grid-template-columns:190px minmax(0,1fr); }
+  .sidebar { padding:17px 8px; }
+  .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mon-panel { margin:16px; }
+  .mon-panel-heading { flex-direction:column; }
+  .mon-login-page { grid-template-columns:1fr; }
+  .mon-login-left { min-height:330px; padding:25px; }
+  .mon-login-statement { margin:35px 0; }
+  .mon-login-statement h1 { font-size:60px; }
+  .mon-login-left-footer { display:none; }
+  .mon-login-right { min-height:620px; padding:30px 25px; }
+}

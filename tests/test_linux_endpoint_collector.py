@@ -154,6 +154,49 @@ def test_non_sshd_and_unmatched_journal_messages_are_ignored() -> None:
     ) is None
 
 
+
+@pytest.mark.parametrize(
+    ("identifier", "message", "expected_kind"),
+    [
+        (
+            "sshd-session",
+            "Invalid user mon-lab-probe from 10.77.0.60 port 45498",
+            "AUTH_FAILURE",
+        ),
+        (
+            "sshd",
+            "Invalid user mon-lab-probe from 10.77.0.60 port 45498",
+            "AUTH_FAILURE",
+        ),
+        (
+            "sshd-session",
+            "Accepted publickey for pc-5 from 10.77.0.1 port 44708 ssh2",
+            "AUTH_SUCCESS",
+        ),
+        (
+            "sshd-session",
+            "Failed password for invalid user bob from 10.77.0.60 port 50991 ssh2",
+            "AUTH_FAILURE",
+        ),
+    ],
+)
+def test_ubuntu_openssh_journal_normalization(
+    identifier: str, message: str, expected_kind: str
+) -> None:
+    record = parse_journal_entry(
+        journal_entry(syslog_identifier=identifier, message=message)
+    )
+    item = normalize_linux_journal_event(
+        record, tenant_id=TENANT, site_id=SITE, sensor_id=SENSOR
+    )
+    assert item is not None
+    assert item.kind.value == expected_kind
+    assert item.src_ip in ("10.77.0.60", "10.77.0.1")
+    assert item.source == f"linux-journal:{identifier}"
+    assert item.raw_reference == f"journal://cursor/{record.cursor}"
+
+
+
 def test_deterministic_journal_event_id_replay() -> None:
     message = "Accepted password for alice from 10.0.0.5 port 22 ssh2"
     first = parse_journal_entry(journal_entry(message=message))

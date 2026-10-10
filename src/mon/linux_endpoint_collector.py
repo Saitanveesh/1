@@ -150,6 +150,9 @@ _SSH_FAILED_RE = re.compile(
     r"^Failed (?P<method>\S+) for (?:invalid user )?(?P<user>\S+) "
     r"from (?P<ip>\S+) port (?P<port>\d+)"
 )
+_SSH_INVALID_USER_RE = re.compile(
+    r"^Invalid user (?P<user>\S+) from (?P<ip>\S+) port (?P<port>\d+)"
+)
 
 
 def deterministic_journal_event_id(
@@ -171,13 +174,14 @@ def normalize_linux_journal_event(
 ) -> EndpointTelemetryEvent | None:
     if tenant_id == "" or site_id == "" or sensor_id == "":
         raise ValueError("tenant_id, site_id, and sensor_id are required")
-    if (record.syslog_identifier or "").casefold() != "sshd":
+    if (record.syslog_identifier or "").casefold() not in ("sshd", "sshd-session"):
         return None
     accepted = _SSH_ACCEPTED_RE.match(record.message)
     failed = None if accepted else _SSH_FAILED_RE.match(record.message)
-    if accepted is None and failed is None:
+    invalid_user = None if accepted or failed else _SSH_INVALID_USER_RE.match(record.message)
+    if accepted is None and failed is None and invalid_user is None:
         return None
-    match = accepted or failed
+    match = accepted or failed or invalid_user
     assert match is not None
     event_id = deterministic_journal_event_id(
         tenant_id=tenant_id,
@@ -201,7 +205,7 @@ def normalize_linux_journal_event(
         user_name=match.group("user"),
         src_ip=match.group("ip"),
         outcome="success" if accepted is not None else "failure",
-        source="linux-journal:sshd",
+        source=f"linux-journal:{record.syslog_identifier.casefold()}",
         raw_reference=f"journal://cursor/{record.cursor}",
     )
 
@@ -667,7 +671,9 @@ class SystemdJournalReader:
         try:
             self._reader = _journal.Reader()
             if unit:
-                self._reader.add_match(_SYSTEMD_UNIT=unit)
+                # --ssh-unit selects SYSLOG_IDENTIFIER, not the systemd service unit.
+                # Modern OpenSSH emits authentication evidence as sshd-session.
+                self._reader.add_match(SYSLOG_IDENTIFIER=unit)
         except PermissionError as exc:
             raise LinuxSourcePermissionDenied(
                 "insufficient permissions to open the systemd journal"
@@ -687,7 +693,15 @@ class SystemdJournalReader:
                 entry = self._reader.get_next()
                 if not entry:
                     break
-                entries.append({str(key): str(value) for key, value in entry.items()})
+                normalized = dict(entry)
+                if not normalized.get("__CURSOR"):
+                    normalized["__CURSOR"] = self._reader.get_cursor()
+                timestamp = normalized.get("__REALTIME_TIMESTAMP")
+                if isinstance(timestamp, dt.datetime):
+                    normalized["__REALTIME_TIMESTAMP"] = str(
+                        int(timestamp.timestamp() * 1_000_000)
+                    )
+                entries.append({str(key): str(value) for key, value in normalized.items()})
             return entries
         except PermissionError as exc:
             raise LinuxSourcePermissionDenied(

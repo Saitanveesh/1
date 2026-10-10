@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
+import LoginPage from "./LoginPage";
+import { NetworkPath, PacketHistory, usePacketCapture } from "./PacketObservability";
 import { LiveClient, type LiveState } from "./live";
 import type {
   Asset,
@@ -399,6 +401,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    if (authState !== "OK") return;
     const client = new LiveClient(tenantId, siteId);
     const unsubscribe = client.subscribe(setState);
     void client.start();
@@ -406,7 +409,7 @@ export default function App() {
       unsubscribe();
       client.stop();
     };
-  }, [tenantId, siteId]);
+  }, [tenantId, siteId, authState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -435,6 +438,8 @@ export default function App() {
     };
   }, [tenantId, siteId]);
 
+  const packetCapture = usePacketCapture(authState === "OK");
+
   const metrics = useMemo(() => {
     const active = state.incidents.filter((item) => item.status !== "CLOSED");
     const highest = active.reduce<Severity>(
@@ -448,6 +453,10 @@ export default function App() {
     const critical = active.filter((item) => item.severity === "CRITICAL").length;
     return { active, highest, attackPressure, critical };
   }, [state.incidents]);
+
+  if (authState === "UNAUTHENTICATED") {
+    return <LoginPage loading={false} onAuthenticated={() => window.location.reload()} />;
+  }
 
   return (
     <div className="shell">
@@ -464,6 +473,15 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
+          {authState === "OK" && (
+            <button className="mon-logout" onClick={async () => {
+              try {
+                await fetch("/portal/logout", { method: "POST", credentials: "same-origin" });
+              } finally {
+                window.location.reload();
+              }
+            }}>SIGN OUT ↗</button>
+          )}
           <div className={`connection ${state.connection.toLowerCase()}`}><span />{state.connection}</div>
           <small data-testid="operator-context">
             {operator ? `${operator.subject} · ${operator.roles.join(", ")}` : "not authenticated"}
@@ -488,12 +506,6 @@ export default function App() {
             <p>Your credentials do not grant access to tenant {tenantId} / site {siteId}. No data is shown.</p>
           </section>
         )}
-        {authState === "UNAUTHENTICATED" && (
-          <section className="panel full" role="alert" data-testid="unauthenticated">
-            <h2>AUTHENTICATION REQUIRED</h2>
-            <p>No valid operator session was found. Sign in through your identity provider and reload.</p>
-          </section>
-        )}
         {view === "Overview" && (
           <>
             <section className="metric-grid">
@@ -504,6 +516,7 @@ export default function App() {
               <Metric label="ASSETS OBSERVED" value={String(state.assets.length)} note="evidence-backed identities in current site" />
               <Metric label="DROPPED LIVE MSG" value={String(state.droppedMessages)} note="slow-client backpressure counter" />
             </section>
+            <PacketHistory capture={packetCapture} />
             <section className="split">
               <article className="panel">
                 <div className="panel-head"><div><span className="eyebrow">ACTIVE</span><h2>Incidents</h2></div></div>
@@ -532,7 +545,14 @@ export default function App() {
           </>
         )}
         {view === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
-        {view === "Attack Graph" && <AttackGraph state={state} />}
+        {view === "Attack Graph" && <>
+          <NetworkPath capture={packetCapture}
+            attackerIps={state.findings.map(f => f.src_ip).filter((ip): ip is string => !!ip)} />
+          <details className="mon-advanced-evidence">
+            <summary>Raw correlation graph / analyst evidence (advanced)</summary>
+            <AttackGraph state={state} />
+          </details>
+        </>}
         {view === "Telemetry" && <TelemetryPanel state={state} />}
         {view === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
         {view === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}

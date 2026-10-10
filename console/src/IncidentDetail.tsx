@@ -91,6 +91,7 @@ export default function IncidentDetail({
   function buildRequest(): ResponseRequestPayload {
     const ip = targetIp.trim();
     if (!ip) throw new Error("target source IP is required");
+    if (ip === "10.77.0.1") throw new Error("Refusing to block PC2 MON management / WireGuard hub");
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > 604800) {
       throw new Error("TTL must be an integer between 30 and 604800 seconds");
     }
@@ -225,18 +226,33 @@ export default function IncidentDetail({
             </ul>
           </article>
           <article>
-            <h3>Investigation graph</h3>
+            <h3>Evidence relationships</h3>
+            <p className="subtle">Grouped by observed relationship. Raw pseudonymous identifiers are available below.</p>
             <div data-testid="investigation-graph">
-              {investigation.graph.edges.map((edge) => (
-                <div className="graph-edge" key={edge.edge_id} data-testid="graph-edge">
+              {Array.from(investigation.graph.edges.reduce((grouped, edge) => {
+                const label = edge.relation.replaceAll("_", " ");
+                grouped.set(label, (grouped.get(label) ?? 0) + edge.event_count);
+                return grouped;
+              }, new Map<string, number>())).slice(0, 8).map(([relation, count]) => (
+                <div className="mon-path-summary" key={relation} data-testid="graph-edge">
+                  <b>{relation}</b>
+                  <span>Associated with {investigation.affected_assets.map(a => a.display_name).join(", ") || "an observed endpoint"}</span>
+                  <span>{count} correlated event(s) · raw evidence retained</span>
+                </div>
+              ))}
+              {!investigation.graph.edges.length && <div className="empty">No observed path edges.</div>}
+            </div>
+            <details className="mon-raw-evidence">
+              <summary>Inspect raw graph node identifiers ({investigation.graph.edges.length} edges)</summary>
+              {investigation.graph.edges.slice(0, 70).map(edge => (
+                <div className="graph-edge" key={edge.edge_id}>
                   <span>{nodeLabel(edge.src_node_id)}</span>
                   <i>→ {edge.relation} →</i>
                   <span>{nodeLabel(edge.dst_node_id)}</span>
                   <b>{edge.event_count} evt</b>
                 </div>
               ))}
-              {!investigation.graph.edges.length && <div className="empty">No observed path edges.</div>}
-            </div>
+            </details>
           </article>
           <article>
             <h3>Containment capability</h3>
