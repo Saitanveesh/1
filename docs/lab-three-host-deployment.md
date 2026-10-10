@@ -170,6 +170,37 @@ The stages are deliberately independent. **Stop on the first failed stage and in
 - `victim`: locally-generated private CSR/key, controlled certificate enrollment by MON (only CSR and signed public certificates transit the operator workstation), Linux journald/auditd endpoint collector. No SSH password policy change, common attack account creation, or permanent firewall isolation.
 - `ready`: fails unless control-plane state is READY, both real sensor heartbeats are recent, and both WireGuard peers have recent handshakes. This does not yet establish containment or correlation. Even fresh heartbeats do not prove correlation/containment until verified with approved, real traffic and rollback.
 
+
+### PC2 lab-only operator browser sign-in (no JWT in DevTools)
+
+The console does **not** automatically authenticate just because its HTML loads. Without an authenticated browser session, its **AUTHENTICATION REQUIRED / LIVE TRANSPORT OFFLINE / 0 incidents** display is expected and cannot be used as proof of zero threats.
+
+MON accepts the existing signed JWT in an `HttpOnly` `mon_session` cookie for HTTP and authenticated WebSockets. The previous seven-PC guide asked the operator to paste a full JWT into JavaScript-readable cookies in browser developer tools; this is **deprecated for the three-host lab**. We now use a one-time pairing bridge. The bridge requires the real MON `/api/v1/me` endpoint to validate the existing `tenant_admin` JWT; it does not mint identities or disable tenant RBAC.
+
+**On PC2, after `control` and `console` succeed**, update the operator PR checkout and run the two stages:
+
+```bash
+cd ~/mon-three-operator
+git fetch origin feat/three-host-tailscale-lab
+git checkout --detach FETCH_HEAD
+python3 tools/lab_three_host.py --inventory ~/lab-three.json console
+python3 tools/lab_three_host.py --inventory ~/lab-three.json browser-login
+```
+
+The first command to run `console` after updating will replace **only MON's own console container** (reusing its existing `node_modules` Docker volume) with a read-only Vite overlay for `/lab-session` proxying to `127.0.0.1:8766`. PostgreSQL, the control-plane API, WireGuard, site controller and sensor services are not changed. The second stage launches `tools/lab_browser_login.py` as the unprivileged PC2 user on localhost, verifies the existing token against MON's RBAC-protected `/api/v1/me` endpoint, and prints a random one-use pairing code. Only the operator's protected PC2 log stores that code. **Never share the code or full operator JWT in chat, GitHub issues or screenshots.**
+
+From the **operator laptop already connected to Tailscale**, open:
+
+```text
+http://100.75.116.62:5173/lab-session/
+```
+
+Enter the one-use code from your PC2 SSH terminal and select **Sign in**. The browser receives a `mon_session` JWT in an **HttpOnly; SameSite=Strict** cookie for the dashboard origin (1-hour cookie TTL; the signed token may expire sooner), then redirects to `/?tenant=mon-lab&site=site-a`. The pairing server binds to **127.0.0.1 only**, expires after ten minutes, accepts at most five incorrect attempts, and shuts down after successful redemption. No signing key, private WireGuard config or JWT is ever printed or copied into the operator command line. The signed session token **is** delivered to the browser in its cookie as expected; it is not JavaScript-readable.
+
+**Security boundary:** This is a **disposable lab** bootstrap, not a production OIDC/SSO login. The browser is served over HTTP on the encrypted Tailscale-only overlay; this temporary flow cannot mark its cookie `Secure` without HTTPS. For any real tenant, use HTTPS, OIDC Authorization Code + PKCE, secure refresh/session handling, CSRF and session revocation, and proper operator account management. Do not expose port 5173 to the public Internet, college LAN, or untrusted peers.
+
+**Troubleshooting:** If `/lab-session/` returns 502, verify `browser-login` is running and `console` was restarted from the updated PR. If the pairing server prints `MON refused the operator credential`, the 12-hour lab token may have expired; stop and renew it through the signed-identity process rather than bypassing validation. A successful login proves authenticated access only, **not** sensor coverage. LIVE WebSocket traffic and real sensor heartbeats must be observed separately before claiming monitoring operational.
+
 **Operator UI:** browse `http://MON_TAILSCALE_IP:5173/?tenant=mon-lab&site=site-a` from a machine in the same tailnet. Signed `operator.jwt` remains private on the MON host under `~/mon-three/identity/`. It expires after 12 hours; subsequent sessions require an explicitly documented identity refresh, not a forged auth bypass. Use the existing test-day operator login procedure only in this disposable lab. No operator token is copied into the code, inventory, console build or reports.
 
 - `demo-prepare`: optional victim-only nftables rule for 100 filtered TCP ports (20000-20099), strictly from the attacker overlay IP and on `wg0`. It enables the detector's unanswered SYN test shape without running any probes. Remove only `mon_three_victim` to revert. No broad firewall changes.
