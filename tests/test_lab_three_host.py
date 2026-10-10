@@ -702,8 +702,8 @@ def test_peer_cannot_prepare_unknown_role_or_without_verifying_hub(monkeypatch) 
     class Fake:
         peers = {"victim": mod.Peer("10.5.112.23", "pc-5", "lan")}
 
-        def ssh(self, *args, **kwargs):
-            called.append("ssh")
+        def run(self, *args, **kwargs):
+            called.append("wireguard-key")
             raise RuntimeError("stop before installing helper")
 
     with pytest.raises(RuntimeError, match="stop"):
