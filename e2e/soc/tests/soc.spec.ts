@@ -18,7 +18,8 @@ async function signIn(context: BrowserContext, jwt: string): Promise<void> {
 test("1. an unauthenticated browser is refused and shows no data", async ({ page }) => {
   await page.goto(scopeA);
   await expect(page.getByTestId("unauthenticated")).toBeVisible();
-  await expect(page.getByTestId("operator-context")).toContainText("not authenticated");
+  await expect(page.getByTestId("operator-context")).toHaveCount(0);
+  await expect(page.getByTestId("stream-age")).toContainText("WAITING");
   await expect(page.locator("body")).not.toContainText(seed.incident_title);
 });
 
@@ -27,11 +28,13 @@ test.describe("authenticated operator (tenant A)", () => {
     await signIn(context, seed.token_operator_a);
   });
 
-  test("2. authenticated operator context and live overview", async ({ page }) => {
+  test("2. authenticated operator transport without exposing operator identity in chrome", async ({ page }) => {
     await page.goto(scopeA);
-    await expect(page.getByTestId("operator-context")).toContainText("soc-operator-a");
-    await expect(page.getByTestId("operator-context")).toContainText("tenant_admin");
+    await expect(page.getByTestId("operator-context")).toHaveCount(0);
+    await expect(page.locator(".sidebar-foot")).not.toContainText("soc-operator-a");
+    await expect(page.locator(".sidebar-foot")).not.toContainText("tenant_admin");
     await expect(page.getByText("ATTACK PRESSURE")).toBeVisible();
+    await expect(page.getByTestId("stream-age")).toBeVisible();
     await expect(page.getByText("authenticated WebSocket transport")).toBeVisible();
     await expect(page.locator(".connection.live")).toBeVisible();
     await expect(page.getByTestId("access-denied")).toHaveCount(0);

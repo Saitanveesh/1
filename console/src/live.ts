@@ -17,6 +17,8 @@ export type ConnectionState = "CONNECTING" | "LIVE" | "RECOVERING" | "OFFLINE";
 export interface LiveState extends LiveSnapshot {
   connection: ConnectionState;
   lastMessageAt?: string;
+  /** Timestamp of last actual MON event; stream.ready and heartbeats are excluded. */
+  lastEventAt?: string;
   droppedMessages: number;
 }
 
@@ -24,6 +26,7 @@ export class LiveClient {
   private socket?: WebSocket;
   private stopped = false;
   private reconnectAttempt = 0;
+  private heartbeatWatch?: ReturnType<typeof setInterval>;
   private state: LiveState;
   private readonly listeners = new Set<(state: LiveState) => void>();
 
@@ -67,11 +70,27 @@ export class LiveClient {
 
   async start(): Promise<void> {
     this.stopped = false;
+    this.heartbeatWatch = window.setInterval(() => {
+      // A TCP/WebSocket may remain technically open while server messages
+      // stop arriving. Fail visibly and reconnect; do not report fake LIVE.
+      const last = this.state.lastMessageAt
+        ? Date.parse(this.state.lastMessageAt) : NaN;
+      if (this.state.connection === "LIVE" && (
+        !Number.isFinite(last) || Date.now() - last > 45_000
+      )) {
+        this.emit({ connection: "RECOVERING" });
+        this.socket?.close();
+      }
+    }, 5000);
     await this.connect();
   }
 
   stop(): void {
     this.stopped = true;
+    if (this.heartbeatWatch !== undefined) {
+      window.clearInterval(this.heartbeatWatch);
+      this.heartbeatWatch = undefined;
+    }
     this.socket?.close();
     this.socket = undefined;
   }
@@ -97,8 +116,7 @@ export class LiveClient {
         const snapshot = await fetchSnapshot(this.tenantId, this.siteId);
         this.emit({
           ...snapshot,
-          connection: "LIVE",
-          lastMessageAt: new Date().toISOString()
+          connection: "LIVE"
         });
         this.reconnectAttempt = 0;
       } catch {
@@ -116,13 +134,22 @@ export class LiveClient {
   }
 
   private apply(envelope: LiveEnvelope): void {
-    if (envelope.sequence <= this.state.sequence && envelope.kind !== "stream.heartbeat") {
+    if (
+      envelope.sequence <= this.state.sequence
+      && envelope.kind !== "stream.heartbeat"
+      && envelope.kind !== "stream.ready"
+    ) {
       return;
     }
 
+    const isControlMessage = envelope.kind === "stream.heartbeat"
+      || envelope.kind === "stream.ready";
     const common = {
       sequence: Math.max(this.state.sequence, envelope.sequence),
-      lastMessageAt: envelope.emitted_at,
+      // Use the time the browser actually receives a WebSocket frame to
+      // measure transport freshness, not a frozen initial API snapshot time.
+      lastMessageAt: new Date().toISOString(),
+      lastEventAt: isControlMessage ? this.state.lastEventAt : envelope.emitted_at,
       connection: "LIVE" as const
     };
 
