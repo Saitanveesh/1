@@ -34,17 +34,65 @@ echo "========== PC2 PREFLIGHT =========="
 [[ -d "$CODE/.git" ]] || { echo "Missing $CODE"; exit 1; }
 command -v npm >/dev/null
 command -v git >/dev/null
+command -v tmux >/dev/null
 curl -fsS --max-time 6 http://127.0.0.1:8080/health >/dev/null
-curl -fsS --max-time 6 http://127.0.0.1:5173/ >/dev/null
+curl -fsS --max-time 6 http://127.0.0.1:8090/health >/dev/null
 sudo -v
+
+# Prefer the live process directory when present, but recover gracefully if
+# the Vite tmux process exited. Never modify the API/site/WireGuard services.
 pid=$(ss -H -lntp '( sport = :5173 )' | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
-[[ "$pid" =~ ^[0-9]+$ ]] || { echo "Cannot identify Vite PID"; exit 1; }
-FRONTEND=$(readlink -f "/proc/$pid/cwd")
-[[ -f "$FRONTEND/src/App.tsx" && -f "$FRONTEND/vite.config.ts" ]] || {
-  echo "Running Vite root does not look like MON: $FRONTEND"; exit 1;
+if [[ "$pid" =~ ^[0-9]+$ ]]; then
+  FR=$(readlink -f "/proc/$pid/cwd")
+  if [[ -f "$FR/src/App.tsx" && -f "$FR/vite.config.ts" ]]; then
+    FRONTEND="$FR"
+  fi
+fi
+if [[ -z "$FRONTEND" ]]; then
+  for FR in "$HOME/mon-three-code/console" "$HOME/mon-three/console" "$HOME/mon/console" "$HOME/console"; do
+    if [[ -f "$FR/src/App.tsx" && -f "$FR/vite.config.ts" ]]; then
+      FRONTEND="$FR"
+      break
+    fi
+  done
+fi
+[[ -n "$FRONTEND" ]] || {
+  echo "[FAIL] MON console directory not found in expected PC2 locations" >&2
+  exit 1
 }
-[[ -d "$FRONTEND/node_modules" ]] || { echo "Frontend dependencies unavailable"; exit 1; }
-echo "[PASS] Existing MON and running frontend: $FRONTEND"
+if [[ ! -d "$FRONTEND/node_modules" ]]; then
+  echo "[CHECK] Console dependencies missing; installing from lockfile"
+  (cd "$FRONTEND" && npm ci --no-audit --no-fund)
+fi
+
+if ! curl -fsS --max-time 5 http://127.0.0.1:5173/ >/dev/null 2>&1; then
+  if ss -H -lnt '( sport = :5173 )' | grep -q LISTEN; then
+    echo "[FAIL] Port 5173 is occupied but the frontend is unhealthy; refusing to replace its process" >&2
+    exit 1
+  fi
+  echo "[RECOVER] MON frontend is stopped; starting the existing Vite app in tmux"
+  SESSION=mon-console-ux
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "[FAIL] tmux session $SESSION already exists, but port 5173 is down" >&2
+    exit 1
+  fi
+  tmux new-session -d -s "$SESSION" "cd '$FRONTEND' && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort"
+  online=0
+  for attempt in $(seq 1 24); do
+    if curl -fsS --max-time 3 http://127.0.0.1:5173/ >/dev/null 2>&1; then
+      online=1; break
+    fi
+    sleep 1
+  done
+  if [[ "$online" != 1 ]]; then
+    tmux capture-pane -pt "$SESSION" -S -30 || true
+    echo "[FAIL] Frontend did not recover; MON control plane was not modified" >&2
+    exit 1
+  fi
+  echo "[PASS] Frontend recovered on port 5173 (tmux $SESSION)"
+fi
+
+echo "[PASS] Existing MON, Site Controller, and frontend: $FRONTEND"
 
 echo "========== STAGE PINNED MON UI FILES =========="
 git -C "$CODE" fetch --no-tags https://github.com/Saitanveesh/1.git "refs/heads/$BRANCH"
