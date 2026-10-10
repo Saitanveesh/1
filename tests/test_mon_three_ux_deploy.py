@@ -28,7 +28,7 @@ def test_mon_three_ux_recovers_stopped_frontend_before_upgrade() -> None:
     assert "tmux new-session -d" in source
     assert "--host 0.0.0.0 --port 5173 --strictPort" in source
     assert "mon-three-code/console" in source
-    assert "Port 5173 is occupied" in source
+    assert "Port 5173 occupied and its PID cannot be read" in source
     assert '[[ "$online" != 1 ]]' in source
 
 
