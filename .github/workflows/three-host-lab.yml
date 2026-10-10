@@ -46,6 +46,39 @@ jobs:
         run: |
           python -c 'import mon.site_service; import mon.linux_endpoint_collector; import mon.sensor_transport'
 
+  hub-native-syntax:
+    name: Native WireGuard and nftables hub syntax (no interface changes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native parsers in a disposable CI runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools nftables
+      - name: Validate generated hub config and guard without applying either
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import tempfile
+          spec = importlib.util.spec_from_file_location("mon_lab_hub", "tools/lab_three_hub.py")
+          hub = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(hub)
+          with tempfile.TemporaryDirectory() as scratch:
+              out = Path(scratch)
+              guard = out / "mon-hub-guard.nft"
+              config = out / "mon-hub.conf"
+              guard.write_text(hub.guard_script())
+              config.write_text(hub.rendered_config(
+                  "A" * 43 + "=", "B" * 43 + "=", "C" * 43 + "="
+              ))
+              import subprocess
+              subprocess.run(["sudo", "nft", "-c", "-f", str(guard)], check=True)
+              subprocess.run(["wg-quick", "strip", str(config)], check=True, capture_output=True)
+          print("NATIVE_SYNTAX_VERIFIED_NO_INTERFACE_APPLIED")
+          PY
+
   vite-login-proxy:
     name: Actual Node 22 Vite pairing proxy HTTP smoke
     runs-on: ubuntu-latest
