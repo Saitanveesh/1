@@ -7,6 +7,7 @@ on:
       - 'tools/lab_three_host.py'
       - 'tools/lab_browser_login.py'
       - 'tools/lab_vite_config.ts'
+      - 'tools/lab_browser_proxy_smoke.py'
       - 'tools/lab_three_pressure.py'
       - 'tests/test_lab_three_host.py'
       - 'tests/test_lab_browser_login.py'
@@ -42,3 +43,24 @@ jobs:
       - name: Runtime import smoke (not Ubuntu 26.04 integration)
         run: |
           python -c 'import mon.site_service; import mon.linux_endpoint_collector; import mon.sensor_transport'
+
+  vite-login-proxy:
+    name: Actual Node 22 Vite pairing proxy HTTP smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install console dependencies
+        run: npm install --no-audit --no-fund
+      - name: Lab pairing against real Vite proxy (synthetic CI token only)
+        run: |
+          cp vite.config.ts vite.config.original-ci.ts
+          trap 'mv vite.config.original-ci.ts vite.config.ts' EXIT
+          cp ../tools/lab_vite_config.ts vite.config.ts
+          python3 ../tools/lab_browser_proxy_smoke.py
