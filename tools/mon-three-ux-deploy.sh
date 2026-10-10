@@ -65,31 +65,74 @@ if [[ ! -d "$FRONTEND/node_modules" ]]; then
   (cd "$FRONTEND" && npm ci --no-audit --no-fund)
 fi
 
-if ! curl -fsS --max-time 5 http://127.0.0.1:5173/ >/dev/null 2>&1; then
+# A healthy Vite server may be bound to PC2's Tailscale address only,
+# making 127.0.0.1:5173 fail while the Windows browser is connected.
+# Probe both local interface addresses without guessing process health.
+CONSOLE_URL=""
+probe_console() {
+  local address
+  for address in 127.0.0.1 100.75.116.62; do
+    if curl --noproxy '*' -fsS --max-time 4 "http://$address:5173/" >/dev/null 2>&1; then
+      CONSOLE_URL="http://$address:5173"
+      return 0
+    fi
+  done
+  return 1
+}
+if probe_console; then
+  echo "[PASS] Existing frontend reachable at $CONSOLE_URL"
+else
+  # When a listener is present but unresponsive, replace it ONLY if
+  # /proc confirms it is a Vite process owned by pc-2 in this exact MON
+  # frontend directory. Never kill a generic process on this port.
+  listener_pid=$(ss -H -lntp '( sport = :5173 )' |
+    sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
   if ss -H -lnt '( sport = :5173 )' | grep -q LISTEN; then
-    echo "[FAIL] Port 5173 is occupied but the frontend is unhealthy; refusing to replace its process" >&2
-    exit 1
+    [[ "$listener_pid" =~ ^[0-9]+$ ]] || {
+      echo "[FAIL] Port 5173 occupied and its PID cannot be read" >&2
+      ss -H -lntp '( sport = :5173 )' >&2
+      exit 1
+    }
+    cmd=$(tr '\0' ' ' < "/proc/$listener_pid/cmdline")
+    live_root=$(readlink -f "/proc/$listener_pid/cwd")
+    if [[ "$live_root" != "$FRONTEND" || "$cmd" != *vite* ]]; then
+      echo "[FAIL] Port 5173 belongs to an unrecognized service; refusing to stop it" >&2
+      printf '[CHECK] PID %s CMD %s\n' "$listener_pid" "$cmd" >&2
+      exit 1
+    fi
+    echo "[RECOVER] Verified MON Vite PID $listener_pid is unhealthy; restarting only that web process"
+    kill -TERM "$listener_pid"
+    for attempt in $(seq 1 16); do
+      if ! ss -H -lnt '( sport = :5173 )' | grep -q LISTEN; then
+        break
+      fi
+      sleep 1
+    done
+    if ss -H -lnt '( sport = :5173 )' | grep -q LISTEN; then
+      echo "[FAIL] The old Vite process did not release port 5173; left untouched" >&2
+      exit 1
+    fi
   fi
-  echo "[RECOVER] MON frontend is stopped; starting the existing Vite app in tmux"
+  echo "[RECOVER] Starting MON frontend on both loopback and overlay interfaces"
   SESSION=mon-console-ux
   if tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "[FAIL] tmux session $SESSION already exists, but port 5173 is down" >&2
+    echo "[FAIL] tmux session $SESSION already exists; refusing to disrupt it" >&2
     exit 1
   fi
   tmux new-session -d -s "$SESSION" "cd '$FRONTEND' && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort"
   online=0
   for attempt in $(seq 1 24); do
-    if curl -fsS --max-time 3 http://127.0.0.1:5173/ >/dev/null 2>&1; then
+    if probe_console; then
       online=1; break
     fi
     sleep 1
   done
   if [[ "$online" != 1 ]]; then
     tmux capture-pane -pt "$SESSION" -S -30 || true
-    echo "[FAIL] Frontend did not recover; MON control plane was not modified" >&2
+    echo "[FAIL] Frontend recovery failed; MON backend was not modified" >&2
     exit 1
   fi
-  echo "[PASS] Frontend recovered on port 5173 (tmux $SESSION)"
+  echo "[PASS] Frontend recovered at $CONSOLE_URL (tmux $SESSION)"
 fi
 
 echo "[PASS] Existing MON, Site Controller, and frontend: $FRONTEND"
@@ -169,7 +212,7 @@ ready=0
 for attempt in $(seq 1 30); do
   if curl -fsS --max-time 3 http://127.0.0.1:8088/portal/health 2>/dev/null |
       python3 -c 'import json,sys;sys.exit(0 if json.load(sys.stdin).get("capture")=="CAPTURING" else 1)' &&
-     curl -fsS --max-time 3 http://127.0.0.1:5173/portal/health >/dev/null 2>&1; then
+     curl -fsS --max-time 3 $CONSOLE_URL/portal/health >/dev/null 2>&1; then
     ready=1; break
   fi
   sleep 1
@@ -177,12 +220,12 @@ done
 if [[ "$ready" != 1 ]]; then
   sudo journalctl -u "$UNIT" -n 20 --no-pager >&2 || true
   echo "[FAIL] Portal or Vite /portal proxy unavailable" >&2
-  exit 1
+  false
 fi
 curl -fsS --max-time 5 http://127.0.0.1:8090/health >/dev/null
 curl -fsS --max-time 5 http://127.0.0.1:8080/health >/dev/null
 echo "[PASS] Control, site, UI and login gateway healthy"
-curl -fsS --max-time 5 http://127.0.0.1:5173/portal/health | python3 -m json.tool
+curl -fsS --max-time 5 $CONSOLE_URL/portal/health | python3 -m json.tool
 echo "Open http://100.75.116.62:5173/?tenant=mon-lab&site=site-a"
 echo 'Sign out of the old cookie session to see Welcome to MON.'
 echo 'NOTE: sai/12345 is lab-only. Use real SSO + MFA for production.'
