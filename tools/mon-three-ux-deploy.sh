@@ -119,7 +119,8 @@ started=1
 sudo systemctl enable --now "$UNIT"
 ready=0
 for attempt in $(seq 1 30); do
-  if curl -fsS --max-time 3 http://127.0.0.1:8088/portal/health >/dev/null 2>&1 &&
+  if curl -fsS --max-time 3 http://127.0.0.1:8088/portal/health 2>/dev/null |
+      python3 -c 'import json,sys;sys.exit(0 if json.load(sys.stdin).get("capture")=="CAPTURING" else 1)' &&
      curl -fsS --max-time 3 http://127.0.0.1:5173/portal/health >/dev/null 2>&1; then
     ready=1; break
   fi
