@@ -29,9 +29,38 @@ class HubSafetyError(RuntimeError):
 
 
 def checked(*args: str, input_data: str | None = None) -> str:
-    out = subprocess.run(
-        args, input=input_data, text=True, check=True, capture_output=True
+    """Run one native operation, with safe diagnostic phase, never stderr.
+
+    WireGuard config/private material can appear in logs and exception command
+    arguments. Report only the static native operation and exit status.
+    """
+    safe_phases = {
+        ("ss", "-H"): "UDP listener inspection",
+        ("wg", "pubkey"): "WireGuard public key derivation",
+        ("wg-quick", "strip"): "WireGuard temporary config syntax",
+        ("nft", "-c"): "nftables rule syntax",
+        ("nft", "-f"): "nftables guarded installation",
+        ("systemctl", "start"): "WireGuard service start",
+        ("ip", "-4"): "management route inspection",
+        ("ip", "-o"): "WireGuard interface address inspection",
+        ("wg", "show"): "WireGuard interface inspection",
+        ("nft", "list"): "nftables guard inspection",
+        ("nft", "delete"): "nftables guard removal",
+        ("systemctl", "disable"): "WireGuard service shutdown",
+    }
+    phase = next(
+        (name for prefix, name in safe_phases.items() if args[:len(prefix)] == prefix),
+        "native operation",
     )
+    try:
+        out = subprocess.run(
+            args, input=input_data, text=True, check=True, capture_output=True
+        )
+    except subprocess.CalledProcessError as exc:
+        raise HubSafetyError(
+            f"{phase} failed (exit={exc.returncode}); "
+            "no sensitive command output was displayed"
+        ) from None
     return out.stdout.strip()
 
 
@@ -155,7 +184,10 @@ def prepare(args: argparse.Namespace) -> None:
         checked("nft", "-c", "-f", str(guard_staging))
         WG_CONF.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
-            mode="w", dir=str(WG_CONF.parent), prefix=".mon-wg0-",
+            # wg-quick validates the *basename* as a <=15-char interface
+            # name, even for a short-lived config used only with "strip".
+            # "wgmon-" (6) + mkstemp suffix (8) = 14 characters.
+            mode="w", dir=str(WG_CONF.parent), prefix="wgmon-",
             suffix=".conf", delete=False
         ) as handle:
             conf_staging = Path(handle.name)
