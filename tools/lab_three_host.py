@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import getpass
 import json
 import os
 import re
@@ -755,7 +756,7 @@ def capture_evidence(remote: Remote, path: Path) -> None:
         "schema_version": "mon.lab.evidence.v1",
         "evidence_provenance": "live_api_responses_from_mon_host",
         "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "collector": os.getlogin() if sys.stdin.isatty() else "noninteractive",
+        "collector": getpass.getuser(),
         "tenant_id": "mon-lab",
         "site_id": "site-a",
         "result": "COMPLETE" if not errors else "INCOMPLETE",
