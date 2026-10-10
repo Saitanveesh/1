@@ -9,10 +9,12 @@ on:
       - 'tools/lab_vite_config.ts'
       - 'tools/lab_browser_proxy_smoke.py'
       - 'tools/lab_three_hub.py'
+      - 'tools/lab_three_peer.py'
       - 'tools/lab_three_pressure.py'
       - 'tests/test_lab_three_host.py'
       - 'tests/test_lab_browser_login.py'
       - 'tests/test_lab_three_hub.py'
+      - 'tests/test_lab_three_peer.py'
       - 'tests/test_lab_three_pressure.py'
       - 'docs/lab-three*'
       - '.github/workflows/three-host-lab.yml'
@@ -38,10 +40,10 @@ jobs:
           python -m pip check
       - name: Static checks
         run: |
-          ruff check tools/lab_three_host.py tools/lab_three_pressure.py tools/lab_browser_login.py tools/lab_three_hub.py tests/test_lab_three_host.py tests/test_lab_three_pressure.py tests/test_lab_browser_login.py tests/test_lab_three_hub.py
-          python -m compileall -q tools/lab_three_host.py tools/lab_three_pressure.py tools/lab_browser_login.py tools/lab_three_hub.py
+          ruff check tools/lab_three_host.py tools/lab_three_pressure.py tools/lab_browser_login.py tools/lab_three_hub.py tools/lab_three_peer.py tests/test_lab_three_host.py tests/test_lab_three_pressure.py tests/test_lab_browser_login.py tests/test_lab_three_hub.py tests/test_lab_three_peer.py
+          python -m compileall -q tools/lab_three_host.py tools/lab_three_pressure.py tools/lab_browser_login.py tools/lab_three_hub.py tools/lab_three_peer.py
       - name: Safety and contract tests (no load generated)
-        run: python -m pytest -q tests/test_lab_three_host.py tests/test_lab_three_pressure.py tests/test_lab_browser_login.py tests/test_lab_three_hub.py
+        run: python -m pytest -q tests/test_lab_three_host.py tests/test_lab_three_pressure.py tests/test_lab_browser_login.py tests/test_lab_three_hub.py tests/test_lab_three_peer.py
       - name: Runtime import smoke (not Ubuntu 26.04 integration)
         run: |
           python -c 'import mon.site_service; import mon.linux_endpoint_collector; import mon.sensor_transport'
