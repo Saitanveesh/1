@@ -26,6 +26,7 @@ export class LiveClient {
   private socket?: WebSocket;
   private stopped = false;
   private reconnectAttempt = 0;
+  private heartbeatWatch?: ReturnType<typeof setInterval>;
   private state: LiveState;
   private readonly listeners = new Set<(state: LiveState) => void>();
 
@@ -69,11 +70,27 @@ export class LiveClient {
 
   async start(): Promise<void> {
     this.stopped = false;
+    this.heartbeatWatch = window.setInterval(() => {
+      // A TCP/WebSocket may remain technically open while server messages
+      // stop arriving. Fail visibly and reconnect; do not report fake LIVE.
+      const last = this.state.lastMessageAt
+        ? Date.parse(this.state.lastMessageAt) : NaN;
+      if (this.state.connection === "LIVE" && (
+        !Number.isFinite(last) || Date.now() - last > 45_000
+      )) {
+        this.emit({ connection: "RECOVERING" });
+        this.socket?.close();
+      }
+    }, 5000);
     await this.connect();
   }
 
   stop(): void {
     this.stopped = true;
+    if (this.heartbeatWatch !== undefined) {
+      window.clearInterval(this.heartbeatWatch);
+      this.heartbeatWatch = undefined;
+    }
     this.socket?.close();
     this.socket = undefined;
   }
