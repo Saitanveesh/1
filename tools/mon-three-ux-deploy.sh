@@ -216,6 +216,10 @@ done
   npm run build
 )
 echo "[PASS] UI built; backup: $BACKUP"
+# Force the already-running Vite dev server to reload its updated proxy map.
+# Build output alone does not reload a live Vite process's /portal configuration.
+touch "$FRONTEND/vite.config.ts"
+echo "[CHECK] Requested Vite proxy configuration reload"
 
 echo "========== SET LAB LOGIN CREDENTIAL =========="
 cp "$TEMP/mon-lab-portal.py" "$PORTAL"
