@@ -142,6 +142,46 @@ python3 tools/lab_three_host.py --inventory ~/lab-three.json \
 This repeats the audit, then stores a 0600 copy of each peer's live `/etc/wireguard/wg0.conf` and non-secret routing/peer metadata in a uniquely named **root-owned, mode-0700 directory** under `/root/mon-three-wg-backups/` **on PC5 and PC6 themselves**. Only the backup directory path is printed; private-key-containing files never leave their host or enter GitHub, logs, or the operator workstation. This is a backup, **not a cutover or a verified rollback**. Do not delete the old configs, stop wg0, or execute a replacement tunnel until an onsite or disposable VM rehearsed rollback can restore it.
 
 Next required engineering step after backup: prepare the PC2 WireGuard hub with hub-only guard, validate handshake/allowed routes for one peer at a time, and restore the original configuration if health fails. The existing generic `overlay` stage is for virgin `wg0` only and intentionally rejects the active peer tunnels. Its output must not be treated as authority to override that protection.
+## Current console improvements and next gated milestone (2026-10-10)
+
+The live operator session was verified from a real laptop: authenticated `mon-lab-operator` and LIVE WebSocket. The old header's `LAST EVENT` timestamp actually reflected receipt of a heartbeat/initial snapshot, so it could stay unchanged for 15 seconds and misleadingly resemble an attack event. The revised console distinguishes **STREAM ACTIVITY** (age since a real received WebSocket frame, recalculated every second) from **LAST EVENT** (true application event; `NONE OBSERVED` if none). Missing WebSocket heartbeats for more than 45 seconds cause reconnect, rather than fake LIVE status. The decorative boxed `M`, operator role, tenant/site slug and internal sequence number are no longer visible in the sidebar. Tenant/site remain mandatory and enforced in APIs and authorization.
+
+The login page now displays **MON — Monitoring, Orchestration, Neutralization**, with neutral operator instructions instead of computer identifiers. See [ADR 0038](adr/0038-mon-name-and-observable-console.md).
+
+**Important deployment fix:** The earlier console script mounted `~/mon-three-code/console`, a pinned backend checkout. That means a refreshed `~/mon-three-operator` branch would **not** change dashboard contents. The new `console` stage mounts `~/mon-three-operator/console` exclusively for the UI and recreates only an out-of-date `mon-three-console` container. It preserves PostgreSQL, MON control-plane code and the existing JWT. No changes to the backend source or VPN follow from this UI restart. From PC2:
+
+```bash
+cd ~/mon-three-operator
+git fetch origin feat/three-host-tailscale-lab
+git checkout --detach FETCH_HEAD
+python3 tools/lab_three_host.py --inventory ~/lab-three.json console
+```
+
+Refresh `http://100.75.116.62:5173/?tenant=mon-lab&site=site-a` on the authenticated tailnet laptop. UI live activity should tick every second; actual `LAST EVENT` must stay absent/unmodified when no real event is ingested. **Never send fake heartbeat or event traffic just to animate the interface.**
+
+### Next safe site-controller gate — real WireGuard path
+
+PC5/PC6 still point to **old hub `10.5.115.5:51820`** and PC2 was observed without `wg0`. We must *not* launch MON site controller, Suricata or victim collector yet: doing so would create unreachable sensor ingress or claim false network visibility.
+
+A new **`migration-plan`** stage repeats the existing WireGuard audit, verifies each root-only saved `wg0.conf` against its SHA-256 backup, extracts **public keys only** from the existing live interfaces and prepares a PC2 public-key preview, without starting interfaces or changing routes, forwarding or nftables:
+
+```bash
+cd ~/mon-three-operator
+python3 tools/lab_three_host.py --inventory ~/lab-three.json migration-plan
+```
+
+The output must say `PLAN_ONLY_NOT_APPLIED`. This step requires access to the authorized three machines and sudo to inspect their backup metadata; it will never print an old private key. If an old backup is absent, tampered with, or the peer identity differs, the stage fails. The preview can then inform a separately approved and rehearsed PC2 hub cutover with one-peer-at-a-time verification and rollback.
+
+After that cutover is actually performed, run the new **read-only** `site-preflight` stage:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json site-preflight
+```
+
+This enforces PC2 ownership of `10.77.0.1/24`, two recent verified hub WireGuard handshakes, port 51820, presence of the MON-owned nftables guard, authenticated control plane READY, PC5/PC6 tunnel endpoints equal to PC2, and independent SSH/management routes. **It is expected to fail today while the old hub remains in use.** The `site` and `victim` installation stages now invoke it before any local identity enrollment or sensor setup, so running them prematurely cannot silently build an apparently healthy but blind system.
+
+Only after `site-preflight` succeeds should the operator proceed with `site`, `victim`, `ready`, and real evidence snapshots. No production readiness or physical end-to-end incident is claimed from code and CI alone.
+
 ## Deployment, one stage at a time
 
 Use the same `--inventory ~/lab-three.json` argument in every command below. We intentionally require explicit flags before privileged installation or overlay routing.
