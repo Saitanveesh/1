@@ -165,10 +165,10 @@ export function NetworkPath({
             </circle>
           </>}
           <rect className="mon-node mon-node-attacker" x="26" y="93" width="234" height="152" rx="4" />
-          <text className="mon-node-label" x="45" y="122">01 / ATTACK SOURCE</text>
-          <text className="mon-node-title" x="45" y="165">PC6 · Attacker</text>
-          <text className="mon-node-ip" x="45" y="196">{source}</text>
-          <text className="mon-node-info" x="45" y="223">Observed in auth evidence</text>
+          <text className="mon-node-label mon-inverse" x="45" y="122">01 / ATTACK SOURCE</text>
+          <text className="mon-node-title mon-inverse" x="45" y="165">PC6 · Attacker</text>
+          <text className="mon-node-ip mon-inverse" x="45" y="196">{source}</text>
+          <text className="mon-node-info mon-inverse" x="45" y="223">Observed in auth evidence</text>
 
           <rect className="mon-node" x="404" y="93" width="233" height="152" rx="4" />
           <text className="mon-node-label" x="423" y="122">02 / ROUTE + RESPONSE</text>
