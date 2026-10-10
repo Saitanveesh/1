@@ -618,3 +618,49 @@ def test_console_serves_current_operator_pr_without_mutating_pinned_backend(tmp_
     assert "docker stop --time 10 mon-three-console" in result[0]
     assert "wg-quick" not in result[0]
     assert "mon-three-postgres" not in result[0]
+
+
+
+def test_migration_plan_reads_existing_peer_public_keys_without_network_changes(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    mod = load_module()
+    monkeypatch.setattr(mod, "legacy_overlay_audit", lambda remote: None)
+    mon_pub = "A" * 43 + "="
+    monkeypatch.setattr(mod, "remote_public_key", lambda remote, role: mon_pub)
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    changes = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def run(self, role, script, *, root=False, label=""):
+            changes.append((role, script, root, label))
+
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            assert role in ("victim", "attacker")
+            assert "wg-live-pub" in command
+            return ("B" if role == "victim" else "C") * 43 + "="
+
+    mod.migration_plan(Fake())
+    out = capsys.readouterr().out
+    assert "PLAN_ONLY_NOT_APPLIED" in out
+    assert "10.77.0.50/32" in out
+    assert "10.77.0.60/32" in out
+    assert [label for _, _, _, label in changes] == [
+        "migration-plan-victim",
+        "migration-plan-attacker",
+        "migration-plan-hub-readonly",
+    ]
+    assert all(root for _, _, root, _ in changes)
+    assert "sha256sum -c" in changes[0][1]
+    assert "wg show wg0 public-key" in changes[0][1]
+    for _, command, _, _ in changes:
+        assert "wg-quick" not in command
+        assert "wg set " not in command
+        assert "nft add" not in command
+        assert "nft flush" not in command
+        assert "systemctl stop" not in command
+        assert "ip route add" not in command
+        assert "PrivateKey = " not in command
