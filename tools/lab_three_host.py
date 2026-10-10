@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import ipaddress
 import json
 import os
@@ -615,12 +616,13 @@ def peer_migration(remote: Remote, role: str, operation: str) -> None:
     """Supervise exactly one peer; reject unverified handshakes and blind commits."""
     if role not in ("victim", "attacker"):
         raise ValueError("peer cutover requires victim or attacker role")
-    # The existing Tailscale/LAN identity and PC2 hub must be verified each time.
-    preflight(remote)
-    verify_hub(remote)
+    # Emergency rollback and status must remain possible even when PC2 is down.
+    # Only operations changing/validating the NEW hub depend on PC2 health.
+    if operation in ("start", "verify", "commit"):
+        preflight(remote)
+        verify_hub(remote)
     user = remote.peers[role].user
-    helper = f"/root/mon-three-peer-cutover/runner.py"
-    args = ["--role", role]
+    helper = "/root/mon-three-peer-cutover/runner.py"
 
     if role == "attacker" and operation == "start":
         # Guard against migrating both peers without first making sure the
@@ -644,7 +646,7 @@ python3 /root/mon-three-peer-cutover/runner.py verify --role victim
             "chmod 700 ~/.cache/mon-three ~/.cache/mon-three/stages",
         )
         remote.copy_to(role, local, ".cache/mon-three/stages/lab_three_peer.py")
-        local_hash = __import__("hashlib").sha256(local.read_bytes()).hexdigest()
+        local_hash = hashlib.sha256(local.read_bytes()).hexdigest()
         remote.run(role, f"""set -e
 umask 077
 PEER_HOME=$(getent passwd {shlex.quote(user)} | cut -d: -f6)
