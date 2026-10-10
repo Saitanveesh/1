@@ -738,6 +738,9 @@ test "$(wg show wg0 peers | wc -l)" -eq 1 || {{
 ip -o -4 addr show dev wg0 | grep -F {shlex.quote(target + '/32')} >/dev/null || {{
   echo "Unexpected assigned tunnel address"; exit 1;
 }}
+test "$(wg show wg0 allowed-ips | awk '{{print $2}}')" = "10.77.0.0/24" || {{
+  echo "Unexpected existing peer allowed IPs; requires manual migration review"; exit 1;
+}}
 echo '-- existing peer endpoint; public metadata --'
 wg show wg0 endpoints | awk '{{print "endpoint=" $2}}'
 wg show wg0 allowed-ips | awk '{{print "allowed_ips=" $2}}'
@@ -751,6 +754,10 @@ echo '-- unexpected WireGuard config directives (names only; never keys) --'
 awk -F= '/^[[:space:]]*(PreUp|PostUp|PreDown|PostDown|DNS|Table|SaveConfig|MTU)[[:space:]]*=/ {{
   gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print "custom_directive=" $1
 }}' /etc/wireguard/wg0.conf
+if awk -F= '/^[[:space:]]*(PreUp|PostUp|PreDown|PostDown|DNS|Table|SaveConfig|MTU)[[:space:]]*=/ {{found=1}} END {{exit !found}}' /etc/wireguard/wg0.conf; then
+  echo "Nonstandard wg0 configuration requires manual review before migration backup"
+  exit 1
+fi
 echo '-- existing config metadata (no secret contents) --'
 stat -c 'mode=%a owner=%U path=%n' /etc/wireguard/wg0.conf
 """, root=True, label=f"migration-audit-{role}")
