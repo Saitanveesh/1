@@ -198,6 +198,62 @@ Rollback refuses to stop a hub once *any* actual handshake has occurred. It remo
 
 **Status:** PC2 physical installation, nftables service activation and peer cutover have not been observed from this chat. CI alone does not establish them. See [ADR 0039](adr/0039-existing-wireguard-hub-cutover.md).
 
+### Peer-by-peer cutover with a 15-minute automatic rollback
+
+**Current physical state:** PC2 reported `HUB_GUARD_VERIFIED`. PC5 and PC6 have not yet been cut over, so both still use the old hub unless an operator independently observes otherwise. A verified WireGuard listener is not evidence of connected sensors or successful detection.
+
+**New implementation:** `tools/lab_three_peer.py` + PC2 operator stages `peer-start`, `peer-verify`, `peer-commit`, `peer-rollback`, and `peer-status`. These stages change **one** existing peer's live WireGuard settings and never change LAN management routes. The existing `wg0.conf` is kept unchanged during the 15-minute trial. The script copies a tested, owner-only rollback program under `/root` and arms a systemd timer *before* replacing the live old hub peer. The rollback is independent of SSH and works even if the MON hub is temporarily unavailable. Once the timer expires without a verified commit, `wg syncconf` restores the old peer from its intact protected backup. The old private key never leaves that peer. See [ADR 0040](adr/0040-timeboxed-peer-wireguard-cutover.md).
+
+**Do not run both migrations together.** First run the following on **PC2** while staying at the terminal:
+
+```bash
+cd ~/mon-three-operator
+git fetch origin feat/three-host-tailscale-lab
+git checkout --detach FETCH_HEAD
+
+# PC5: set one time-limited live WireGuard connection toward PC2
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --peer-role victim --approve-peer-start peer-start
+```
+
+Expected start result: `CUTOVER_PENDING_AUTOMATIC_ROLLBACK`; a root-owned 900-second `systemd-run` timer is already armed on PC5 and the **persistent config is still the original**. If the command fails, do NOT retry blindly: inspect `peer-status` on PC5, and allow/confirm the rollback. If the operator walks away or loses SSH, the timer reverts the peer automatically.
+
+Prompt a narrowly targeted hub handshake from PC5 if necessary (this is a single diagnostic ping to **MON's hub**, not an attack):
+
+```bash
+ssh pc-5@10.5.112.23 'ping -n -I wg0 -c 1 -W 2 10.77.0.1 || true'
+```
+
+**Within 15 minutes**, require independently verified live WireGuard handshake on PC5 and on PC2:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --peer-role victim peer-verify
+```
+
+Only if that prints `PEER_NEW_HUB_HANDSHAKE_VERIFIED` and PC2's confirmation, explicitly commit PC5:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --peer-role victim --approve-peer-commit peer-commit
+```
+
+Expected: `PEER_CUTOVER_COMMITTED`. Confirm status is `phase=COMMITTED` and timer inactive:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --peer-role victim peer-status
+```
+
+For an **uncommitted** migration, the operator may explicitly revert it sooner than the timeout; the rollback stage does not depend on the hub:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --peer-role victim --approve-peer-rollback peer-rollback
+```
+
+**STOP after PC5.** Review the results before authorizing the next peer. The `attacker`/PC6 stage will refuse to start unless PC5 is already committed and independently verified, and PC6 must have its own rollback timer. A new PC5 handshake confirms only encrypted-overlay connectivity, **not** that the Site Controller, Suricata, endpoint telemetry, incident correlation, containment or recovery has succeeded. These are subsequent stages. The PC2 hub's volatile guard still requires guard-first startup after reboot; never enable automatic WireGuard hub startup without persistence testing.
+
 ### Next safe site-controller gate — real WireGuard path
 
 PC5/PC6 still point to **old hub `10.5.115.5:51820`** and PC2 was observed without `wg0`. We must *not* launch MON site controller, Suricata or victim collector yet: doing so would create unreachable sensor ingress or claim false network visibility.
