@@ -501,6 +501,70 @@ fi
 """, label=f"enroll-{sid}")
 
 
+def migration_plan(remote: Remote) -> None:
+    """No-route-change hub plan using actual peer public keys and verified backups."""
+    legacy_overlay_audit(remote)
+    peer_public_keys: dict[str, str] = {}
+    for role in ("victim", "attacker"):
+        user = remote.peers[role].user
+        remote.run(role, f"""set -e
+PEER_HOME=$(getent passwd {shlex.quote(user)} | cut -d: -f6)
+test -d "$PEER_HOME/.cache/mon-three/stages"
+backup=$(find /root/mon-three-wg-backups -mindepth 2 -maxdepth 2 \\
+  -name wg0.conf -type f -print -quit)
+test -n "$backup" || {{
+  echo 'No local root-only WireGuard rollback backup; stop'; exit 1;
+}}
+test "$(stat -c %a "$backup")" = 600 || {{
+  echo 'Existing backup lacks mode 0600; stop'; exit 1;
+}}
+sha256sum -c "$(dirname "$backup")/wg0.sha256" >/dev/null || {{
+  echo 'Existing backup digest mismatch; stop'; exit 1;
+}}
+key=$(wg show wg0 public-key)
+test -n "$key" || {{ echo 'No running WireGuard interface public key'; exit 1; }}
+printf '%s\\n' "$key" > "$PEER_HOME/.cache/mon-three/stages/wg-live-pub"
+chown {shlex.quote(user)} "$PEER_HOME/.cache/mon-three/stages/wg-live-pub"
+chmod 600 "$PEER_HOME/.cache/mon-three/stages/wg-live-pub"
+echo 'Verified the local backup integrity and captured a public key only'
+""", root=True, label=f"migration-plan-{role}")
+        public = remote.ssh(
+            role, "cat ~/.cache/mon-three/stages/wg-live-pub", capture=True
+        )
+        if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", public):
+            raise RuntimeError(f"{role}: failed public-key validation")
+        peer_public_keys[role] = public
+    if peer_public_keys["victim"] == peer_public_keys["attacker"]:
+        raise RuntimeError("victim and attacker unexpectedly share a WireGuard key")
+
+    # Preparing a key does not configure, enable or route a VPN interface.
+    mon_key = remote_public_key(remote, "mon")
+    report = {
+        "schema_version": "mon.lab.hub-preview.v1",
+        "mon_lan_ip": remote.peers["mon"].lan_ip,
+        "hub_overlay_ip": "10.77.0.1/24",
+        "hub_port": 51820,
+        "hub_public_key": mon_key,
+        "peer_public_keys": peer_public_keys,
+        "peer_overlay_addresses": {
+            "victim": "10.77.0.50/32",
+            "attacker": "10.77.0.60/32",
+        },
+        "status": "PLAN_ONLY_NOT_APPLIED",
+        "note": "No WireGuard interface, firewall, forwarding or endpoint changed",
+    }
+    remote.run("mon", """set -e
+test ! -d /sys/class/net/wg0 || {
+  echo 'MON hub interface already exists; refuse pre-cutover preview'; exit 1;
+}
+test ! -e /etc/wireguard/wg0.conf || {
+  echo 'MON hub config already exists; refuse preview'; exit 1;
+}
+""", root=True, label="migration-plan-hub-readonly")
+    print("Migration hub plan (PUBLIC material only):", json.dumps(report, indent=2))
+    print("No peer routing changes applied. Manual review and supervised cutover remain required.")
+
+
 def site_preflight(remote: Remote) -> None:
     """Read-only and fail-closed: ensure that PC2, not a former hub, owns the path."""
     preflight(remote)
@@ -1002,7 +1066,7 @@ def main() -> int:
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
                                            "console", "site", "victim", "demo-prepare", "ready",
                                            "doctor", "evidence", "migration-audit", "migration-backup",
-                                           "browser-login", "site-preflight"))
+                                           "browser-login", "site-preflight", "migration-plan"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -1042,6 +1106,8 @@ def main() -> int:
         doctor(remote)
     elif args.stage == "migration-audit":
         legacy_overlay_audit(remote)
+    elif args.stage == "migration-plan":
+        migration_plan(remote)
     elif args.stage == "migration-backup":
         if not args.approve_migration_backup:
             parser.error("migration-backup requires --approve-migration-backup")
