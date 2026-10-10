@@ -113,6 +113,35 @@ ssh pc-5@10.5.112.23 'ps -p 53238 -o pid,ppid,etime,stat,args || true; systemctl
 
 After the apt lock is released, rerun `bootstrap` from the updated PR checkout and inspect its output before doing anything to the overlay. The existing active `wg0` state is a hard **migration gate**; the regular `overlay` stage is intended only for previously unused interfaces.
 
+## Current PC2/PC5/PC6 observation — 2026-10-10
+
+The latest real `doctor` output reported **zero APT/DPKG lock holders** across the three hosts. The `/usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal` process is not in itself an active package-lock owner; do not kill it just for existing. PC2 has no `wg0`; PC5 and PC6 have live `wg0` with addresses `10.77.0.50/32` and `10.77.0.60/32`, respectively. Both report a peer endpoint of `10.5.115.5:51820`, not MON PC2's LAN address `10.5.112.94`. They are therefore **not yet part of a PC2-hub telemetry path**. Do not claim Suricata on PC2 sees the current overlay until cutover and packet checks prove it.
+
+The root filesystem reported by `df -h /` is **63 GiB** with about 48–49 GiB free, irrespective of larger physical drives. Never assume 1 TB can be used for tests.
+
+### Stage A: verified read-only migration audit
+
+On PC2 after updating the operator clone:
+
+```bash
+cd ~/mon-three-operator
+git fetch origin feat/three-host-tailscale-lab
+git checkout --detach FETCH_HEAD
+python3 tools/lab_three_host.py --inventory ~/lab-three.json migration-audit
+```
+
+This checks host identities, PC2's absence of an existing `wg0` and `wg0.conf`, routes to the two named lab peers, UDP/51820 listener metadata, and PC5/PC6's active tunnel addresses, peer count, endpoints, route back to PC2's management address, existing configuration metadata and custom directive names. It **does not print private keys**. It does not change interface state, nftables, forwarding, old hub, or campus routing. If it reports unexpected routing or a custom WireGuard directive, stop for manual review before any cutover.
+
+### Stage B: protected backup (only after Stage A succeeds)
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --approve-migration-backup migration-backup
+```
+
+This repeats the audit, then stores a 0600 copy of each peer's live `/etc/wireguard/wg0.conf` and non-secret routing/peer metadata in a uniquely named **root-owned, mode-0700 directory** under `/root/mon-three-wg-backups/` **on PC5 and PC6 themselves**. Only the backup directory path is printed; private-key-containing files never leave their host or enter GitHub, logs, or the operator workstation. This is a backup, **not a cutover or a verified rollback**. Do not delete the old configs, stop wg0, or execute a replacement tunnel until an onsite or disposable VM rehearsed rollback can restore it.
+
+Next required engineering step after backup: prepare the PC2 WireGuard hub with hub-only guard, validate handshake/allowed routes for one peer at a time, and restore the original configuration if health fails. The existing generic `overlay` stage is for virgin `wg0` only and intentionally rejects the active peer tunnels. Its output must not be treated as authority to override that protection.
 ## Deployment, one stage at a time
 
 Use the same `--inventory ~/lab-three.json` argument in every command below. We intentionally require explicit flags before privileged installation or overlay routing.
