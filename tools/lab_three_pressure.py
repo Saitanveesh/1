@@ -200,6 +200,8 @@ def run_experiment(args: argparse.Namespace) -> dict:
     if not scratch.is_dir() or scratch == Path("/"):
         raise PressureSafetyError("scratch must be an existing directory inside the disposable VM")
     report = args.report.expanduser().resolve()
+    if report.exists():
+        raise PressureSafetyError(f"report file already exists: {report}")
     if report == scratch or report == Path("/"):
         raise PressureSafetyError("invalid report destination")
 
