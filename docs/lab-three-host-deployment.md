@@ -163,7 +163,7 @@ Refresh `http://100.75.116.62:5173/?tenant=mon-lab&site=site-a` on the authentic
 
 A successful `migration-plan` establishes only observed peer public keys and root-only backup integrity. It must return `PLAN_ONLY_NOT_APPLIED`. Do **not** treat that as an active PC2 tunnel.
 
-The new hub staging script, `tools/lab_three_hub.py`, creates the **PC2 hub only**. It rejects conflicting WireGuard interfaces, configs, UDP listeners and nftables guards, installs a constrained MON-owned nftables guard *before* enabling `wg0`, and leaves PC5/PC6 pointed at the old hub. It does not enable forwarding, modify general campus routing, send attack traffic or enroll sensors.
+The new hub staging script, `tools/lab_three_hub.py`, creates the **PC2 hub only**. It rejects conflicting WireGuard interfaces, configs, UDP listeners and nftables guards, installs a constrained MON-owned nftables guard *before* enabling `wg0`, and leaves PC5/PC6 pointed at the old hub. It does not enable forwarding, modify general campus routing, send attack traffic or enroll sensors. The new hub's MON guard is initially volatile, so `wg-quick@wg0` is **started but NOT enabled at boot**. If PC2 reboots or nftables is reloaded, stop and inspect the guard before using the tunnel again. Never enable automatic WireGuard startup without a persistent guard-first dependency and rollback test.
 
 **Stop/go:** This stage affects PC2's local firewall and WireGuard service. Run it only from the authenticated PC2 terminal after verifying that PC2/PC5/PC6 are the intended authorized lab machines, the old backups remain on PC5/PC6, and you have SSH/Tailscale management access and a recovery console:
 
