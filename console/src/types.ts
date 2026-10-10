@@ -238,3 +238,32 @@ export interface SensorFleetView {
   version?: string;
   last_error?: string;
 }
+
+export interface PacketFlow {
+  src_ip: string;
+  dst_ip: string;
+  protocol: string;
+  dst_port: number | null;
+  packets: number;
+  bytes: number;
+}
+
+export interface PacketSample {
+  second: number;
+  packets: number;
+  bytes: number;
+}
+
+export interface PacketCaptureSnapshot {
+  source: "linux-af_packet";
+  interface: string;
+  status: "STARTING" | "CAPTURING" | "UNAVAILABLE";
+  error: string | null;
+  observed_at: string;
+  sample_interval_seconds: number;
+  capture_window_seconds: number;
+  direction: string;
+  packet_layer: string;
+  samples: PacketSample[];
+  flows: PacketFlow[];
+}
