@@ -288,6 +288,37 @@ for attempt in $(seq 1 25); do
   fi
   sleep 1
 done
+if [[ "$ready" != 1 ]] && portal_healthy http://127.0.0.1:8088; then
+  echo "[REPAIR] Existing Vite has a stale /portal proxy; restarting verified MON web process only"
+  listener_pid=$(ss -H -lntp '( sport = :5173 )' |
+    sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1)
+  if [[ "$listener_pid" =~ ^[0-9]+$ &&
+        "$(readlink -f "/proc/$listener_pid/cwd")" == "$FRONTEND" &&
+        "$(stat -c %u "/proc/$listener_pid")" == "$(id -u)" &&
+        "$(tr '\0' ' ' < "/proc/$listener_pid/cmdline")" == *vite* ]]; then
+    kill -TERM "$listener_pid"
+    released=0
+    for attempt in $(seq 1 16); do
+      if ! ss -H -lnt '( sport = :5173 )' | grep -q LISTEN; then
+        released=1; break
+      fi
+      sleep 1
+    done
+    if [[ "$released" == 1 ]]; then
+      new_session="mon-console-proxy-$(date +%s)"
+      tmux new-session -d -s "$new_session" "cd '$FRONTEND' && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort"
+      CONSOLE_URL="http://127.0.0.1:5173"
+      for attempt in $(seq 1 24); do
+        if portal_healthy "$CONSOLE_URL"; then
+          ready=1; break
+        fi
+        sleep 1
+      done
+    fi
+  else
+    echo "[CHECK] Listener not verified as user-owned MON Vite; not terminating it"
+  fi
+fi
 if [[ "$ready" != 1 ]]; then
   echo "[FAIL] Gateway or Vite proxy did not return READY/CAPTURING JSON" >&2
   echo "[CHECK] Direct gateway health:" >&2
