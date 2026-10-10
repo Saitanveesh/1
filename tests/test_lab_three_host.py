@@ -483,3 +483,53 @@ def test_console_stage_installs_without_missing_lockfile(tmp_path: Path) -> None
     assert 'npm run dev -- --host "$TAIL" --port 5173' in script
     assert 'curl -fsS --max-time 3 "http://$TAIL:5173/"' in script
     assert "http://$TAIL:5173/?tenant=mon-lab&site=site-a" in script
+
+
+
+def test_console_uses_readonly_auth_proxy_without_touching_control_plane(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    seen = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def run(self, role, script, *, root=False, label=""):
+            seen.append((role, script, root, label))
+
+    mod.console(Fake())
+    assert len(seen) == 1
+    role, script, root, label = seen[0]
+    assert role == "mon" and root and label == "operator-console-node22"
+    assert "/app/vite.config.ts:ro" in script
+    assert "docker stop --time 10 mon-three-console" in script
+    assert "docker rm mon-three-console" in script
+    assert "mon-three-postgres" not in script
+    assert "wg-quick" not in script
+    assert "nft " not in script
+
+
+def test_browser_login_stage_uses_verified_existing_credential(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    seen = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def run(self, role, script, *, root=False, label=""):
+            seen.append((role, script, root, label))
+
+    mod.browser_login(Fake())
+    assert len(seen) == 1
+    role, script, root, label = seen[0]
+    assert role == "mon" and not root and label == "one-use-browser-pairing"
+    assert "tools/lab_browser_login.py" in script
+    assert "mon-three/identity/operator.jwt" in script
+    assert "mon-three/browser-login.log" in script
+    assert "sudo " not in script
+    assert "jwt.encode" not in script
+    assert "cat $LAB_HOME/mon-three/identity/operator.jwt" not in script
+    assert "tmux kill-session -t mon-three-browser-login" in script
