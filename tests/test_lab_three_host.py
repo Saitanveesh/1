@@ -664,3 +664,72 @@ def test_migration_plan_reads_existing_peer_public_keys_without_network_changes(
         assert "systemctl stop" not in command
         assert "ip route add" not in command
         assert "PrivateKey = " not in command
+
+
+
+def test_peer_rollback_is_independent_of_mon_hub_availability(monkeypatch) -> None:
+    mod = load_module()
+    calls = []
+
+    def reject_mon(*args):
+        raise AssertionError("emergency rollback must not contact unavailable hub")
+
+    monkeypatch.setattr(mod, "preflight", reject_mon)
+    monkeypatch.setattr(mod, "verify_hub", reject_mon)
+
+    class Fake:
+        peers = {"victim": mod.Peer("10.5.112.23", "pc-5", "lan")}
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script, root, label))
+
+    mod.peer_migration(Fake(), "victim", "rollback")
+    assert len(calls) == 1
+    assert calls[0][0] == "victim"
+    assert calls[0][2] is True
+    assert calls[0][3] == "cutover-victim-rollback"
+    assert "runner.py rollback" in calls[0][1]
+
+
+def test_peer_cannot_prepare_unknown_role_or_without_verifying_hub(monkeypatch) -> None:
+    mod = load_module()
+    with pytest.raises(ValueError, match="victim or attacker"):
+        mod.peer_migration(None, "mon", "start")
+    called = []
+    monkeypatch.setattr(mod, "preflight", lambda remote: called.append("preflight"))
+    monkeypatch.setattr(mod, "verify_hub", lambda remote: called.append("hub"))
+
+    class Fake:
+        peers = {"victim": mod.Peer("10.5.112.23", "pc-5", "lan")}
+
+        def ssh(self, *args, **kwargs):
+            called.append("ssh")
+            raise RuntimeError("stop before installing helper")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        # The stop occurs in public-key derivation after hub verification.
+        mod.peer_migration(Fake(), "victim", "start")
+    assert called[:2] == ["preflight", "hub"]
+
+
+def test_attacker_cutover_requires_prior_committed_victim(monkeypatch) -> None:
+    mod = load_module()
+    monkeypatch.setattr(mod, "preflight", lambda remote: None)
+    monkeypatch.setattr(mod, "verify_hub", lambda remote: None)
+    calls = []
+
+    class Fake:
+        peers = {
+            "victim": mod.Peer("10.5.112.23", "pc-5", "lan"),
+            "attacker": mod.Peer("10.5.112.4", "pc-6", "lan"),
+        }
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script, root, label))
+            raise RuntimeError("victim has not been committed")
+
+    with pytest.raises(RuntimeError, match="not been committed"):
+        mod.peer_migration(Fake(), "attacker", "start")
+    assert calls[0][0] == "victim"
+    assert "phase=COMMITTED" in calls[0][1]
+    assert calls[0][3] == "attacker-requires-committed-victim"
