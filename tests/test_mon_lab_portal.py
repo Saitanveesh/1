@@ -5,7 +5,6 @@ import socket
 import struct
 from pathlib import Path
 
-
 PORTAL = Path(__file__).resolve().parents[1] / "tools" / "mon-lab-portal.py"
 
 
