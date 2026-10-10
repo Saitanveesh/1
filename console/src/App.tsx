@@ -9,8 +9,7 @@ import type {
   EnforcementPoint,
   Finding,
   Incident,
-  OperatorPrincipal,
-  ResponseExecution,
+   ResponseExecution,
   SensorFleetView,
   Severity
 } from "./types";
@@ -363,12 +362,26 @@ function AttackGraph({ state }: { state: LiveState }) {
   );
 }
 
+export function formatActivityAge(lastAt: string | undefined, now: number): string {
+  if (!lastAt) return "WAITING";
+  const received = Date.parse(lastAt);
+  if (!Number.isFinite(received)) return "UNKNOWN";
+  const seconds = Math.max(0, Math.floor((now - received) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s ago`;
+  return `${Math.floor(seconds / 3600)}h ago`;
+}
+
 export default function App() {
   const params = new URLSearchParams(window.location.search);
   const tenantId = params.get("tenant") || "default";
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
-  const [operator, setOperator] = useState<OperatorPrincipal | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const ticker = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(ticker);
+  }, []);
   const [authState, setAuthState] = useState<"CHECKING" | "OK" | "UNAUTHENTICATED" | "DENIED">("CHECKING");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [state, setState] = useState<LiveState>({
@@ -414,7 +427,8 @@ export default function App() {
     fetchOperator()
       .then(async (principal) => {
         if (cancelled) return;
-        setOperator(principal);
+        // JWT-backed operator authentication remains enforced by the control plane.
+        void principal;
         try {
           await fetchSnapshot(tenantId, siteId);
           if (!cancelled) setAuthState("OK");
@@ -426,7 +440,6 @@ export default function App() {
       })
       .catch(() => {
         if (!cancelled) {
-          setOperator(null);
           setAuthState("UNAUTHENTICATED");
         }
       });
@@ -453,7 +466,6 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="mark">M</span>
           <div><strong>MON</strong><small>SECURITY FABRIC</small></div>
         </div>
         <nav>
@@ -465,11 +477,6 @@ export default function App() {
         </nav>
         <div className="sidebar-foot">
           <div className={`connection ${state.connection.toLowerCase()}`}><span />{state.connection}</div>
-          <small data-testid="operator-context">
-            {operator ? `${operator.subject} · ${operator.roles.join(", ")}` : "not authenticated"}
-          </small>
-          <small>{tenantId} / {siteId}</small>
-          <small>SEQ {state.sequence}</small>
         </div>
       </aside>
 
@@ -478,7 +485,8 @@ export default function App() {
           <div><span className="eyebrow">COMMAND CENTER</span><h1>{view}</h1></div>
           <div className="top-status">
             <span>LIVE TRANSPORT</span><strong>{state.connection}</strong>
-            <span>LAST EVENT</span><strong>{state.lastMessageAt ? new Date(state.lastMessageAt).toLocaleTimeString() : "—"}</strong>
+            <span>STREAM ACTIVITY</span><strong data-testid="stream-age">{formatActivityAge(state.lastMessageAt, now)}</strong>
+            <span>LAST EVENT</span><strong data-testid="last-security-event">{state.lastEventAt ? new Date(state.lastEventAt).toLocaleTimeString() : "NONE OBSERVED"}</strong>
           </div>
         </header>
 
