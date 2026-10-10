@@ -30,3 +30,14 @@ def test_mon_three_ux_recovers_stopped_frontend_before_upgrade() -> None:
     assert "mon-three-code/console" in source
     assert "Port 5173 is occupied" in source
     assert '[[ "$online" != 1 ]]' in source
+
+
+def test_frontend_uses_actual_bound_interface_before_restart() -> None:
+    script = SCRIPT.read_text()
+    assert "probe_console()" in script
+    assert "100.75.116.62" in script
+    assert 'CONSOLE_URL="http://$address:5173"' in script
+    assert '$CONSOLE_URL/portal/health' in script
+    assert 'cmd=$(tr' in script
+    assert 'live_root=$(readlink -f' in script
+    assert "unrecognized service; refusing to stop it" in script
