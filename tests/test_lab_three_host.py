@@ -322,3 +322,69 @@ def test_overlay_rejects_existing_wg0_before_mutations(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="existing wg0 is active"):
         mod.overlay(Fake())
     assert calls == []
+
+
+
+def test_scrubbing_excludes_all_nested_credential_values() -> None:
+    mod = load_module()
+    result = mod.scrub_secrets({
+        "secret": "private",
+        "session": {"bearer_token": "jwt-value", "password": "plain"},
+        "events": [{"sensor_id": "linux-victim-three", "count": 3}],
+    })
+    assert result["secret"] == "[REDACTED]"
+    assert result["session"]["bearer_token"] == "[REDACTED]"
+    assert result["session"]["password"] == "[REDACTED]"
+    assert result["events"][0]["count"] == 3
+
+
+def test_evidence_snapshot_has_explicit_incomplete_state(tmp_path, monkeypatch) -> None:
+    mod = load_module()
+    monkeypatch.setattr(mod.os, "getlogin", lambda: "operator")
+    path = tmp_path / "mon-evidence.json"
+
+    class Fake:
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            if "incidents" in command:
+                raise mod.subprocess.CalledProcessError(22, command)
+            if "health" in command:
+                return '{"state":"READY"}'
+            if "sensors" in command:
+                return '[{"sensor_id":"linux-victim-three","credential_ref":"SECRET"}]'
+            return "[]"
+
+    with pytest.raises(RuntimeError, match="Some evidence endpoints failed"):
+        mod.capture_evidence(Fake(), path)
+    result = json.loads(path.read_text())
+    assert result["result"] == "INCOMPLETE"
+    assert result["sources"]["sensors"][0]["credential_ref"] == "[REDACTED]"
+    assert "incidents" in result["errors"]
+    assert path.stat().st_mode & 0o077 == 0
+    with pytest.raises(RuntimeError, match="refusing to overwrite"):
+        mod.capture_evidence(Fake(), path)
+
+
+def test_doctor_is_inspection_only(tmp_path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    calls = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            calls.append((role, command))
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script))
+            assert label == "read-only-network-and-package-inspection"
+            assert "wg show wg0 endpoints" in script
+            assert "fuser -v" in script
+
+    mod.doctor(Fake())
+    assert len(calls) == 6
+    for _, command in calls:
+        assert "kill -9" not in command
+        assert "nft add " not in command
+        assert "systemctl stop" not in command
