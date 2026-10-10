@@ -532,7 +532,6 @@ test "$(curl -fsS --max-time 5 http://127.0.0.1:8080/health | jq -r .state)" = R
 echo 'MON hub, guard, two real handshakes and control-plane health verified'
 """, root=True, label="site-preflight-hub")
     for role in ("victim", "attacker"):
-        dest = remote.peers[role].host
         address = WG_ADDR[role]
         endpoint = f"{mon_ip}:51820"
         remote.run(role, f"""set -e
@@ -545,7 +544,7 @@ ip -o -4 addr show dev wg0 | grep -F {shlex.quote(address + '/32')} >/dev/null |
 test "$(wg show wg0 peers | wc -l)" -eq 1 || {{
   echo 'Unexpected WireGuard peer count'; exit 1;
 }}
-wg show wg0 endpoints | awk '$2 == {shlex.quote(endpoint)} {{seen=1}} END {{exit !seen}}' || {{
+wg show wg0 endpoints | awk -v expected={shlex.quote(endpoint)} '$2 == expected {{seen=1}} END {{exit !seen}}' || {{
   echo 'WireGuard is still using a different hub; no sensor startup'; exit 1;
 }}
 test "$(wg show wg0 allowed-ips | awk '{{print $2}}')" = "10.77.0.0/24" || {{
