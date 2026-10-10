@@ -138,3 +138,17 @@ def test_no_network_or_host_unbounded_pressure_commands():
     assert "mkfs" not in source
     assert "rm -rf" not in source
     assert "fallocate" not in source
+
+
+
+def test_cpu_worker_has_independent_time_limit(monkeypatch) -> None:
+    pressure = module()
+    clock = iter(range(0, 30))
+    monkeypatch.setattr(pressure.time, "monotonic", lambda: next(clock))
+
+    class NeverStops:
+        def is_set(self):
+            return False
+
+    # Worker must exit even if the operator/controller does not signal stop.
+    pressure.cpu_worker(NeverStops(), duration=5)
