@@ -19,7 +19,7 @@ import socket
 import struct
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -196,7 +196,7 @@ class FlowCapture:
             "interface": INTERFACE,
             "status": self.state,
             "error": self.error,
-            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "observed_at": datetime.now(UTC).isoformat(),
             "sample_interval_seconds": 1,
             "capture_window_seconds": WINDOW,
             "direction": "incoming only; excludes forwarded outgoing duplicates",
