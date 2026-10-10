@@ -399,7 +399,15 @@ def console(remote: Remote) -> None:
     remote.run("mon", f"""LAB_HOME=$(getent passwd {user} | cut -d: -f6)
 TAIL=$(tailscale ip -4)
 test -d "$LAB_HOME/mon-three-code/console"
+LAB_CONFIG="$LAB_HOME/mon-three-operator/tools/lab_vite_config.ts"
+test -f "$LAB_CONFIG" || {{ echo "Lab Vite config missing; fetch operator PR"; exit 1; }}
 docker volume create mon-three-console-node-modules >/dev/null
+if docker container inspect mon-three-console >/dev/null 2>&1 && \
+   ! docker inspect mon-three-console | grep -Fq '/app/vite.config.ts'; then
+  echo "Upgrading only MON's existing console container for secure lab pairing"
+  docker stop --time 10 mon-three-console >/dev/null
+  docker rm mon-three-console >/dev/null
+fi
 if ! docker container inspect mon-three-console >/dev/null 2>&1; then
   # This repo does not yet track console/package-lock.json. CI also uses
   # npm install. Avoid generating an untracked lockfile in the pinned checkout.
@@ -409,6 +417,7 @@ if ! docker container inspect mon-three-console >/dev/null 2>&1; then
     -w /app node:22-alpine npm install --no-package-lock --no-audit --no-fund
   docker run -d --name mon-three-console --restart unless-stopped --network host \
     -v "$LAB_HOME/mon-three-code/console:/app" \
+    -v "$LAB_CONFIG:/app/vite.config.ts:ro" \
     -v mon-three-console-node-modules:/app/node_modules \
     -w /app node:22-alpine npm run dev -- --host "$TAIL" --port 5173
 else
@@ -421,6 +430,43 @@ done
 curl -fsS --max-time 3 "http://$TAIL:5173/" >/dev/null
 echo "Console URL: http://$TAIL:5173/?tenant=mon-lab&site=site-a"
 """, root=True, label="operator-console-node22")
+
+
+
+def browser_login(remote: Remote) -> None:
+    """Launch a short-lived, one-use lab-only pairing process on PC2 loopback."""
+    remote.run("mon", """set -e
+TAIL=$(tailscale ip -4)
+LAB_HOME="$HOME"
+test -s "$LAB_HOME/mon-three/identity/operator.jwt"
+test -f "$LAB_HOME/mon-three-operator/tools/lab_browser_login.py"
+curl -fsS --max-time 4 http://127.0.0.1:8080/health >/dev/null
+if ! curl -fsS --max-time 4 "http://$TAIL:5173/" >/dev/null; then
+  echo 'Start the console stage first'; exit 1
+fi
+mkdir -p -m 700 "$LAB_HOME/mon-three"
+umask 077
+if tmux has-session -t mon-three-browser-login 2>/dev/null; then
+  tmux kill-session -t mon-three-browser-login
+fi
+: > "$LAB_HOME/mon-three/browser-login.log"
+tmux new-session -d -s mon-three-browser-login \
+  "cd $LAB_HOME/mon-three-operator && python3 tools/lab_browser_login.py \
+  --operator-jwt $LAB_HOME/mon-three/identity/operator.jwt --tail-ip $TAIL \
+  >$LAB_HOME/mon-three/browser-login.log 2>&1"
+for i in $(seq 1 20); do
+  grep -q '^One-time pairing code:' "$LAB_HOME/mon-three/browser-login.log" && break
+  if ! tmux has-session -t mon-three-browser-login 2>/dev/null; then
+    echo 'Pairing process quit before starting; see private log'; exit 1
+  fi
+  sleep 1
+done
+grep -q '^One-time pairing code:' "$LAB_HOME/mon-three/browser-login.log" || {
+  echo 'Lab pairing did not start: inspect private log'; exit 1;
+}
+echo 'Copy the pairing code into the login form; never paste your operator.jwt.'
+cat "$LAB_HOME/mon-three/browser-login.log"
+""", label="one-use-browser-pairing")
 
 
 
@@ -881,7 +927,8 @@ def main() -> int:
     parser.add_argument("--approve-migration-backup", action="store_true")
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
                                            "console", "site", "victim", "demo-prepare", "ready",
-                                           "doctor", "evidence", "migration-audit", "migration-backup"))
+                                           "doctor", "evidence", "migration-audit", "migration-backup",
+                                           "browser-login"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -903,6 +950,8 @@ def main() -> int:
         control(remote)
     elif args.stage == "console":
         console(remote)
+    elif args.stage == "browser-login":
+        browser_login(remote)
     elif args.stage == "site":
         site(remote)
     elif args.stage == "victim":
