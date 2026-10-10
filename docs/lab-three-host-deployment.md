@@ -159,6 +159,43 @@ python3 tools/lab_three_host.py --inventory ~/lab-three.json console
 
 Refresh `http://100.75.116.62:5173/?tenant=mon-lab&site=site-a` on the authenticated tailnet laptop. UI live activity should tick every second; actual `LAST EVENT` must stay absent/unmodified when no real event is ingested. **Never send fake heartbeat or event traffic just to animate the interface.**
 
+### Hub-only preparation after verified public-key migration plan
+
+A successful `migration-plan` establishes only observed peer public keys and root-only backup integrity. It must return `PLAN_ONLY_NOT_APPLIED`. Do **not** treat that as an active PC2 tunnel.
+
+The new hub staging script, `tools/lab_three_hub.py`, creates the **PC2 hub only**. It rejects conflicting WireGuard interfaces, configs, UDP listeners and nftables guards, installs a constrained MON-owned nftables guard *before* enabling `wg0`, and leaves PC5/PC6 pointed at the old hub. It does not enable forwarding, modify general campus routing, send attack traffic or enroll sensors.
+
+**Stop/go:** This stage affects PC2's local firewall and WireGuard service. Run it only from the authenticated PC2 terminal after verifying that PC2/PC5/PC6 are the intended authorized lab machines, the old backups remain on PC5/PC6, and you have SSH/Tailscale management access and a recovery console:
+
+```bash
+cd ~/mon-three-operator
+git fetch origin feat/three-host-tailscale-lab
+git checkout --detach FETCH_HEAD
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --approve-hub-prepare hub-prepare
+```
+
+**Expected stage signature:** `HUB_PREPARED_GUARDED`. This claims only the new PC2 hub and MON-owned guard were installed. It does not claim any peer migration or telemetry.
+
+Then run the **read-only** confirmation:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json hub-verify
+```
+
+Expected: `HUB_GUARD_VERIFIED`, PC2 has `10.77.0.1/24`, WireGuard listens on UDP/51820 and two peer public keys are configured. Both latest handshakes should remain `0` until PC5/6 are migrated. Never paste private keys, JWTs, secret config contents or full logs with secrets into chat.
+
+If the hub was installed but is not yet serving either peer and must be removed, run this **explicitly approved rollback**:
+
+```bash
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --approve-hub-rollback hub-rollback
+```
+
+Rollback refuses to stop a hub once *any* actual handshake has occurred. It removes only the MON-owned configuration/guard and does not change the old peer configurations. Once a peer migrates, a separate endpoint recovery stage must restore it safely. Do not use `overlay` to overwrite old `wg0` on PC5/6.
+
+**Status:** PC2 physical installation, nftables service activation and peer cutover have not been observed from this chat. CI alone does not establish them. See [ADR 0039](adr/0039-existing-wireguard-hub-cutover.md).
+
 ### Next safe site-controller gate — real WireGuard path
 
 PC5/PC6 still point to **old hub `10.5.115.5:51820`** and PC2 was observed without `wg0`. We must *not* launch MON site controller, Suricata or victim collector yet: doing so would create unreachable sensor ingress or claim false network visibility.
