@@ -65,6 +65,7 @@ class PairingState:
         self.expires_at = (time.monotonic() if started is None else started) + PAIR_TTL_SECONDS
         self.attempts = 0
         self.used = False
+        self.failure_reason = "Pairing is unavailable or expired"
         self.cookie_max_age = 3600
 
     def active(self) -> bool:
@@ -79,6 +80,7 @@ class PairingState:
         fetch_site: str,
     ) -> bool:
         if not self.active():
+            self.failure_reason = "Pairing is expired, exhausted or already used"
             return False
         # Some browsers omit Origin on same-origin HTML form POSTs. Their
         # Sec-Fetch-Site value is browser-controlled (unlike ordinary headers).
@@ -86,14 +88,18 @@ class PairingState:
         # with a synchronizer nonce from our lab form.
         self.attempts += 1
         if fetch_site and fetch_site != "same-origin":
+            self.failure_reason = "Cross-site browser requests are not allowed"
             return False
         if origin != self.expected_origin and not (
             origin in ("", "null") and fetch_site == "same-origin"
         ):
+            self.failure_reason = "Browser origin could not be verified"
             return False
         if not secrets.compare_digest(form_nonce, self.form_nonce):
+            self.failure_reason = "Login form is outdated; reload the sign-in page"
             return False
         if not secrets.compare_digest(challenge, self.challenge):
+            self.failure_reason = "Pairing code did not match; retry with a fresh code"
             return False
         # Revalidate the operator's real role and JWT expiry at moment of login.
         validate_operator(self.token)
@@ -201,7 +207,7 @@ def make_handler(state: PairingState):
                 self.response(503, "Operator credential expired or MON auth unavailable")
                 return
             if not accepted:
-                self.response(403 if state.active() else 410, "Pairing denied")
+                self.response(403 if state.active() else 410, state.failure_reason)
                 return
             self.response(303, "Signed operator session established.", cookie=True)
 
