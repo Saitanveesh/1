@@ -126,6 +126,8 @@ def test_login_via_proxy_ignores_unreliable_headers_but_requires_both_secrets(
         page = response.read().decode()
         assert response.status == 200
         assert "Operator sign-in" in page
+        assert "Monitoring · Orchestration · Neutralization" in page
+        assert "PC2" not in page and "PC-2" not in page
         assert "Private signing key" not in page
         assert f"name='form_nonce' value='{state.form_nonce}'" in page
         assert "signed-jwt-not-a-real-secret" not in page
