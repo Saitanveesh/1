@@ -96,7 +96,8 @@ The default `tcp-syn-recon` detector requires at least 60 **SYN-only observed fl
 **Do not run this until Gates 1–2 pass and physical operator authorization is current.** On PC2:
 
 ```bash
-python3 tools/lab_three_host.py --inventory ~/lab-three.json demo-prepare
+python3 tools/lab_three_host.py --inventory ~/lab-three.json \
+  --approve-demo-setup demo-prepare
 ```
 
 On PC6 itself, perform one **bounded** 100-port scan, not a flood:
