@@ -457,8 +457,12 @@ export default function App() {
       active.reduce((sum, item) => sum + (rank[item.severity] + 1) * item.confidence * 8, 0)
     );
     const critical = active.filter((item) => item.severity === "CRITICAL").length;
-    return { active, highest, attackPressure, critical };
-  }, [state.incidents]);
+    // A blank feed is NOT evidence that pressure is zero. Avoid "healthy"
+    // scores until MON actually ingests measurements or evidence.
+    const measured = state.telemetry.observation_count > 0
+      || state.findings.length > 0 || state.incidents.length > 0;
+    return { active, highest, attackPressure, critical, measured };
+  }, [state.incidents, state.findings, state.telemetry.observation_count]);
 
   return (
     <div className="shell">
@@ -504,9 +508,9 @@ export default function App() {
           <>
             <section className="metric-grid">
               <Metric label="CONTROL PLANE LINK" value={state.connection === "LIVE" ? "ONLINE" : state.connection} note="authenticated WebSocket transport" progress={state.connection === "LIVE" ? 100 : 25} />
-              <Metric label="ATTACK PRESSURE" value={String(Math.round(metrics.attackPressure))} note="derived from active incident severity × confidence" progress={metrics.attackPressure} />
-              <Metric label="HIGHEST SEVERITY" value={metrics.highest} note={`${metrics.active.length} active incidents`} />
-              <Metric label="CRITICAL INCIDENTS" value={String(metrics.critical)} note="requires operator attention" />
+              <Metric label="ATTACK PRESSURE" value={metrics.measured ? String(Math.round(metrics.attackPressure)) : "NO DATA"} note={metrics.measured ? "derived from active incident severity × confidence" : "no ingested security evidence yet"} progress={metrics.measured ? metrics.attackPressure : undefined} />
+              <Metric label="HIGHEST SEVERITY" value={metrics.measured ? metrics.highest : "—"} note={metrics.measured ? `${metrics.active.length} active incidents` : "no incident evidence observed"} />
+              <Metric label="CRITICAL INCIDENTS" value={metrics.measured ? String(metrics.critical) : "—"} note={metrics.measured ? "requires operator attention" : "awaiting measured security activity"} />
               <Metric label="ASSETS OBSERVED" value={String(state.assets.length)} note="evidence-backed identities in current site" />
               <Metric label="DROPPED LIVE MSG" value={String(state.droppedMessages)} note="slow-client backpressure counter" />
             </section>
