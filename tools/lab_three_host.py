@@ -611,6 +611,103 @@ def rollback_unused_hub(remote: Remote) -> None:
     )
 
 
+def peer_migration(remote: Remote, role: str, operation: str) -> None:
+    """Supervise exactly one peer; reject unverified handshakes and blind commits."""
+    if role not in ("victim", "attacker"):
+        raise ValueError("peer cutover requires victim or attacker role")
+    # The existing Tailscale/LAN identity and PC2 hub must be verified each time.
+    preflight(remote)
+    verify_hub(remote)
+    user = remote.peers[role].user
+    helper = f"/root/mon-three-peer-cutover/runner.py"
+    args = ["--role", role]
+
+    if role == "attacker" and operation == "start":
+        # Guard against migrating both peers without first making sure the
+        # victim has completed its own authorized migration.
+        remote.run("victim", """set -e
+python3 /root/mon-three-peer-cutover/runner.py status --role victim |
+  grep -F 'phase=COMMITTED'
+python3 /root/mon-three-peer-cutover/runner.py verify --role victim
+""", root=True, label="attacker-requires-committed-victim")
+
+    if operation == "start":
+        hub_pub = remote_public_key(remote, "mon")
+        if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", hub_pub):
+            raise RuntimeError("verified MON public key invalid")
+        local = Path.home() / "mon-three-operator/tools/lab_three_peer.py"
+        if not local.is_file():
+            raise RuntimeError(f"missing peer cutover helper: {local}")
+        remote.ssh(
+            role,
+            "mkdir -p -m 700 ~/.cache/mon-three/stages && "
+            "chmod 700 ~/.cache/mon-three ~/.cache/mon-three/stages",
+        )
+        remote.copy_to(role, local, ".cache/mon-three/stages/lab_three_peer.py")
+        local_hash = __import__("hashlib").sha256(local.read_bytes()).hexdigest()
+        remote.run(role, f"""set -e
+umask 077
+PEER_HOME=$(getent passwd {shlex.quote(user)} | cut -d: -f6)
+test -n "$PEER_HOME"
+STAGED="$PEER_HOME/.cache/mon-three/stages/lab_three_peer.py"
+test -s "$STAGED"
+test "$(sha256sum "$STAGED" | awk '{{print $1}}')" = {shlex.quote(local_hash)}
+install -d -m 700 /root/mon-three-peer-cutover
+test ! -e /root/mon-three-peer-cutover/state.json || {{
+  echo 'Existing cutover state; inspect status before trying again'; exit 1;
+}}
+install -m 600 "$STAGED" {shlex.quote(helper)}
+python3 {shlex.quote(helper)} start \
+  --role {shlex.quote(role)} --hub-public-key {shlex.quote(hub_pub)}
+""", root=True, label=f"cutover-{role}-start")
+        print(
+            "Pending timed rollback. Verify the new handshake and explicitly "
+            "commit within 15 minutes, or the original peer is restored."
+        )
+        return
+
+    if operation == "verify":
+        remote.run(role, f"""set -e
+python3 {shlex.quote(helper)} verify --role {shlex.quote(role)}
+""", root=True, label=f"cutover-{role}-verify")
+        # Read back the source machine's actual WG public key (not a private key)
+        # to correlate the live handshake with the hub's configured peer.
+        remote.run(role, f"""set -e
+PEER_HOME=$(getent passwd {shlex.quote(user)} | cut -d: -f6)
+wg show wg0 public-key > "$PEER_HOME/.cache/mon-three/stages/wg-live-pub"
+chown {shlex.quote(user)} "$PEER_HOME/.cache/mon-three/stages/wg-live-pub"
+chmod 600 "$PEER_HOME/.cache/mon-three/stages/wg-live-pub"
+""", root=True, label=f"cutover-{role}-public-identity")
+        pub = remote.ssh(
+            role, "cat ~/.cache/mon-three/stages/wg-live-pub", capture=True
+        )
+        if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", pub):
+            raise RuntimeError(f"{role}: invalid local public key at handshake gate")
+        remote.run("mon", f"""set -e
+now=$(date +%s)
+wg show wg0 latest-handshakes |
+  awk -v pub={shlex.quote(pub)} -v now="$now" \
+    '$1 == pub && $2 > 0 && now - $2 >= 0 && now - $2 <= 120 {{ok=1}} END {{exit !ok}}'
+echo 'PC2 hub confirms fresh physical {role} handshake'
+""", root=True, label=f"hub-confirms-{role}-handshake")
+        print(
+            f"Both {role} and PC2 independently verified the new WireGuard "
+            "handshake; no traffic/incident detection is claimed."
+        )
+        return
+
+    if operation == "commit":
+        peer_migration(remote, role, "verify")
+    elif operation not in ("status", "rollback"):
+        raise ValueError(f"unsupported peer cutover operation: {operation}")
+
+    remote.run(role, f"""set -e
+python3 {shlex.quote(helper)} {shlex.quote(operation)} \
+  --role {shlex.quote(role)}
+""", root=True, label=f"cutover-{role}-{operation}")
+
+
+
 def site_preflight(remote: Remote) -> None:
     """Read-only and fail-closed: ensure that PC2, not a former hub, owns the path."""
     preflight(remote)
@@ -1111,11 +1208,17 @@ def main() -> int:
     parser.add_argument("--approve-migration-backup", action="store_true")
     parser.add_argument("--approve-hub-prepare", action="store_true")
     parser.add_argument("--approve-hub-rollback", action="store_true")
+    parser.add_argument("--peer-role", choices=("victim", "attacker"))
+    parser.add_argument("--approve-peer-start", action="store_true")
+    parser.add_argument("--approve-peer-commit", action="store_true")
+    parser.add_argument("--approve-peer-rollback", action="store_true")
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
                                            "console", "site", "victim", "demo-prepare", "ready",
                                            "doctor", "evidence", "migration-audit", "migration-backup",
                                            "browser-login", "site-preflight", "migration-plan",
-                                           "hub-prepare", "hub-verify", "hub-rollback"))
+                                           "hub-prepare", "hub-verify", "hub-rollback",
+                                           "peer-start", "peer-verify", "peer-commit",
+                                           "peer-rollback", "peer-status"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -1167,6 +1270,17 @@ def main() -> int:
         if not args.approve_hub_rollback:
             parser.error("hub-rollback requires --approve-hub-rollback")
         rollback_unused_hub(remote)
+    elif args.stage.startswith("peer-"):
+        if not args.peer_role:
+            parser.error("peer stages require --peer-role victim|attacker")
+        operation = args.stage.removeprefix("peer-")
+        if operation == "start" and not args.approve_peer_start:
+            parser.error("peer-start requires --approve-peer-start")
+        if operation == "commit" and not args.approve_peer_commit:
+            parser.error("peer-commit requires --approve-peer-commit")
+        if operation == "rollback" and not args.approve_peer_rollback:
+            parser.error("peer-rollback requires --approve-peer-rollback")
+        peer_migration(remote, args.peer_role, operation)
     elif args.stage == "migration-backup":
         if not args.approve_migration_backup:
             parser.error("migration-backup requires --approve-migration-backup")
