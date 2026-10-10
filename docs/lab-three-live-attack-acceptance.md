@@ -1,15 +1,21 @@
 # First real MON detection acceptance — three-host lab
 
 **Date:** 2026-10-10  
-**Status:** Lab execution pending; no event or attack detection is claimed from these instructions.  
+**Status:** Both peer migrations reported committed/verified by the physical operator. Sensor deployment and live attack detection still pending; no event or attack detection is claimed from these instructions.  
 **Goal:** Demonstrate real sensor observation, a bounded TCP SYN reconnaissance finding, evidence, correlation and (in a later separately approved stage) reversible containment.
 
 ## Physical topology and current verified evidence
 
 - PC2 MON hub: LAN `10.5.112.94`, overlay `10.77.0.1/24`. Operator observed `HUB_GUARD_VERIFIED`.
 - PC5 authorized victim: LAN `10.5.112.23`, overlay `10.77.0.50/32`. Operator observed `PEER_NEW_HUB_HANDSHAKE_VERIFIED` from PC5 and PC2 followed by `PEER_CUTOVER_COMMITTED`. The subsequent attempt to invoke *pending* rollback after commit was rejected as designed. Current state must still be independently verified.
-- PC6 designated traffic source: LAN `10.5.112.4`, overlay `10.77.0.60/32`. **Migration not yet physically observed.**
+- PC6 designated traffic source: LAN `10.5.112.4`, overlay `10.77.0.60/32`. The operator subsequently reported `PEER_NEW_HUB_HANDSHAKE_VERIFIED`, `PC2 hub confirms fresh physical attacker handshake`, and `PEER_CUTOVER_COMMITTED`. Current `peer-status` and end-to-end routed path still require independent checks.
 - On the home laptop, authenticated MON operator console + LIVE WebSocket transport were observed. **This does not mean sensors are running or attacks are detected.**
+
+## Observed PC6 cutover update — 2026-10-10
+
+The operator reported `HUB_GUARD_VERIFIED`, `PC2 hub confirms fresh physical attacker handshake`, `PEER_NEW_HUB_HANDSHAKE_VERIFIED`, and `PEER_CUTOVER_COMMITTED` from the Ubuntu lab. These verify the new PC2 hub and show the peer migration succeeded at those moments. **They do not prove current packet forwarding between PC6 and PC5, active Suricata/endpoint collectors, or an incident.** Recheck committed states and live sensor ingress before attempting bounded reconnaissance.
+
+PC2's owned nftables guard intentionally **drops attacker-origin input to the hub** (`iifname "wg0" ip saddr 10.77.0.60 drop`). Therefore **a ping from PC6 to PC2's overlay `10.77.0.1` is expected to fail** and must not be used as a health pass/fail for PC6. Verify the WireGuard handshake on both ends instead. A single explicitly authorized PC6→PC5 overlay ping can check cross-peer forwarding separately.
 
 ## Gate 1 — Finish PC5 and PC6 cutover
 
@@ -34,7 +40,8 @@ python3 tools/lab_three_host.py --inventory ~/lab-three.json \
   --peer-role attacker --approve-peer-start peer-start
 
 # One small diagnostic packet to refresh the new hub handshake:
-ssh pc-6@10.5.112.4 'ping -n -I wg0 -c 1 -W 2 10.77.0.1 || true'
+# Do NOT ping PC2 from PC6: its MON guard intentionally blocks attacker input.
+# Use genuine WireGuard handshake verification below instead.
 
 python3 tools/lab_three_host.py --inventory ~/lab-three.json \
   --peer-role attacker peer-verify
@@ -75,7 +82,13 @@ sudo sysctl net.ipv4.ip_forward
 sudo nft list table inet mon_three_guard
 ```
 
-If forwarding is disabled, stop here: do not blindly enable global routing on a shared campus LAN host. Review and implement a scoped, guarded and rollback-tested forwarding change separately. Only proceed after a real PC6 → PC5 path is proven within the authorized overlay. Retain separate campus-LAN/Tailscale management connectivity.
+After checking the forwarding bit, verify ONLY the authorized peer path (one ICMP echo, not an attack):
+
+```bash
+ssh pc-6@10.5.112.4 'ping -n -I wg0 -c 1 -W 2 10.77.0.50'
+```
+
+A failed ping is **not** by itself proof of forwarding failure: PC5 may prohibit ICMP. Check `ip -4 route get 10.77.0.50` and temporary interface counters or tcpdump on the specified lab overlay before changing any firewall. If forwarding is disabled, stop here: do not blindly enable global routing on a shared campus LAN host. Review and implement a scoped, guarded and rollback-tested forwarding change separately. Only proceed after a real PC6 → PC5 path is proven within the authorized overlay. Retain separate campus-LAN/Tailscale management connectivity.
 
 If site preflight succeeds, stage the real collector services:
 
