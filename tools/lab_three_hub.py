@@ -276,8 +276,8 @@ def main() -> int:
             rollback()
     except (HubSafetyError, subprocess.CalledProcessError, OSError) as exc:
         # Never print a subprocess command: it may carry credentials.
-        print(f"Hub stage failed: {type(exc).__name__}: {exc if isinstance(exc, HubSafetyError) else 'OS/native command failure'}",
-              file=sys.stderr)
+        detail = str(exc) if isinstance(exc, HubSafetyError) else "OS/native command failure"
+        print(f"Hub stage failed: {type(exc).__name__}: {detail}", file=sys.stderr)
         return 1
     return 0
 
