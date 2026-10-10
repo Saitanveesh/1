@@ -107,7 +107,7 @@ def test_checked_does_not_use_shell_and_fails_closed(monkeypatch) -> None:
         raise subprocess.CalledProcessError(1, args)
 
     monkeypatch.setattr(hub.subprocess, "run", fake_run)
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(hub.HubSafetyError, match=r"WireGuard interface inspection failed \(exit=1\)"):
         hub.checked("wg", "show", "wg0", "listen-port")
     args, kwargs = called[0]
     assert args == ("wg", "show", "wg0", "listen-port")
@@ -171,3 +171,40 @@ def test_volatile_firewall_guard_precedes_manual_hub_start_only() -> None:
     assert 'checked("systemctl", "enable"' not in source
     check_source = inspect.getsource(hub.assert_prepared)
     assert '"is-enabled", "wg-quick@wg0"' in check_source
+
+
+
+def test_temp_config_basename_matches_real_wireguard_interface_limit() -> None:
+    """wg-quick treats a temporary config basename as a WireGuard interface."""
+    import inspect
+    import re
+
+    hub = load()
+    source = inspect.getsource(hub.prepare)
+    assert 'prefix="wgmon-"' in source
+    assert 'suffix=".conf"' in source
+    assert 'prefix=".mon-wg0-"' not in source
+    # mkstemp's eight random characters + 'wgmon-' must be <= 15.
+    example = "wgmon-12345678"
+    assert len(example) <= 15
+    assert re.fullmatch(r"[a-zA-Z0-9_=+.-]{1,15}", example)
+
+
+def test_native_failure_reports_phase_not_stderr_or_secret(monkeypatch) -> None:
+    hub = load()
+    private = "PRIVATE-NOT-FOR-LOGGING"
+
+    def native_error(argv, **kwargs):
+        raise subprocess.CalledProcessError(
+            2, argv,
+            stderr=f"PrivateKey = {private}\nexample native stderr",
+        )
+
+    monkeypatch.setattr(hub.subprocess, "run", native_error)
+    with pytest.raises(hub.HubSafetyError) as info:
+        hub.checked("wg-quick", "strip", "/etc/wireguard/wgmon-12345678.conf")
+    message = str(info.value)
+    assert "WireGuard temporary config syntax failed (exit=2)" in message
+    assert private not in message
+    assert "PrivateKey" not in message
+    assert "/etc/wireguard" not in message
