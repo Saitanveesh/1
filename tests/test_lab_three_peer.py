@@ -237,6 +237,7 @@ def test_successful_independent_rollback_restores_original_live_peer(
     conf = tmp_path / "wg0.conf"
     conf.write_text(original)
     monkeypatch.setattr(mod, "CONF", conf)
+    monkeypatch.setattr(mod, "RESTORE_TEMP_DIR", tmp_path)
     mod.save_state({
         "role": "victim", "phase": "PENDING_ROLLBACK",
         "original_backup": str(backup), "old_public_key": OLD,
