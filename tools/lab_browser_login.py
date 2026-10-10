@@ -7,13 +7,11 @@ validated by the running control plane. Not OIDC or a production login service.
 from __future__ import annotations
 
 import argparse
-import datetime as dt
-import html
 import http.server
+import ipaddress
 import json
 import os
 import secrets
-import socket
 import sys
 import time
 import urllib.error
@@ -65,7 +63,7 @@ class PairingState:
         self.expires_at = (time.monotonic() if started is None else started) + PAIR_TTL_SECONDS
         self.attempts = 0
         self.used = False
-        self.cookie_max_age = 600
+        self.cookie_max_age = 3600
 
     def active(self) -> bool:
         return not self.used and self.attempts < MAX_ATTEMPTS and time.monotonic() < self.expires_at
@@ -207,10 +205,10 @@ def main() -> int:
     if os.geteuid() == 0:
         parser.error("run pairing as the unprivileged PC2 operator, never root")
     try:
-        socket.inet_aton(args.tail_ip)
-        if not args.tail_ip.startswith("100."):
-            raise ValueError("expected explicitly verified Tailscale IPv4")
-    except (OSError, ValueError) as exc:
+        parsed_ip = ipaddress.IPv4Address(args.tail_ip)
+        if parsed_ip not in ipaddress.IPv4Network("100.64.0.0/10"):
+            raise ValueError("expected an address in the Tailscale CGNAT range")
+    except ValueError as exc:
         parser.error(f"invalid tailnet address: {exc}")
     path = args.operator_jwt.expanduser()
     stat = path.stat()
