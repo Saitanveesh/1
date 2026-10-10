@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PC2 only: upgrade the running Vite console, start local lab login and wg0 capture.
 # Does not touch WireGuard, nftables, MON API, Site Controller or PC5.
-set -Eeuo pipefail
+set -euo pipefail
 umask 077
 CODE="$HOME/mon-three-code"
 STATE="$HOME/mon-three"
@@ -60,10 +60,26 @@ fi
   echo "[FAIL] MON console directory not found in expected PC2 locations" >&2
   exit 1
 }
-if [[ ! -d "$FRONTEND/node_modules" ]]; then
-  echo "[CHECK] Console dependencies missing; installing from lockfile"
-  (cd "$FRONTEND" && npm ci --no-audit --no-fund)
+# On this lab host a populated node_modules directory may contain Vite but no
+# TypeScript compiler: npm may have been run with devDependencies omitted.
+# Confirm actual build tools, not merely node_modules' existence.
+if [[ ! -x "$FRONTEND/node_modules/.bin/tsc" ||
+      ! -x "$FRONTEND/node_modules/.bin/vite" ]]; then
+  echo "[REPAIR] Local frontend build tools missing; installing development dependencies"
+  (
+    cd "$FRONTEND"
+    npm install --include=dev --no-audit --no-fund --no-save --package-lock=false
+  )
 fi
+[[ -x "$FRONTEND/node_modules/.bin/tsc" ]] || {
+  echo "[FAIL] TypeScript compiler still unavailable after npm installation" >&2
+  exit 1
+}
+[[ -x "$FRONTEND/node_modules/.bin/vite" ]] || {
+  echo "[FAIL] Vite build binary still unavailable after npm installation" >&2
+  exit 1
+}
+echo "[PASS] Local TypeScript and Vite build tools available"
 
 # A healthy Vite server may be bound to PC2's Tailscale address only,
 # making 127.0.0.1:5173 fail while the Windows browser is connected.
@@ -159,7 +175,10 @@ for path in src/App.tsx src/IncidentDetail.tsx src/types.ts src/styles.css src/L
   cp "$TEMP/$path" "$FRONTEND/$path"
   chmod 0644 "$FRONTEND/$path"
 done
-(cd "$FRONTEND" && npm run build)
+(
+  cd "$FRONTEND"
+  npm run build
+)
 echo "[PASS] UI built; backup: $BACKUP"
 
 echo "========== SET LAB LOGIN CREDENTIAL =========="
