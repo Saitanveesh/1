@@ -101,6 +101,20 @@ jobs:
           print("NATIVE_SYNTAX_VERIFIED_NO_INTERFACE_APPLIED")
           PY
 
+  systemd-timer-rollback:
+    name: Disposable systemd rollback timer smoke (no WG changes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Schedule and cancel independent root-owned rollback placeholder
+        run: |
+          sudo systemd-run --unit mon-three-ci-rollback \
+            --on-active=300s --timer-property=AccuracySec=1s /usr/bin/true
+          sudo systemctl is-active --quiet mon-three-ci-rollback.timer
+          sudo systemctl stop mon-three-ci-rollback.timer
+          ! sudo systemctl is-active --quiet mon-three-ci-rollback.timer
+          echo 'SYSTEMD_TIMER_SCHEDULE_CANCEL_VERIFIED'
+
   vite-login-proxy:
     name: Actual Node 22 Vite pairing proxy HTTP smoke
     runs-on: ubuntu-latest
