@@ -263,24 +263,41 @@ sudo chmod 0644 "$SERVICE"
 sudo systemctl daemon-reload
 started=1
 sudo systemctl enable --now "$UNIT"
+# Vite returns HTML with status 200 for unknown routes. A successful
+# HTTP status therefore does NOT prove the /portal proxy is configured.
+portal_healthy() {
+  local body
+  body=$(curl --noproxy '*' -fsS --max-time 4 "$1/portal/health" 2>/dev/null) || return 1
+  printf '%s' "$body" | python3 -c 'import json,sys
+try:
+  x=json.load(sys.stdin)
+  ok=isinstance(x,dict) and x.get("state")=="READY" and x.get("capture")=="CAPTURING"
+except (ValueError,TypeError):
+  ok=False
+sys.exit(0 if ok else 1)' 2>/dev/null
+}
 ready=0
-for attempt in $(seq 1 30); do
-  if curl -fsS --max-time 3 http://127.0.0.1:8088/portal/health 2>/dev/null |
-      python3 -c 'import json,sys;sys.exit(0 if json.load(sys.stdin).get("capture")=="CAPTURING" else 1)' &&
-     curl -fsS --max-time 3 $CONSOLE_URL/portal/health >/dev/null 2>&1; then
-    ready=1; break
+for attempt in $(seq 1 25); do
+  if portal_healthy http://127.0.0.1:8088 && portal_healthy "$CONSOLE_URL"; then
+    ready=1
+    break
   fi
   sleep 1
 done
 if [[ "$ready" != 1 ]]; then
-  sudo journalctl -u "$UNIT" -n 20 --no-pager >&2 || true
-  echo "[FAIL] Portal or Vite /portal proxy unavailable" >&2
+  echo "[FAIL] Gateway or Vite proxy did not return READY/CAPTURING JSON" >&2
+  echo "[CHECK] Direct gateway health:" >&2
+  curl --noproxy '*' --max-time 4 -sS http://127.0.0.1:8088/portal/health >&2 || true
+  printf '\n' >&2
+  echo "[CHECK] Browser proxy response headers:" >&2
+  curl --noproxy '*' --max-time 4 -sSI "$CONSOLE_URL/portal/health" >&2 || true
+  sudo journalctl -u "$UNIT" -n 18 --no-pager >&2 || true
   false
 fi
 curl -fsS --max-time 5 http://127.0.0.1:8090/health >/dev/null
 curl -fsS --max-time 5 http://127.0.0.1:8080/health >/dev/null
-echo "[PASS] Control, site, UI and login gateway healthy"
-curl -fsS --max-time 5 $CONSOLE_URL/portal/health | python3 -m json.tool
+echo "[PASS] Control, site, UI, proxy and live capture healthy"
+curl --noproxy '*' -fsS --max-time 5 "$CONSOLE_URL/portal/health" | python3 -m json.tool
 echo "Open http://100.75.116.62:5173/?tenant=mon-lab&site=site-a"
 echo 'Sign out of the old cookie session to see Welcome to MON.'
 echo 'NOTE: sai/12345 is lab-only. Use real SSO + MFA for production.'
