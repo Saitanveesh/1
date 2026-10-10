@@ -43,7 +43,7 @@ info 'PREFLIGHT (NO CHANGES)'
 grep -Fq 'MON_ENABLE_ROUTER_NFTABLES_ENFORCEMENT' "$CODE/src/mon/site_service.py" || fail 'This MON checkout lacks the router adapter'
 tmux has-session -t mon-three-site 2>/dev/null || fail 'Expected tmux session mon-three-site not found'
 sudo -v
-sudo command -v nft >/dev/null || fail 'nft command missing'
+command -v nft >/dev/null || fail 'nft command missing'
 sudo nft list tables >/dev/null || fail 'root cannot access nftables on this host'
 ip -4 route get 10.77.0.50 | grep -Fq 'dev wg0' || fail 'Victim is not reached through wg0'
 curl -fsS --max-time 8 http://127.0.0.1:8090/health >/dev/null || fail 'Existing Site Controller unhealthy'
@@ -163,7 +163,7 @@ done
 }
 pid=$(systemctl show --value -p MainPID "$UNIT")
 [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail 'New Site Controller PID unavailable'
-"$CODE/.venv/bin/python" - "$pid" <<'PY'
+sudo /usr/bin/python3 - "$pid" <<'PY'
 import sys
 from pathlib import Path
 pid=sys.argv[1]
