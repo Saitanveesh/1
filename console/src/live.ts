@@ -134,7 +134,11 @@ export class LiveClient {
   }
 
   private apply(envelope: LiveEnvelope): void {
-    if (envelope.sequence <= this.state.sequence && envelope.kind !== "stream.heartbeat") {
+    if (
+      envelope.sequence <= this.state.sequence
+      && envelope.kind !== "stream.heartbeat"
+      && envelope.kind !== "stream.ready"
+    ) {
       return;
     }
 
