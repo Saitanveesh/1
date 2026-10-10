@@ -51,7 +51,7 @@ export default function LoginPage({ onAuthenticated, loading }: Props) {
         </div>
       </section>
       <section className="mon-login-right">
-        <div className="mon-login-topline"><span>SECURE OPERATOR ACCESS</span><span>MON / 01</span></div>
+        <div className="mon-login-topline"><span>SECURE OPERATOR ACCESS</span><span data-testid="operator-context">not authenticated</span></div>
         <div className="mon-login-form-wrap">
           <span className="mon-eyebrow">AUTHENTICATION GATEWAY</span>
           <h2>Operator sign in</h2>
