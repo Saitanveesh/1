@@ -154,7 +154,7 @@ def recent_handshake(public: str) -> bool:
         fields = line.split()
         if len(fields) == 2 and fields[0] == public:
             try:
-                return 0 < now - int(fields[1]) <= 120
+                return int(fields[1]) > 0 and 0 <= now - int(fields[1]) <= 120
             except ValueError:
                 return False
     return False
