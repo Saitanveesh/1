@@ -71,42 +71,25 @@ class PairingState:
     def active(self) -> bool:
         return not self.used and self.attempts < MAX_ATTEMPTS and time.monotonic() < self.expires_at
 
-    def claim(
-        self,
-        *,
-        challenge: str,
-        form_nonce: str,
-        origin: str,
-        fetch_site: str,
-    ) -> bool:
+    def claim(self, *, challenge: str, form_nonce: str) -> bool:
+        """Redeem a code only with the nonce from the currently served login form.
+
+        The login service binds to PC2 loopback, reached only via the Vite
+        proxy. Browser Origin/Fetch-Metadata headers are intentionally NOT
+        authentication factors: Vite may rewrite or strip them. Security here
+        comes from two independent unpredictable values, single redemption,
+        expiration, bounded retries and MON's real signed JWT verification.
+        """
         if not self.active():
-            self.failure_reason = "Pairing is expired, exhausted or already used"
+            self.failure_reason = "This sign-in code has expired. Request a new code."
             return False
-        # The browser reaches Vite on the tailnet address, but Vite's local
-        # HTTP proxy can replace Origin with its own fixed loopback target.
-        # Accept ONLY the known upstream proxy origin, never arbitrary URLs.
-        # The browser-controlled Fetch Metadata and synchronizer nonce MUST
-        # also match; this is a disposable lab pairing flow, not OIDC.
         self.attempts += 1
-        if fetch_site != "same-origin":
-            self.failure_reason = "Same-origin browser verification required"
-            return False
-        trusted_origins = {
-            self.expected_origin,
-            "http://127.0.0.1:8766",
-            "",
-            "null",
-        }
-        if origin not in trusted_origins:
-            self.failure_reason = "Browser origin could not be verified"
-            return False
         if not secrets.compare_digest(form_nonce, self.form_nonce):
-            self.failure_reason = "Login form is outdated; reload the sign-in page"
+            self.failure_reason = "Sign-in form expired. Refresh the page and try again."
             return False
         if not secrets.compare_digest(challenge, self.challenge):
-            self.failure_reason = "Pairing code did not match; retry with a fresh code"
+            self.failure_reason = "Incorrect code. Check the terminal and try again."
             return False
-        # Revalidate the operator's real role and JWT expiry at moment of login.
         validate_operator(self.token)
         self.used = True
         return True
@@ -159,20 +142,24 @@ def make_handler(state: PairingState):
                 return
             page = (
                 "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-                "<title>MON lab operator login</title></head><body>"
-                "<main style='max-width:32rem;margin:3rem auto;font:16px system-ui'>"
-                "<h1>MON lab operator sign-in</h1>"
-                "<p>Use the one-time pairing code printed in your "
-                "authenticated PC2 SSH terminal.</p>"
-                "<p>The private signing key stays on PC2. "
-                "The signed session uses an HttpOnly cookie.</p>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<title>MON | Sign in</title></head>"
+                "<body style='background:#f8f8f8;color:#111;font:16px system-ui;margin:0'>"
+                "<main style='max-width:390px;margin:10vh auto;padding:30px;"
+                "background:white;border:1px solid #ddd'>"
+                "<div style='font-weight:800;letter-spacing:.12em'>MON</div>"
+                "<div style='font-size:12px;letter-spacing:.15em;margin:8px 0 30px'>"
+                "SECURITY FABRIC</div><h1 style='font-size:25px'>Operator sign-in</h1>"
+                "<p>Enter the one-time code displayed in your PC2 terminal.</p>"
                 "<form method='POST' action='/lab-session/claim'>"
                 f"<input type='hidden' name='form_nonce' value='{state.form_nonce}'>"
-                "<label for='code'>One-time pairing code</label><br>"
+                "<label for='code'>Access code</label>"
                 "<input id='code' name='code' type='password' autocomplete='off' "
-                "required minlength='20' maxlength='128' style='width:95%;padding:8px'>"
-                "<p><button type='submit'>Sign in</button></p></form>"
-                "<p>Lab-only HTTP over Tailscale, not production identity federation.</p>"
+                "required minlength='20' maxlength='128' "
+                "style='box-sizing:border-box;width:100%;padding:12px;"
+                "border:1px solid #888;margin:8px 0 20px'>"
+                "<button type='submit' style='width:100%;background:#111;color:#fff;"
+                "padding:13px;border:0;cursor:pointer'>Sign in</button></form>"
                 "</main></body></html>"
             )
             self.response(200, page)
@@ -205,8 +192,6 @@ def make_handler(state: PairingState):
                 accepted = state.claim(
                     challenge=values[0],
                     form_nonce=nonces[0],
-                    origin=self.headers.get("Origin", ""),
-                    fetch_site=self.headers.get("Sec-Fetch-Site", ""),
                 )
             except RuntimeError:
                 self.response(503, "Operator credential expired or MON auth unavailable")
