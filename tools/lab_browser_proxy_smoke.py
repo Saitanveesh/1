@@ -40,7 +40,7 @@ def issue(method: str, path: str, body: str | None = None, *, headers=None):
     conn.request(method, path, body, headers=headers or {})
     resp = conn.getresponse()
     content = resp.read().decode("utf-8")
-    headers_out = dict(resp.getheaders())
+    headers_out = {name.lower(): value for name, value in resp.getheaders()}
     status = resp.status
     conn.close()
     return status, content, headers_out
@@ -85,7 +85,7 @@ def main() -> int:
             raise RuntimeError("Vite pairing proxy did not return the real form")
 
         assert "ci-fake-signed-token" not in page
-        assert "no-store" in headers.get("Cache-Control", "")
+        assert "no-store" in headers.get("cache-control", "")
         nonce_match = re.search(r"name='form_nonce' value='([^']+)'", page)
         if not nonce_match:
             raise RuntimeError("proxied login form has no one-time nonce")
@@ -101,8 +101,8 @@ def main() -> int:
             },
         )
         assert status == 303, f"Vite proxy login returned HTTP {status}: {response!r}"
-        assert headers.get("Location") == "/?tenant=mon-lab&site=site-a", headers
-        cookie = headers.get("Set-Cookie", "")
+        assert headers.get("location") == "/?tenant=mon-lab&site=site-a", headers
+        cookie = headers.get("set-cookie", "")
         assert "mon_session=ci-fake-signed-token" in cookie
         assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
         assert session.used
