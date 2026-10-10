@@ -6,13 +6,11 @@ This is NOT an autonomous defense daemon or a production deployment recipe.
 """
 from __future__ import annotations
 
-import datetime as dt
 import json
 import os
 import signal
 import socket
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -186,7 +184,10 @@ def main() -> int:
     COOKIE = token.read_text().strip()
     print("========== PRE-FLIGHT: NO MUTATIONS ==========", flush=True)
     subprocess.run(["sudo", "-v"], check=True, timeout=60)
-    subprocess.run(["sudo", "-n", "nft", "list", "tables"], check=True, timeout=8, capture_output=True)
+    subprocess.run(
+        ["sudo", "-n", "nft", "list", "tables"],
+        check=True, timeout=8, capture_output=True,
+    )
     active = subprocess.run(
         ["systemctl", "is-active", "--quiet", MON_SERVICE], check=False,
     ).returncode == 0
@@ -250,7 +251,9 @@ def main() -> int:
             {
                 "request": request,
                 "approve": True,
-                "approval_reason": "Explicit lab operator approval for PC6-only, 120-second BLOCK_IP",
+                "approval_reason": (
+                    "Explicit lab operator approval for PC6-only, 120-second BLOCK_IP"
+                ),
             },
         )
         EXECUTION_ID = result.get("execution_id")
@@ -312,7 +315,10 @@ def main() -> int:
         output("WARN", f"Audit inspection failed: {exc}")
     if applied and rolled_back:
         output("PASS", "MON applied AND rolled back the real PC6 source block")
-        output("CHECK", "PC6's independent blocked/restored packet tests still require confirmation")
+        output(
+            "CHECK",
+            "PC6 independent blocked/restored packet tests still require confirmation",
+        )
         return 0
     output("FAIL", "Final block/rollback acceptance not fully verified; inspect MON response state")
     return 2
@@ -324,7 +330,7 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         output("CHECK", "Interrupted; script's finally block requests rollback if dispatched")
-        raise SystemExit(130)
+        raise SystemExit(130) from None
     except Exception as exc:
         output("FAIL", str(exc))
-        raise SystemExit(2)
+        raise SystemExit(2) from exc
