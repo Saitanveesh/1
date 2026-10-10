@@ -97,7 +97,8 @@ def make_handler(state: PairingState):
             self.send_header("X-Frame-Options", "DENY")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'",
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "form-action 'self'; base-uri 'none'",
             )
 
         def response(self, status: int, message: str, *, cookie: bool = False) -> None:
@@ -129,7 +130,8 @@ def make_handler(state: PairingState):
                 "<title>MON lab operator login</title></head><body>"
                 "<main style='max-width:32rem;margin:3rem auto;font:16px system-ui'>"
                 "<h1>MON lab operator sign-in</h1>"
-                "<p>Use the one-time pairing code printed in your authenticated PC2 SSH terminal.</p>"
+                "<p>Use the one-time pairing code printed in your "
+                "authenticated PC2 SSH terminal.</p>"
                 "<p>The private signing key stays on PC2. The signed session is an HttpOnly cookie.</p>"
                 "<form method='POST' action='/lab-session/claim'>"
                 "<label for='code'>One-time pairing code</label><br>"
