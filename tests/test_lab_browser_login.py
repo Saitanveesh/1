@@ -24,98 +24,54 @@ def module() -> ModuleType:
     return mod
 
 
-def state(mod) -> object:
+def pairing_state(mod):
     return mod.PairingState(
-        token="signed-jwt-do-not-expose",
+        token="signed-jwt-not-a-real-secret",
         expected_origin="http://100.75.116.62:5173",
-        challenge="temporary-one-use-256-bit-random-code",
+        challenge="example-one-use-256-bit-random-code",
     )
 
 
-def test_pairing_requires_matching_code_and_origin_and_real_operator(monkeypatch) -> None:
+def test_pairing_is_nonce_bound_one_use_and_still_validates_real_mon_operator(
+    monkeypatch,
+) -> None:
     mod = module()
-    validated = []
-    monkeypatch.setattr(mod, "validate_operator", lambda token: validated.append(token))
-    pairing = state(mod)
-    assert not pairing.claim(
-        challenge="wrong", form_nonce=pairing.form_nonce,
-        origin=pairing.expected_origin, fetch_site="same-origin",
-    )
-    assert not pairing.claim(
-        challenge=pairing.challenge, form_nonce=pairing.form_nonce,
-        origin="http://attacker.invalid", fetch_site="cross-site",
-    )
-    assert pairing.active()
-    assert pairing.claim(
-        challenge=pairing.challenge, form_nonce=pairing.form_nonce,
-        origin=pairing.expected_origin, fetch_site="same-origin",
-    )
-    assert validated == ["signed-jwt-do-not-expose"]
-    assert not pairing.claim(
-        challenge=pairing.challenge, form_nonce=pairing.form_nonce,
-        origin=pairing.expected_origin, fetch_site="same-origin",
-    )
-    assert not pairing.active()
+    seen = []
+    monkeypatch.setattr(mod, "validate_operator", lambda token: seen.append(token))
+    state = pairing_state(mod)
+    assert not state.claim(challenge=state.challenge, form_nonce="wrong")
+    assert not state.claim(challenge="wrong", form_nonce=state.form_nonce)
+    assert seen == []
+    assert state.claim(challenge=state.challenge, form_nonce=state.form_nonce)
+    assert seen == ["signed-jwt-not-a-real-secret"]
+    assert not state.claim(challenge=state.challenge, form_nonce=state.form_nonce)
+    assert state.used
 
 
-def test_pairing_expires_and_locks_out_five_failures(monkeypatch) -> None:
+def test_pairing_expiry_and_failed_attempt_cap() -> None:
     mod = module()
-    expired = state(mod)
+    expired = pairing_state(mod)
     expired.expires_at = time.monotonic() - 1
-    assert not expired.claim(
-        challenge=expired.challenge, form_nonce=expired.form_nonce,
-        origin=expired.expected_origin, fetch_site="same-origin",
-    )
-    assert not expired.active()
+    assert not expired.claim(challenge=expired.challenge, form_nonce=expired.form_nonce)
 
-    locked = state(mod)
+    exhausted = pairing_state(mod)
     for _ in range(mod.MAX_ATTEMPTS):
-        assert not locked.claim(
-            challenge="wrong", form_nonce=locked.form_nonce,
-            origin=locked.expected_origin, fetch_site="same-origin",
-        )
-    assert not locked.active()
-    assert not locked.claim(
-        challenge=locked.challenge, form_nonce=locked.form_nonce,
-        origin=locked.expected_origin, fetch_site="same-origin",
+        assert not exhausted.claim(challenge="bad", form_nonce=exhausted.form_nonce)
+    assert not exhausted.active()
+    assert not exhausted.claim(
+        challenge=exhausted.challenge, form_nonce=exhausted.form_nonce
     )
 
 
-def test_operator_validation_checks_issuer_verified_identity(monkeypatch) -> None:
-    mod = module()
-
-    class FakeReply:
-        def __init__(self, body):
-            self.body = body
-
-        def read(self, limit):
-            assert limit <= 16384
-            return json.dumps(self.body).encode()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-    def fake_urlopen(request, timeout):
-        assert request.full_url == "http://127.0.0.1:8080/api/v1/me"
-        assert request.headers["Authorization"] == "Bearer jwt-not-a-real-credential"
-        return FakeReply({"tenant_id": "mon-lab", "roles": ["tenant_admin"], "subject": "operator"})
-
-    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
-    principal = mod.validate_operator("jwt-not-a-real-credential")
-    assert principal["subject"] == "operator"
-
-
-def test_operator_validation_rejects_wrong_tenant_or_role(monkeypatch) -> None:
+def test_mon_api_must_validate_signed_jwt_and_tenant_admin(monkeypatch) -> None:
     mod = module()
 
     class FakeReply:
         def __init__(self, payload):
             self.payload = payload
 
-        def read(self, _):
+        def read(self, limit):
+            assert limit <= 16384
             return json.dumps(self.payload).encode()
 
         def __enter__(self):
@@ -124,250 +80,146 @@ def test_operator_validation_rejects_wrong_tenant_or_role(monkeypatch) -> None:
         def __exit__(self, *_):
             return False
 
-    for payload in [
-        {"tenant_id": "tenant-b", "roles": ["tenant_admin"]},
+    payload = {"subject": "operator", "tenant_id": "mon-lab", "roles": ["tenant_admin"]}
+
+    def fake_urlopen(request, timeout):
+        assert request.full_url == "http://127.0.0.1:8080/api/v1/me"
+        assert request.headers["Authorization"] == "Bearer jwt-not-a-real-secret"
+        return FakeReply(payload)
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    assert mod.validate_operator("jwt-not-a-real-secret")["subject"] == "operator"
+
+    for item in [
+        {"tenant_id": "different", "roles": ["tenant_admin"]},
         {"tenant_id": "mon-lab", "roles": ["viewer"]},
     ]:
-        monkeypatch.setattr(
-            mod.urllib.request,
-            "urlopen",
-            lambda *_args, payload=payload, **_kw: FakeReply(payload),
-        )
+        payload = item
         with pytest.raises(RuntimeError, match="lacks lab tenant_admin"):
-            mod.validate_operator("signed-jwt")
+            mod.validate_operator("jwt-not-a-real-secret")
 
 
-def test_http_claim_sets_http_only_cookie_once_and_does_not_echo_jwt(monkeypatch) -> None:
-    mod = module()
-    pairing = state(mod)
-    monkeypatch.setattr(mod, "validate_operator", lambda _: {"roles": ["tenant_admin"]})
-    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(pairing))
-    worker = threading.Thread(target=server.serve_forever, daemon=True)
-    worker.start()
-    try:
-        client = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
-        client.request("GET", "/lab-session/")
-        login_form = client.getresponse()
-        body = login_form.read().decode()
-        assert login_form.status == 200
-        assert "<form" in body
-        assert "signed-jwt-do-not-expose" not in body
-        assert f"name='form_nonce' value='{pairing.form_nonce}'" in body
-        assert login_form.getheader("Cache-Control") == "no-store"
-
-        client.request(
-            "POST", "/lab-session/claim",
-            "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
-            headers={
-                "Origin": pairing.expected_origin,
-                "Sec-Fetch-Site": "same-origin",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        response = client.getresponse()
-        text = response.read().decode()
-        assert response.status == 303
-        assert response.getheader("Location") == "/?tenant=mon-lab&site=site-a"
-        cookie = response.getheader("Set-Cookie")
-        assert cookie is not None and "mon_session=signed-jwt-do-not-expose" in cookie
-        assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
-        assert "Max-Age=3600" in cookie
-        assert "signed-jwt-do-not-expose" not in text
-        assert pairing.used
-
-        client.request(
-            "POST", "/lab-session/claim",
-            "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
-            headers={"Origin": pairing.expected_origin,
-                     "Sec-Fetch-Site": "same-origin",
-                     "Content-Type": "application/x-www-form-urlencoded"},
-        )
-        reused = client.getresponse()
-        reused.read()
-        assert reused.status == 410
-    finally:
-        server.shutdown()
-        server.server_close()
-        worker.join(timeout=3)
-
-
-def test_http_claim_rejects_cross_origin_and_oversized_payload(monkeypatch) -> None:
-    mod = module()
-    pairing = state(mod)
-    monkeypatch.setattr(mod, "validate_operator", lambda _: {"roles": ["tenant_admin"]})
-    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(pairing))
-    worker = threading.Thread(target=server.serve_forever, daemon=True)
-    worker.start()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
-        conn.request(
-            "POST", "/lab-session/claim",
-            "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
-            headers={"Origin": "http://other.test",
-                     "Sec-Fetch-Site": "cross-site",
-                     "Content-Type": "application/x-www-form-urlencoded"},
-        )
-        denied = conn.getresponse()
-        denied.read()
-        assert denied.status == 403
-        assert denied.getheader("Set-Cookie") is None
-
-        conn.request(
-            "POST", "/lab-session/claim", "x" * 300,
-            headers={"Origin": pairing.expected_origin,
-                     "Content-Type": "application/x-www-form-urlencoded"},
-        )
-        oversize = conn.getresponse()
-        oversize.read()
-        assert oversize.status == 400
-    finally:
-        server.shutdown()
-        server.server_close()
-        worker.join(timeout=3)
-
-
-def test_pairing_server_never_binds_non_loopback() -> None:
-    mod = module()
-    with pytest.raises(RuntimeError, match="loopback"):
-        mod.serve(state(mod), host="0.0.0.0", port=0)
-
-
-
-def test_missing_origin_allowed_only_with_verified_same_origin_metadata_and_nonce(
-    monkeypatch,
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},  # HTTP reverse proxies and browsers may omit Origin and Fetch Metadata.
+        {"Origin": "http://127.0.0.1:8766"},
+        {"Origin": "http://100.75.116.62:5173", "Sec-Fetch-Site": "same-origin"},
+        {"Origin": "http://unexpected.invalid", "Sec-Fetch-Site": "cross-site"},
+    ],
+)
+def test_login_via_proxy_ignores_unreliable_headers_but_requires_both_secrets(
+    monkeypatch, headers
 ) -> None:
+    """Full local HTTP path: the form and one-time nonce prevent blind POSTs."""
     mod = module()
-    monkeypatch.setattr(mod, "validate_operator", lambda _: {"roles": ["tenant_admin"]})
-    allowed = state(mod)
-    assert allowed.claim(
-        challenge=allowed.challenge,
-        form_nonce=allowed.form_nonce,
-        origin="",
-        fetch_site="same-origin",
-    )
-    assert allowed.used
-
-    for origin, fetch_site in [
-        ("", ""),
-        ("http://100.75.116.62:5173", ""),
-        ("", "cross-site"),
-        ("null", "cross-site"),
-        ("http://evil.invalid", "same-origin"),
-        ("http://127.0.0.1:8766", "cross-site"),
-    ]:
-        attempt = state(mod)
-        assert not attempt.claim(
-            challenge=attempt.challenge,
-            form_nonce=attempt.form_nonce,
-            origin=origin,
-            fetch_site=fetch_site,
-        )
-        assert not attempt.used
-
-    bypass_attempt = state(mod)
-    assert not bypass_attempt.claim(
-        challenge=bypass_attempt.challenge,
-        form_nonce="invalid",
-        origin="",
-        fetch_site="same-origin",
-    )
-
-
-def test_http_same_origin_chrome_form_without_origin_header_succeeds(monkeypatch) -> None:
-    mod = module()
-    monkeypatch.setattr(mod, "validate_operator", lambda _: {"roles": ["tenant_admin"]})
-    pairing = state(mod)
-    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(pairing))
+    state = pairing_state(mod)
+    verified = []
+    monkeypatch.setattr(mod, "validate_operator", lambda t: verified.append(t))
+    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(state))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        client = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        client = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
         client.request("GET", "/lab-session/")
-        get_response = client.getresponse()
-        assert get_response.status == 200
-        get_response.read()
+        response = client.getresponse()
+        page = response.read().decode()
+        assert response.status == 200
+        assert "Operator sign-in" in page
+        assert "Private signing key" not in page
+        assert f"name='form_nonce' value='{state.form_nonce}'" in page
+        assert "signed-jwt-not-a-real-secret" not in page
+        assert response.getheader("Cache-Control") == "no-store"
+
         client.request(
-            "POST", "/lab-session/claim",
-            "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
-            headers={
-                "Sec-Fetch-Site": "same-origin",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
+            "POST",
+            "/lab-session/claim",
+            "code=" + state.challenge + "&form_nonce=" + state.form_nonce,
+            headers={"Content-Type": "application/x-www-form-urlencoded", **headers},
         )
-        result = client.getresponse()
-        result.read()
-        assert result.status == 303
-        assert result.getheader("Set-Cookie", "").startswith("mon_session=")
+        claimed = client.getresponse()
+        body = claimed.read().decode()
+        assert claimed.status == 303
+        assert claimed.getheader("Location") == "/?tenant=mon-lab&site=site-a"
+        cookie = claimed.getheader("Set-Cookie", "")
+        assert cookie.startswith("mon_session=signed-jwt-not-a-real-secret;")
+        assert "HttpOnly" in cookie
+        assert "SameSite=Strict" in cookie
+        assert "Max-Age=3600" in cookie
+        assert "signed-jwt-not-a-real-secret" not in body
+        assert verified == ["signed-jwt-not-a-real-secret"]
+
+        client.request(
+            "POST",
+            "/lab-session/claim",
+            "code=" + state.challenge + "&form_nonce=" + state.form_nonce,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        replay = client.getresponse()
+        replay.read()
+        assert replay.status == 410
+        assert replay.getheader("Set-Cookie") is None
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
 
 
-
-def test_vite_loopback_proxy_origin_is_accepted_only_for_same_origin_with_nonce(
-    monkeypatch,
-) -> None:
-    """Reproduces a Chromium/Vite POST whose upstream Origin is the proxy target."""
+def test_cookie_is_never_issued_without_valid_code_and_nonce(monkeypatch) -> None:
     mod = module()
-    validated = []
-    monkeypatch.setattr(mod, "validate_operator", lambda t: validated.append(t))
-
-    session = state(mod)
-    assert session.claim(
-        challenge=session.challenge,
-        form_nonce=session.form_nonce,
-        origin="http://127.0.0.1:8766",
-        fetch_site="same-origin",
-    )
-    assert validated == ["signed-jwt-do-not-expose"]
-    assert session.used
-
-    for fetch_site in ("", "cross-site", "same-site"):
-        rejected = state(mod)
-        assert not rejected.claim(
-            challenge=rejected.challenge,
-            form_nonce=rejected.form_nonce,
-            origin="http://127.0.0.1:8766",
-            fetch_site=fetch_site,
-        )
-        assert not rejected.used
-
-    bad_nonce = state(mod)
-    assert not bad_nonce.claim(
-        challenge=bad_nonce.challenge,
-        form_nonce="not-the-server-nonce",
-        origin="http://127.0.0.1:8766",
-        fetch_site="same-origin",
-    )
-    assert not bad_nonce.used
-
-
-def test_http_vite_rewritten_origin_only_works_with_real_browser_metadata(
-    monkeypatch,
-) -> None:
-    mod = module()
-    monkeypatch.setattr(mod, "validate_operator", lambda _: {"roles": ["tenant_admin"]})
-    pairing = state(mod)
-    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(pairing))
+    state = pairing_state(mod)
+    verified = []
+    monkeypatch.setattr(mod, "validate_operator", lambda t: verified.append(t))
+    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(state))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        client = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        client = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+        for form in [
+            "code=" + state.challenge + "&form_nonce=wrong",
+            "code=wrong&form_nonce=" + state.form_nonce,
+            "code=" + state.challenge,
+        ]:
+            client.request(
+                "POST",
+                "/lab-session/claim",
+                form,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            denied = client.getresponse()
+            denied.read()
+            assert denied.status in (400, 403)
+            assert denied.getheader("Set-Cookie") is None
+        assert verified == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_pairing_server_never_binds_public_interface() -> None:
+    mod = module()
+    with pytest.raises(RuntimeError, match="loopback"):
+        mod.serve(pairing_state(mod), host="0.0.0.0", port=0)
+
+
+def test_oversized_form_rejected_without_cookie(monkeypatch) -> None:
+    mod = module()
+    state = pairing_state(mod)
+    monkeypatch.setattr(mod, "validate_operator", lambda _: {"roles": ["tenant_admin"]})
+    server = http.server.HTTPServer(("127.0.0.1", 0), mod.make_handler(state))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
         client.request(
-            "POST",
-            "/lab-session/claim",
-            "code=" + pairing.challenge + "&form_nonce=" + pairing.form_nonce,
-            headers={
-                "Origin": "http://127.0.0.1:8766",
-                "Sec-Fetch-Site": "same-origin",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
+            "POST", "/lab-session/claim", "a" * 300,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        result = client.getresponse()
-        result.read()
-        assert result.status == 303
-        assert "HttpOnly" in result.getheader("Set-Cookie", "")
+        rejected = client.getresponse()
+        rejected.read()
+        assert rejected.status == 400
+        assert rejected.getheader("Set-Cookie") is None
     finally:
         server.shutdown()
         server.server_close()
