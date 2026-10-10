@@ -60,6 +60,8 @@ class PairingState:
         self.token = token
         self.expected_origin = expected_origin
         self.challenge = challenge
+        # Form nonce prevents blind third-party POSTs; kept only in server memory.
+        self.form_nonce = secrets.token_urlsafe(32)
         self.expires_at = (time.monotonic() if started is None else started) + PAIR_TTL_SECONDS
         self.attempts = 0
         self.used = False
@@ -68,10 +70,29 @@ class PairingState:
     def active(self) -> bool:
         return not self.used and self.attempts < MAX_ATTEMPTS and time.monotonic() < self.expires_at
 
-    def claim(self, *, challenge: str, origin: str) -> bool:
-        if not self.active() or origin != self.expected_origin:
+    def claim(
+        self,
+        *,
+        challenge: str,
+        form_nonce: str,
+        origin: str,
+        fetch_site: str,
+    ) -> bool:
+        if not self.active():
             return False
+        # Some browsers omit Origin on same-origin HTML form POSTs. Their
+        # Sec-Fetch-Site value is browser-controlled (unlike ordinary headers).
+        # A missing or null Origin is accepted ONLY for same-origin navigation
+        # with a synchronizer nonce from our lab form.
         self.attempts += 1
+        if fetch_site and fetch_site != "same-origin":
+            return False
+        if origin != self.expected_origin and not (
+            origin in ("", "null") and fetch_site == "same-origin"
+        ):
+            return False
+        if not secrets.compare_digest(form_nonce, self.form_nonce):
+            return False
         if not secrets.compare_digest(challenge, self.challenge):
             return False
         # Revalidate the operator's real role and JWT expiry at moment of login.
@@ -135,6 +156,7 @@ def make_handler(state: PairingState):
                 "<p>The private signing key stays on PC2. "
                 "The signed session uses an HttpOnly cookie.</p>"
                 "<form method='POST' action='/lab-session/claim'>"
+                f"<input type='hidden' name='form_nonce' value='{state.form_nonce}'>"
                 "<label for='code'>One-time pairing code</label><br>"
                 "<input id='code' name='code' type='password' autocomplete='off' "
                 "required minlength='20' maxlength='128' style='width:95%;padding:8px'>"
@@ -164,13 +186,16 @@ def make_handler(state: PairingState):
             body = self.rfile.read(length).decode("utf-8", errors="replace")
             parsed = urllib.parse.parse_qs(body, strict_parsing=True)
             values = parsed.get("code", [])
-            if len(values) != 1:
-                self.response(400, "Invalid code field")
+            nonces = parsed.get("form_nonce", [])
+            if len(values) != 1 or len(nonces) != 1:
+                self.response(400, "Missing required login form fields")
                 return
             try:
                 accepted = state.claim(
                     challenge=values[0],
+                    form_nonce=nonces[0],
                     origin=self.headers.get("Origin", ""),
+                    fetch_site=self.headers.get("Sec-Fetch-Site", ""),
                 )
             except RuntimeError:
                 self.response(503, "Operator credential expired or MON auth unavailable")
@@ -198,6 +223,7 @@ def serve(state: PairingState, host: str = "127.0.0.1", port: int = 8766) -> Non
             server.handle_request()
     state.token = ""
     state.challenge = ""
+    state.form_nonce = ""
 
 
 def main() -> int:
