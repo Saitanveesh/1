@@ -4,6 +4,8 @@
 
 This consolidates the seven-PC proof into **three independent Ubuntu machines** without weakening core MON security boundaries.
 
+**Resilience and evidence test gates:** [Three-host resilience acceptance](lab-three-resilience-acceptance.md). This describes the separate disposable-VM-only bounded resource-pressure harness and the real MON evidence-export stage. Neither creates synthetic SOC events.
+
 | Role in `lab-three.json` | Purpose | WireGuard address |
 | --- | --- | --- |
 | `mon` | PostgreSQL, MON SaaS API (single lab tenant), Site Controller, site ingress, sensor ingress, Suricata, Suricata collector, router nftables adapter, SOC console | `10.77.0.1` |
