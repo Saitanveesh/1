@@ -41,3 +41,13 @@ def test_frontend_uses_actual_bound_interface_before_restart() -> None:
     assert 'cmd=$(tr' in script
     assert 'live_root=$(readlink -f' in script
     assert "unrecognized service; refusing to stop it" in script
+
+
+def test_build_tool_recovery_requires_real_tsc_binary_and_dev_dependencies() -> None:
+    source = SCRIPT.read_text()
+    assert '"$FRONTEND/node_modules/.bin/tsc"' in source
+    assert '"$FRONTEND/node_modules/.bin/vite"' in source
+    assert "npm install --include=dev --no-audit --no-fund --no-save --package-lock=false" in source
+    assert "npm run build" in source
+    assert "set -euo pipefail" in source
+    assert "set -Eeuo pipefail" not in source
