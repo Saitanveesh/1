@@ -87,8 +87,10 @@ describe("SOC operator chrome", () => {
     expect(screen.getByTestId("last-security-event").textContent).toBe("NONE OBSERVED");
     await waitFor(() => expect(screen.queryByTestId("unauthenticated")).toBeNull());
     expect(screen.getByText("LIVE TRANSPORT")).toBeTruthy();
-    expect(screen.getByText("NO DATA")).toBeTruthy();
-    expect(screen.queryByText("0", { exact: true })).toBeNull();
+    expect(screen.getByText("ATTACK PRESSURE").closest(".metric")?.textContent)
+      .toContain("NO DATA");
+    expect(screen.getByText("HIGHEST SEVERITY").closest(".metric")?.textContent)
+      .toContain("no incident evidence observed");
   });
 
   it("does not put operator role, site IDs, sequence, or a boxed initial in sidebar", async () => {
