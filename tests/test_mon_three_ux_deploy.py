@@ -62,3 +62,16 @@ def test_upgrade_repairs_mixed_console_ownership_before_npm() -> None:
     assert source.index("sudo chown -hR --") < source.index("npm install --include=dev")
     assert "sudo npm" not in source
     assert "chown -R pc-2:pc-2 $HOME" not in source
+
+
+def test_portal_ready_must_be_json_not_vite_html_fallback() -> None:
+    source = SCRIPT.read_text()
+    assert "portal_healthy()" in source
+    assert 'x.get("state")=="READY"' in source
+    assert 'x.get("capture")=="CAPTURING"' in source
+    assert 'touch "$FRONTEND/vite.config.ts"' in source
+    assert 'portal_healthy "$CONSOLE_URL"' in source
+    assert "Existing Vite has a stale /portal proxy" in source
+    assert '$(stat -c %u "/proc/$listener_pid")' in source
+    assert 'MON Vite; not terminating it' in source
+    assert "curl -fsS --max-time 3 $CONSOLE_URL/portal/health" not in source
