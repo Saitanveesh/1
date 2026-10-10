@@ -110,7 +110,7 @@ def test_operator_validation_rejects_wrong_tenant_or_role(monkeypatch) -> None:
         monkeypatch.setattr(
             mod.urllib.request,
             "urlopen",
-            lambda *_args, **_kw: FakeReply(payload),
+            lambda *_args, payload=payload, **_kw: FakeReply(payload),
         )
         with pytest.raises(RuntimeError, match="lacks lab tenant_admin"):
             mod.validate_operator("signed-jwt")
