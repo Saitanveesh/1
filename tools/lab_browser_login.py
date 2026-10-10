@@ -130,7 +130,7 @@ def make_handler(state: PairingState):
                 "<main style='max-width:32rem;margin:3rem auto;font:16px system-ui'>"
                 "<h1>MON lab operator sign-in</h1>"
                 "<p>Use the one-time pairing code printed in your authenticated PC2 SSH terminal.</p>"
-                "<p>The signed JWT stays on the MON host. The session uses an HttpOnly cookie.</p>"
+                "<p>The private signing key stays on PC2. The signed session is an HttpOnly cookie.</p>"
                 "<form method='POST' action='/lab-session/claim'>"
                 "<label for='code'>One-time pairing code</label><br>"
                 "<input id='code' name='code' type='password' autocomplete='off' "
