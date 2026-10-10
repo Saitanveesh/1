@@ -82,17 +82,22 @@ class PairingState:
         if not self.active():
             self.failure_reason = "Pairing is expired, exhausted or already used"
             return False
-        # Some browsers omit Origin on same-origin HTML form POSTs. Their
-        # Sec-Fetch-Site value is browser-controlled (unlike ordinary headers).
-        # A missing or null Origin is accepted ONLY for same-origin navigation
-        # with a synchronizer nonce from our lab form.
+        # The browser reaches Vite on the tailnet address, but Vite's local
+        # HTTP proxy can replace Origin with its own fixed loopback target.
+        # Accept ONLY the known upstream proxy origin, never arbitrary URLs.
+        # The browser-controlled Fetch Metadata and synchronizer nonce MUST
+        # also match; this is a disposable lab pairing flow, not OIDC.
         self.attempts += 1
-        if fetch_site and fetch_site != "same-origin":
-            self.failure_reason = "Cross-site browser requests are not allowed"
+        if fetch_site != "same-origin":
+            self.failure_reason = "Same-origin browser verification required"
             return False
-        if origin != self.expected_origin and not (
-            origin in ("", "null") and fetch_site == "same-origin"
-        ):
+        trusted_origins = {
+            self.expected_origin,
+            "http://127.0.0.1:8766",
+            "",
+            "null",
+        }
+        if origin not in trusted_origins:
             self.failure_reason = "Browser origin could not be verified"
             return False
         if not secrets.compare_digest(form_nonce, self.form_nonce):
