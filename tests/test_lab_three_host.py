@@ -388,3 +388,72 @@ def test_doctor_is_inspection_only(tmp_path) -> None:
         assert "kill -9" not in command
         assert "nft add " not in command
         assert "systemctl stop" not in command
+
+
+
+def test_legacy_migration_audit_has_no_network_mutations(tmp_path: Path) -> None:
+    mod = load_module()
+    peers = mod.read_inventory(mixed_inventory(tmp_path))
+    calls = []
+
+    class Fake:
+        def __init__(self):
+            self.peers = peers
+
+        def ssh(self, role, command, *, capture=False, interactive=False):
+            peer = peers[role]
+            if role == "mon":
+                addresses = (
+                    "tail-ip=100.75.116.62\n"
+                    "addr4=100.75.116.62/32\naddr4=10.5.112.94/20"
+                )
+            else:
+                addresses = f"addr4={peer.host}/20"
+            return (
+                f"host=lab-{role} user={peer.user}\n"
+                f"os=ubuntu version=26.04\n{addresses}\n"
+                "/usr/bin/sudo\n/usr/bin/apt-get"
+            )
+
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script, root, label))
+
+    mod.legacy_overlay_audit(Fake())
+    assert [label for _, _, _, label in calls] == [
+        "migration-audit-hub", "migration-audit-victim", "migration-audit-attacker"
+    ]
+    assert all(root for _, _, root, _ in calls)
+    assert "test ! -d /sys/class/net/wg0" in calls[0][1]
+    assert "test -s /etc/wireguard/wg0.conf" in calls[1][1]
+    assert "wg show wg0 endpoints" in calls[1][1]
+    for _, script, _, _ in calls:
+        assert "systemctl stop" not in script
+        assert "wg-quick down" not in script
+        assert "wg set " not in script
+        assert "nft add " not in script
+        assert "nft flush" not in script
+        assert "PrivateKey =" not in script
+
+
+def test_migration_backup_is_root_only_and_does_not_change_tunnel(
+    tmp_path: Path, monkeypatch
+) -> None:
+    mod = load_module()
+    monkeypatch.setattr(mod, "legacy_overlay_audit", lambda remote: None)
+    calls = []
+
+    class Fake:
+        def run(self, role, script, *, root=False, label=""):
+            calls.append((role, script, root, label))
+
+    mod.legacy_overlay_backup(Fake())
+    assert len(calls) == 2
+    assert {role for role, _, _, _ in calls} == {"victim", "attacker"}
+    for role, script, root, label in calls:
+        assert root and label == f"migration-backup-{role}"
+        assert "install -d -m 700 /root/mon-three-wg-backups" in script
+        assert "install -m 600 /etc/wireguard/wg0.conf" in script
+        assert "mktemp -d" in script
+        assert "wg set " not in script
+        assert "wg-quick down" not in script
+        assert "nft flush" not in script
