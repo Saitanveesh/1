@@ -701,6 +701,91 @@ fuser -v /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock 2>&1 || true
     print("Inspection complete; no packages, VPN settings or firewall rules were changed.")
 
 
+def legacy_overlay_audit(remote: Remote) -> None:
+    """Non-destructive, per-host cutover readiness checks; no secret material printed."""
+    preflight(remote)
+    mon = remote.peers["mon"]
+    if not mon.lan_ip:
+        raise RuntimeError("migration audit requires the MON host's verified LAN address")
+    mon_lan = shlex.quote(mon.lan_ip)
+    remote.run("mon", f"""set -e
+test ! -d /sys/class/net/wg0 || {{
+  echo "MON host already has wg0; refuse fresh-hub migration"; exit 1;
+}}
+test ! -e /etc/wireguard/wg0.conf || {{
+  echo "MON host has an existing wg0.conf; refuse overwrite"; exit 1;
+}}
+echo '-- MON LAN route to dedicated peers --'
+ip -4 route get {shlex.quote(remote.peers['victim'].host)}
+ip -4 route get {shlex.quote(remote.peers['attacker'].host)}
+echo '-- MON UDP 51820 bindings (do not replace existing listeners) --'
+ss -H -lun 'sport = :51820' || true
+echo '-- MON lab nftables tables (metadata only) --'
+nft list tables | grep -E 'mon_lab|mon_three|mon_router' || true
+""", root=True, label="migration-audit-hub")
+    for role in ("victim", "attacker"):
+        target = WG_ADDR[role]
+        peer = remote.peers[role]
+        remote.run(role, f"""set -e
+test -d /sys/class/net/wg0 || {{
+  echo "Expected existing wg0 missing; no automatic migration"; exit 1;
+}}
+test -s /etc/wireguard/wg0.conf || {{
+  echo "No persistent wg0.conf; rollback cannot be established"; exit 1;
+}}
+test "$(wg show wg0 peers | wc -l)" -eq 1 || {{
+  echo "Unexpected peer count; refuse automatic migration"; exit 1;
+}}
+ip -o -4 addr show dev wg0 | grep -F {shlex.quote(target + '/32')} >/dev/null || {{
+  echo "Unexpected assigned tunnel address"; exit 1;
+}}
+echo '-- existing peer endpoint; public metadata --'
+wg show wg0 endpoints | awk '{{print "endpoint=" $2}}'
+wg show wg0 allowed-ips | awk '{{print "allowed_ips=" $2}}'
+wg show wg0 latest-handshakes | awk '{{print "latest_handshake_epoch=" $2}}'
+echo '-- management route back to MON LAN --'
+ip -4 route get {mon_lan}
+ip -4 route get {mon_lan} | grep -v 'dev wg0' >/dev/null || {{
+  echo "Management route unexpectedly points into wg0"; exit 1;
+}}
+echo '-- unexpected WireGuard config directives (names only; never keys) --'
+awk -F= '/^[[:space:]]*(PreUp|PostUp|PreDown|PostDown|DNS|Table|SaveConfig|MTU)[[:space:]]*=/ {{
+  gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print "custom_directive=" $1
+}}' /etc/wireguard/wg0.conf
+echo '-- existing config metadata (no secret contents) --'
+stat -c 'mode=%a owner=%U path=%n' /etc/wireguard/wg0.conf
+""", root=True, label=f"migration-audit-{role}")
+    print(
+        "Migration audit completed without changing wg0, nftables or routing. "
+        "Do not cut over until backup, permissions and a rollback plan are verified."
+    )
+
+
+def legacy_overlay_backup(remote: Remote) -> None:
+    """Backup local wg0 configs under root-only access, leaving live VPN unchanged."""
+    legacy_overlay_audit(remote)
+    for role in ("victim", "attacker"):
+        remote.run(role, """set -e
+umask 077
+install -d -m 700 /root/mon-three-wg-backups
+backup_dir=$(mktemp -d /root/mon-three-wg-backups/precutover.XXXXXXXX)
+chmod 700 "$backup_dir"
+install -m 600 /etc/wireguard/wg0.conf "$backup_dir/wg0.conf"
+# Preserve rollback metadata without recording the private key in terminal output.
+ip -4 route show > "$backup_dir/ipv4-routes.txt"
+wg show wg0 endpoints > "$backup_dir/peer-endpoints.txt"
+wg show wg0 allowed-ips > "$backup_dir/peer-allowed-ips.txt"
+sha256sum "$backup_dir/wg0.conf" > "$backup_dir/wg0.sha256"
+chmod 600 "$backup_dir/"*
+echo "Root-only WireGuard backup: $backup_dir"
+echo "Live wg0 has NOT been restarted or modified."
+""", root=True, label=f"migration-backup-{role}")
+    print(
+        "Existing peer configs backed up locally under root permissions. "
+        "No config was copied to the operator host or changed on the running interface."
+    )
+
+
 def scrub_secrets(value: object) -> object:
     """Allow security evidence without leaking credentials into operator reports."""
     secret_fragments = ("password", "secret", "token", "private_key", "authorization",
@@ -785,9 +870,10 @@ def main() -> int:
     parser.add_argument("--approve-overlay", action="store_true")
     parser.add_argument("--approve-demo-setup", action="store_true")
     parser.add_argument("--evidence-out", type=Path)
+    parser.add_argument("--approve-migration-backup", action="store_true")
     parser.add_argument("stage", choices=("preflight", "bootstrap", "overlay", "control",
                                            "console", "site", "victim", "demo-prepare", "ready",
-                                           "doctor", "evidence"))
+                                           "doctor", "evidence", "migration-audit", "migration-backup"))
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.ref):
         parser.error("--ref must be a pinned 40-character hex commit")
@@ -821,6 +907,12 @@ def main() -> int:
         readiness(remote)
     elif args.stage == "doctor":
         doctor(remote)
+    elif args.stage == "migration-audit":
+        legacy_overlay_audit(remote)
+    elif args.stage == "migration-backup":
+        if not args.approve_migration_backup:
+            parser.error("migration-backup requires --approve-migration-backup")
+        legacy_overlay_backup(remote)
     elif args.stage == "evidence":
         if args.evidence_out is None:
             parser.error("evidence requires --evidence-out")
