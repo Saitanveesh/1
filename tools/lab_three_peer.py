@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 CONF = Path("/etc/wireguard/wg0.conf")
@@ -241,10 +241,8 @@ def start(role: str, hub_pub: str) -> None:
         except PeerSafetyError:
             if is_timer_running():
                 # Retry via the independent timer even if immediate rollback fails.
-                try:
+                with suppress(PeerSafetyError):
                     restore(role, allow_pending=True)
-                except PeerSafetyError:
-                    pass
             raise
         print("CUTOVER_PENDING_AUTOMATIC_ROLLBACK")
         print(f"Role: {role}; timer: {TTL_SECONDS}s; manual confirmation required.")
