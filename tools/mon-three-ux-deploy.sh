@@ -75,6 +75,12 @@ FRONTEND=$(realpath -e "$FRONTEND")
   echo "[FAIL] Expected MON console source files are missing" >&2
   exit 1
 }
+# Refuse symlinked writable subtrees: neither npm nor privilege repair may
+# escape into other directories through node_modules/src symlinks.
+[[ ! -L "$FRONTEND/node_modules" && ! -L "$FRONTEND/src" ]] || {
+  echo "[FAIL] Console dependencies or source directory is a symlink; refusing ownership repair" >&2
+  exit 1
+}
 # Repair once within this exact console tree; GNU chown -P does not traverse
 # symlinks. Never run npm as root.
 if [[ ! -w "$FRONTEND" || ! -w "$FRONTEND/src" ||
