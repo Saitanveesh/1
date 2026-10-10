@@ -208,4 +208,4 @@ def test_no_unbounded_pressure_or_network_probe_executed_by_cutover():
         assert forbidden not in src
     assert "TT L" not in src
     assert "TTL_SECONDS = 900" in src
-    assert '("systemctl", "stop", timer_name())' in src
+    assert '["systemctl", "stop", timer_name()]' in src
