@@ -21,12 +21,12 @@ from mon.linux_endpoint_collector import (
     LinuxSourcePermissionDenied,
     LinuxSourceUnavailable,
     SystemdJournalReader,
-    parse_journal_entry,
     _build_audit_source,
     _build_journal_source,
     async_main,
     build_arg_parser,
     build_collector_from_args,
+    parse_journal_entry,
     validate_poll_interval,
 )
 
