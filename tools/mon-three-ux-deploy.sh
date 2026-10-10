@@ -60,6 +60,36 @@ fi
   echo "[FAIL] MON console directory not found in expected PC2 locations" >&2
   exit 1
 }
+# This deployment changes ONLY MON console sources. A prior sudo/npm install
+# has left mixed ownership in this lab's node_modules tree (EACCES mkdir).
+# Keep privilege narrowly scoped to the verified console directory, never the
+# full repo, HOME, WireGuard config or MON runtime identity material.
+EXPECTED_FRONTEND=$(realpath -e "$CODE/console")
+FRONTEND=$(realpath -e "$FRONTEND")
+[[ "$FRONTEND" == "$EXPECTED_FRONTEND" &&
+   "$FRONTEND" == "$HOME/mon-three-code/console" ]] || {
+  echo "[FAIL] Console path differs from the authorized PC2 lab checkout" >&2
+  exit 1
+}
+[[ -f "$FRONTEND/package.json" && -f "$FRONTEND/src/App.tsx" ]] || {
+  echo "[FAIL] Expected MON console source files are missing" >&2
+  exit 1
+}
+# Repair once within this exact console tree; GNU chown -P does not traverse
+# symlinks. Never run npm as root.
+if [[ ! -w "$FRONTEND" || ! -w "$FRONTEND/src" ||
+      ! -w "$FRONTEND/node_modules" ||
+      -n "$(find "$FRONTEND/node_modules" -xdev \( -type d -o -type f \) ! -writable -print -quit 2>/dev/null)" ]]; then
+  echo "[REPAIR] Mixed console ownership detected; restoring pc-2 permissions for the MON console only"
+  sudo chown -hR -- "$(id -un):$(id -gn)" "$FRONTEND"
+fi
+[[ -w "$FRONTEND" && -w "$FRONTEND/src" &&
+   -w "$FRONTEND/node_modules" ]] || {
+  echo "[FAIL] Console remains unwritable; refusing npm/build" >&2
+  exit 1
+}
+echo "[PASS] MON console ownership/write access verified for pc-2"
+
 # On this lab host a populated node_modules directory may contain Vite but no
 # TypeScript compiler: npm may have been run with devDependencies omitted.
 # Confirm actual build tools, not merely node_modules' existence.
