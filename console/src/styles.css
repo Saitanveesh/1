@@ -235,10 +235,7 @@ main { min-width: 0; }
 .mon-node-title { font:650 19px system-ui,sans-serif; fill:#111; }
 .mon-node-ip { font:14px ui-monospace,monospace; fill:#222; }
 .mon-node-info { font:10px system-ui,sans-serif; fill:#666; }
-.mon-node-attacker~.mon-node-label { fill:#777; }
-.mon-node-attacker~.mon-node-title,
-.mon-node-attacker~.mon-node-ip,
-.mon-node-attacker~.mon-node-info { fill:#fff; }
+.mon-inverse { fill:#fff; }
 .mon-link-label { font:700 9px ui-monospace,monospace; fill:#666; letter-spacing:.09em; }
 .mon-route-note { font:650 14px ui-monospace,monospace; fill:#111; }
 .mon-flow-section { border-top:1px solid #ddd; }
