@@ -133,42 +133,46 @@ def workload_budget(
     }
 
 
-def cpu_worker(stop: mp.Event) -> None:
+def cpu_worker(stop: mp.Event, duration: int) -> None:
+    # Independent TTL: survives parent SSH loss/abnormal controller termination.
+    deadline = time.monotonic() + min(duration + 2, MAX_DURATION + 2)
     payload = bytearray(b"MON-disposable-vm-local-pressure")
-    while not stop.is_set():
+    while not stop.is_set() and time.monotonic() < deadline:
         hashlib.sha256(payload).digest()
         payload[0] = (payload[0] + 1) % 256
 
 
-def memory_worker(stop: mp.Event, byte_limit: int) -> None:
+def memory_worker(stop: mp.Event, byte_limit: int, duration: int) -> None:
+    deadline = time.monotonic() + min(duration + 2, MAX_DURATION + 2)
     chunks = []
     allocated = 0
-    while allocated < byte_limit and not stop.is_set():
+    while allocated < byte_limit and not stop.is_set() and time.monotonic() < deadline:
         chunk_size = min(4 * MiB, byte_limit - allocated)
         chunk = bytearray(chunk_size)
         for index in range(0, chunk_size, 4096):
             chunk[index] = 1
         chunks.append(chunk)
         allocated += chunk_size
-    while not stop.wait(0.1):
-        # Keep memory resident until the time limit or stop signal.
+    while time.monotonic() < deadline and not stop.wait(0.1):
+        # Keep memory resident only within its own independent TTL.
         if chunks:
             chunks[0][0] ^= 1
 
 
-def disk_worker(stop: mp.Event, byte_limit: int, output: str) -> None:
+def disk_worker(stop: mp.Event, byte_limit: int, output: str, duration: int) -> None:
     # Only a new file under the operator-designated disposable VM scratch directory.
+    deadline = time.monotonic() + min(duration + 2, MAX_DURATION + 2)
     fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     written = 0
     block = b"x" * MiB
     try:
-        while written < byte_limit and not stop.is_set():
+        while written < byte_limit and not stop.is_set() and time.monotonic() < deadline:
             n = os.write(fd, block[: min(MiB, byte_limit - written)])
             if n <= 0:
                 raise OSError("disk write returned no progress")
             written += n
         os.fsync(fd)
-        while not stop.wait(0.1):
+        while time.monotonic() < deadline and not stop.wait(0.1):
             pass
     finally:
         os.close(fd)
@@ -258,11 +262,16 @@ def run_experiment(args: argparse.Namespace) -> dict:
         count = budget["cpu_workers"] if args.mode == "cpu" else 1
         for _ in range(count):
             if args.mode == "cpu":
-                parameters = (stop,)
+                parameters = (stop, budget["duration_seconds"])
             elif args.mode == "memory":
-                parameters = (stop, budget["memory_bytes_limit"])
+                parameters = (stop, budget["memory_bytes_limit"], budget["duration_seconds"])
             else:
-                parameters = (stop, budget["disk_bytes_limit"], str(scratch_file))
+                parameters = (
+                    stop,
+                    budget["disk_bytes_limit"],
+                    str(scratch_file),
+                    budget["duration_seconds"],
+                )
             process = mp.Process(
                 target=worker_function(args.mode),
                 args=parameters,
