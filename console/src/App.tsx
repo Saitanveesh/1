@@ -506,12 +506,6 @@ export default function App() {
             <p>Your credentials do not grant access to tenant {tenantId} / site {siteId}. No data is shown.</p>
           </section>
         )}
-        {authState === "UNAUTHENTICATED" && (
-          <section className="panel full" role="alert" data-testid="unauthenticated">
-            <h2>AUTHENTICATION REQUIRED</h2>
-            <p>No valid operator session was found. Sign in through your identity provider and reload.</p>
-          </section>
-        )}
         {view === "Overview" && (
           <>
             <section className="metric-grid">
