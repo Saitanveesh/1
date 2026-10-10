@@ -68,14 +68,34 @@ jobs:
           with tempfile.TemporaryDirectory() as scratch:
               out = Path(scratch)
               guard = out / "mon-hub-guard.nft"
-              config = out / "mon-hub.conf"
               guard.write_text(hub.guard_script())
-              config.write_text(hub.rendered_config(
+              config_text = hub.rendered_config(
                   "A" * 43 + "=", "B" * 43 + "=", "C" * 43 + "="
-              ))
+              )
               import subprocess
               subprocess.run(["sudo", "nft", "-c", "-f", str(guard)], check=True)
-              subprocess.run(["wg-quick", "strip", str(config)], check=True, capture_output=True)
+              # Mirror the actual prepare() staging name, not a hand-picked
+              # short "mon-hub.conf" file that masks wg-quick parser failures.
+              with tempfile.NamedTemporaryFile(
+                  mode="w", dir=out, prefix="wgmon-", suffix=".conf",
+                  delete=False
+              ) as staged:
+                  staged.write(config_text)
+                  staged_path = Path(staged.name)
+              assert len(staged_path.stem) <= 15, staged_path.name
+              subprocess.run(
+                  ["wg-quick", "strip", str(staged_path)],
+                  check=True, capture_output=True
+              )
+              # Regression: original long temp basename must NOT work.
+              old_path = out / ".mon-wg0-12345678.conf"
+              old_path.write_text(config_text)
+              assert len(old_path.stem) > 15
+              old = subprocess.run(
+                  ["wg-quick", "strip", str(old_path)],
+                  capture_output=True, text=True
+              )
+              assert old.returncode != 0, "regression test did not reproduce legacy failure"
           print("NATIVE_SYNTAX_VERIFIED_NO_INTERFACE_APPLIED")
           PY
 
