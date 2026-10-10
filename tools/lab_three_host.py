@@ -8,8 +8,8 @@ Invoke from an operator workstation, not a privileged MON service.
 from __future__ import annotations
 
 import argparse
-import ipaddress
 import getpass
+import ipaddress
 import json
 import os
 import re
