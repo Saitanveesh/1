@@ -25,6 +25,7 @@ BACKUPS = Path("/root/mon-three-wg-backups")
 BASE = Path("/root/mon-three-peer-cutover")
 STATE = BASE / "state.json"
 LOCK = Path("/run/lock/mon-three-peer-cutover.lock")
+RESTORE_TEMP_DIR = Path("/root")
 ORIGINAL_HUB = "10.5.115.5:51820"
 NEW_HUB = "10.5.112.94:51820"
 OVERLAY_HUB = "10.77.0.1"
@@ -272,7 +273,7 @@ def restore(role: str, *, allow_pending: bool = False) -> None:
         )
     # wg-quick strips system-level Address/MTU but retains private key and peers.
     stripped = call("wg-quick", "strip", str(backup))
-    fd, temp = tempfile.mkstemp(prefix="wgmon-", suffix=".conf", dir="/root")
+    fd, temp = tempfile.mkstemp(prefix="wgmon-", suffix=".conf", dir=str(RESTORE_TEMP_DIR))
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as out:
