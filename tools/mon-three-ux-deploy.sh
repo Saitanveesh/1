@@ -6,7 +6,7 @@ umask 077
 CODE="$HOME/mon-three-code"
 STATE="$HOME/mon-three"
 BRANCH=fix/linux-ssh-journal-ingestion-20261010
-PIN=5b82fa73afed3dbab10b54c0306530269c2708d2
+PIN=1213410ac8f2dc757815dde5e4be899632cce34a
 UNIT=mon-three-lab-portal.service
 PORTAL="$STATE/tools/mon-lab-portal.py"
 ENVFILE=/etc/mon-three/lab-portal.env
