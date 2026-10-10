@@ -6,8 +6,10 @@ This is NOT an autonomous defense daemon or a production deployment recipe.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -25,7 +27,7 @@ VICTIM = "10.77.0.50"
 ASSET = "linux-host:lab-pc5"
 POINT = "pc2-router"
 TTL = 120
-HOLD_SECONDS = 35
+HOLD_SECONDS = 75
 MON_SERVICE = "mon-three-site-router.service"
 ACTIVE = {"DISPATCH_PENDING", "EXECUTING", "APPLIED", "ROLLBACK_PENDING", "ROLLBACK_FAILED"}
 ROOT = Path.home() / "mon-three"
@@ -82,6 +84,17 @@ def matching_rules(rules: str | None, marker: str | None = None) -> list[str]:
     if marker:
         matches = [line for line in matches if marker in line]
     return matches
+
+
+def owned_marker(execution_id: str) -> str:
+    # Mirror mon.connectors.nftables_router._safe_token.
+    # Standard 36-character UUIDs become deterministic 17-character hash tokens.
+    token = (
+        execution_id
+        if re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", execution_id)
+        else "h" + hashlib.sha256(execution_id.encode("utf-8")).hexdigest()[:16]
+    )
+    return f"mon:v1:mon-lab:site-a:{token}"
 
 
 def endpoint_up() -> bool:
@@ -263,10 +276,12 @@ def main() -> int:
         ex = wait_status({"APPLIED", "FAILED", "DENIED"}, 35)
         if ex is None or ex.get("status") != "APPLIED":
             raise RuntimeError(f"MON did not apply block: {ex and ex.get('status')}")
-        marker = f"mon:v1:mon-lab:site-a:{EXECUTION_ID}"
+        marker = owned_marker(EXECUTION_ID)
         rules = nft_rules()
         found = matching_rules(rules, marker=marker)
         if len(found) != 1:
+            output("CHECK", f"Expected ownership marker: {marker}")
+            output("CHECK", f"Observed nft chain: {rules or '(absent)'}")
             raise RuntimeError(f"Expected one MON-owned PC6 rule, found {len(found)}")
         applied = True
         output("PASS", f"MON status APPLIED and owned nftables rule PRESENT: {found[0]}")
@@ -285,7 +300,7 @@ def main() -> int:
         # Rollback even after Ctrl-C or most HTTP/verification failures.
         rolled_back = rollback() if REQUEST_ID else False
         if EXECUTION_ID:
-            marker = f"mon:v1:mon-lab:site-a:{EXECUTION_ID}"
+            marker = owned_marker(EXECUTION_ID)
             try:
                 remaining = matching_rules(nft_rules(), marker=marker)
                 if remaining:
