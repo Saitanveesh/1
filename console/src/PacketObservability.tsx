@@ -193,10 +193,26 @@ export function NetworkPath({
   const source = attackerIps.includes("10.77.0.60") ? "10.77.0.60" :
     (attackerIps.find(ip => ip !== "10.77.0.1") ?? "10.77.0.60");
   const flows = capture?.flows ?? [];
-  const traffic = flows.filter(f => f.src_ip === source && f.dst_ip === "10.77.0.50");
+  const target = "10.77.0.50";
+  const traffic = flows.filter(f =>
+    (f.src_ip === source && f.dst_ip === target) ||
+    (f.src_ip === target && f.dst_ip === source));
   const packets = traffic.reduce((n, flow) => n + flow.packets, 0);
   const bytes = traffic.reduce((n, flow) => n + flow.bytes, 0);
   const baselinePackets = traffic.filter(f => f.protocol === "ICMP").reduce((n, f) => n + f.packets, 0);
+  const now = Date.parse(capture?.observed_at ?? "");
+  const recent = (capture?.events ?? []).filter(event =>
+    ((event.src_ip === source && event.dst_ip === target) ||
+     (event.src_ip === target && event.dst_ip === source)) &&
+    Number.isFinite(Date.parse(event.timestamp)) &&
+    now - Date.parse(event.timestamp) >= 0 &&
+    now - Date.parse(event.timestamp) <= 90000
+  );
+  const active = measured && recent.some(event =>
+    now - Date.parse(event.timestamp) <= 5000
+  );
+  const lastMatch = recent.length ? new Date(recent[0].timestamp).toLocaleTimeString() : null;
+  const observedIfaces = Object.keys(capture?.observed_interfaces ?? {});
 
   return (
     <section className="mon-panel mon-topology-panel" data-testid="network-path">
@@ -206,7 +222,7 @@ export function NetworkPath({
           <h2>Attacker / Router / Protected endpoint</h2>
           <p>The verified lab forwarding path is drawn separately from live packet observations.</p>
         </div>
-        <span className="mon-tag">{packets ? "PACKETS OBSERVED" : "NO CURRENT PACKETS"}</span>
+        <span className="mon-tag">{active ? "TRAFFIC OBSERVED NOW" : recent.length ? "RECENT MATCH" : "NO MATCHING RECENT PACKETS"}</span>
       </div>
       <div className="mon-topology-canvas">
         <svg viewBox="0 0 1040 330" role="img"
@@ -216,19 +232,19 @@ export function NetworkPath({
               <path d="M0 0 L0 6 L9 3 Z" fill="currentColor" />
             </marker>
           </defs>
-          <path className={"mon-route" + (packets ? " mon-route-active" : "")}
+          <path className={"mon-route" + (active ? " mon-route-active" : "")}
             d="M260 167 H403" markerEnd="url(#mon-arrow)" />
-          <path className={"mon-route" + (packets ? " mon-route-active" : "")}
+          <path className={"mon-route" + (active ? " mon-route-active" : "")}
             d="M637 167 H782" markerEnd="url(#mon-arrow)" />
-          {packets > 0 && <>
+          {active && <>
             <circle cx="260" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg1" />
             <circle cx="637" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg2" />
           </>}
           <rect className="mon-node mon-node-attacker" x="26" y="93" width="234" height="152" rx="4" />
-          <text className="mon-node-label mon-inverse" x="45" y="122">01 / ATTACK SOURCE</text>
-          <text className="mon-node-title mon-inverse" x="45" y="165">PC6 · Attacker</text>
+          <text className="mon-node-label mon-inverse" x="45" y="122">01 / OBSERVED SOURCE</text>
+          <text className="mon-node-title mon-inverse" x="45" y="165">PC6 · Lab source</text>
           <text className="mon-node-ip mon-inverse" x="45" y="196">{source}</text>
-          <text className="mon-node-info mon-inverse" x="45" y="223">Lab test source · attack on demand</text>
+          <text className="mon-node-info mon-inverse" x="45" y="223">Test source · normal or attack traffic</text>
 
           <rect className="mon-node" x="404" y="93" width="233" height="152" rx="4" />
           <text className="mon-node-label" x="423" y="122">02 / ROUTE + RESPONSE</text>
@@ -245,15 +261,24 @@ export function NetworkPath({
           <text className="mon-link-label" x="332" y="140" textAnchor="middle">TUNNEL</text>
           <text className="mon-link-label" x="710" y="140" textAnchor="middle">FORWARDED</text>
           <text className="mon-route-note" x="520" y="289" textAnchor="middle">
-            {packets ? human(packets) + " packets · " + human(bytes) + " bytes · 10s" +
-              (baselinePackets > 0 ? " · " + baselinePackets + " ICMP expected-baseline" : "") :
-              "No packet observation for this route in the latest window"}
+            {active
+              ? human(packets) + " flow packets · " + human(bytes) + " bytes" +
+                  (baselinePackets ? " · " + baselinePackets + " ICMP probes" : "")
+              : lastMatch ? "LAST PC6 ↔ PC5 OBSERVATION: " + lastMatch +
+                  " · " + recent.length + " recent IP header records"
+              : "No matching PC6 ↔ PC5 packets in retained capture window"}
           </text>
           <text className="mon-svg-label" x="520" y="313" textAnchor="middle">
-            {measured ? "Animation indicates RECENT OBSERVED activity, not per-packet timing or inferred network hops" :
-              "Packet capture offline; incident source is independently supported by PC5 auth logs"}
+            {measured ? "Animation is enabled only by recent matching IP headers, not inferred network hops" :
+              "Configured topology is not proof of individual packet hop traversal"}
           </text>
         </svg>
+      </div>
+      <div className="mon-route-observations" data-testid="route-observation-summary">
+        <span>CAPTURE: {capture?.status ?? "CONNECTING"}</span>
+        <span>PC6 ↔ PC5: {recent.length} recent IP records</span>
+        <span>LAST SEEN: {lastMatch ?? "NOT OBSERVED"}</span>
+        <span>INTERFACES: {observedIfaces.join(", ") || capture?.capture_scope || "UNKNOWN"}</span>
       </div>
       <div className="mon-flow-section">
         <div className="mon-panel-heading mon-panel-heading-small">
@@ -272,7 +297,7 @@ export function NetworkPath({
               </tr>)}
               {!flows.length && <tr>
                 <td colSpan={5} className="mon-flow-empty">
-                  {measured ? "No incoming IP packets observed in the latest window" :
+                  {measured ? "No IP conversations observed during this aggregation window" :
                     "Capture unavailable · no invented network conversations"}
                 </td>
               </tr>}
