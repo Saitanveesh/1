@@ -309,7 +309,7 @@ export interface SuricataRecord {
 
 export interface SuricataSnapshot {
   source: "suricata-eve";
-  status: "NOT_INSTALLED" | "NO_RECENT_EVENTS" | "RECENT_EVE";
+  status: "NOT_INSTALLED" | "CONFIGURED_NO_EVE" | "NO_RECENT_EVENTS" | "RECENT_EVE";
   observed_events: number;
   alerts: number;
   last_seen: string | null;
