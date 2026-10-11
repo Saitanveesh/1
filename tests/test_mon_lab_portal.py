@@ -92,3 +92,28 @@ def test_real_capture_event_metadata_is_present_and_bounded() -> None:
     assert result["events"][0]["src_ip"] == "10.77.0.60"
     assert "payload" not in result["events"][0]
     assert capture.recent_events.maxlen == 250
+
+
+def test_pc6_pc5_route_records_survive_noisy_host_capture() -> None:
+    import time
+
+    module = load()
+    capture = module.FlowCapture()
+    route = {
+        "timestamp": "2026-10-11T04:00:00Z", "interface": "wg0",
+        "src_ip": "10.77.0.60", "dst_ip": "10.77.0.50",
+        "direction": "inbound", "protocol": "ICMP",
+        "dst_port": None, "ip_bytes": 84,
+    }
+    with capture.lock:
+        capture.recent_lab_route.append((time.time(), route))
+        for i in range(250):
+            capture.recent_events.append({
+                "timestamp": "2026-10-11T04:00:00Z",
+                "src_ip": "127.0.0.1", "dst_ip": "127.0.0.1",
+                "direction": "outbound", "protocol": "TCP",
+                "dst_port": i, "interface": "lo", "ip_bytes": 84,
+            })
+    actual = capture.snapshot()
+    assert actual["lab_route_events"] == [route]
+    assert all(row["src_ip"] == "127.0.0.1" for row in actual["events"])
