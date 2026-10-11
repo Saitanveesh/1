@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import AiAnalysis from "./AiAnalysis";
+import SuricataPanel from "./SuricataPanel";
 import LoginPage from "./LoginPage";
 import { NetworkPath, PacketHistory, usePacketCapture } from "./PacketObservability";
 import { LiveClient, type LiveState } from "./live";
@@ -549,6 +550,7 @@ export default function App() {
           <NetworkPath capture={packetCapture}
             attackerIps={state.findings.map(f => f.src_ip).filter((ip): ip is string => !!ip)} />
           <PacketHistory capture={packetCapture} />
+          <SuricataPanel />
           <details className="mon-advanced-evidence">
             <summary>Raw correlation graph / analyst evidence (advanced)</summary>
             <AttackGraph state={state} />
