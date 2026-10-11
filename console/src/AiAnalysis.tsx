@@ -7,7 +7,8 @@ import type {
   Finding,
   Incident,
   IncidentInvestigation,
-  ResponseExecution
+  ResponseExecution,
+  PacketCaptureSnapshot
 } from "./types";
 import "./AiAnalysis.css";
 
@@ -218,6 +219,7 @@ export default function AiAnalysis({
   siteId,
   executions,
   auditRecords,
+  capture,
   onOpenIncident
 }: {
   incidents: Incident[];
@@ -225,6 +227,7 @@ export default function AiAnalysis({
   siteId: string;
   executions: ResponseExecution[];
   auditRecords: AuditRecord[];
+  capture: PacketCaptureSnapshot | null;
   onOpenIncident: (incident: Incident) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -282,6 +285,16 @@ export default function AiAnalysis({
   const correlated = investigation ? graphLabels(investigation) : null;
   const caseResponses = chosenId
     ? executions.filter(row => row.plan?.request?.incident_id === chosenId) : [];
+  const relatedPackets = (capture?.events ?? []).filter(event =>
+    correlated && (
+      (event.src_ip === correlated.source && event.dst_ip === correlated.targetIp) ||
+      (event.src_ip === correlated.targetIp && event.dst_ip === correlated.source)
+    )
+  );
+  const sourcePackets = (capture?.events ?? []).filter(event =>
+    correlated && (event.src_ip === correlated.source || event.dst_ip === correlated.source)
+  );
+  const captureScope = capture?.capture_scope ?? "NOT AVAILABLE";
 
   async function askLocalModel() {
     if (!chosenId || !investigation || aiLoading) return;
@@ -378,6 +391,32 @@ export default function AiAnalysis({
             <p className="aiwb-honesty">This diagram shows MON's correlated source, evidence and affected asset. It does not assert intermediate routers, packet timing, or actions without records.</p>
           </section>
 
+          <section className="aiwb-panel aiwb-hunt" data-testid="ai-telemetry-tools">
+            <div className="aiwb-section-top">
+              <div><span className="aiwb-kicker">READ-ONLY / LIVE TELEMETRY PIVOT</span><h3>Network evidence enrichment</h3></div>
+              <span className="aiwb-dim">{capture?.status ?? "CONNECTING"} · {captureScope}</span>
+            </div>
+            <div className="aiwb-hunt-metrics">
+              <div><small>CAPTURED IP HEADERS</small><strong>{capture?.decoded_packets ?? "—"}</strong></div>
+              <div><small>RECENT SOURCE MATCHES</small><strong>{sourcePackets.length}</strong></div>
+              <div><small>SOURCE ↔ TARGET MATCHES</small><strong>{relatedPackets.length}</strong></div>
+              <div><small>NETWORK SENSOR</small><strong>{capture?.status ?? "NOT READY"}</strong></div>
+            </div>
+            <div className="aiwb-hunt-table">
+              <table>
+                <thead><tr><th>OBSERVED TIME</th><th>INTERFACE</th><th>SOURCE</th><th>DESTINATION</th><th>PROTOCOL</th><th>BYTES</th></tr></thead>
+                <tbody>
+                  {sourcePackets.slice(0, 12).map((row, index) => <tr key={row.timestamp + index}>
+                    <td>{row.timestamp}</td><td>{row.interface}</td><td>{row.src_ip}</td>
+                    <td>{row.dst_ip}</td><td>{row.protocol}{row.dst_port == null ? "" : ":" + row.dst_port}</td>
+                    <td>{row.ip_bytes}</td>
+                  </tr>)}
+                  {!sourcePackets.length && <tr><td colSpan={6}>No matching source packets retained. This does not disprove the historical incident.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <p className="aiwb-honesty">Live volatile packet headers from PC2 only. Historical incident records and this current capture have different time ranges. Packet payloads and endpoint-only internet traffic are not available here.</p>
+          </section>
           <div className="aiwb-columns aiwb-analysis-columns">
             <div className="aiwb-inspector">
               <section className="aiwb-panel aiwb-tooling">
