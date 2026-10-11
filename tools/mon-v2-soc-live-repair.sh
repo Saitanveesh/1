@@ -161,14 +161,18 @@ curl --noproxy '*' -fsS --max-time 6 http://127.0.0.1:5174/portal/health >/dev/n
 echo '[PASS] MON V2 local sensor and same-origin proxy alive'
 
 echo '========== GRAFANA SERVICE CHECK =========='
+grafana_healthy() {
+  curl --noproxy '*' -fsS --max-time 4 http://100.75.116.62:3000/api/health 2>/dev/null |
+    python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("database")=="ok"' 2>/dev/null
+}
 GRAFANA=DOWN
-if curl --noproxy '*' -fsS --max-time 4 http://100.75.116.62:3000/api/health >/dev/null 2>&1; then
+if grafana_healthy; then
   GRAFANA=UP
 elif command -v docker >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
   echo '[CHECK] Grafana is not listening; starting existing Docker Compose stack'
   if sudo docker compose -p mon-observability -f "$METRICS/compose.yaml" up -d; then
     for i in $(seq 1 18); do
-      if curl --noproxy '*' -fsS --max-time 4 http://100.75.116.62:3000/api/health >/dev/null 2>&1; then
+      if grafana_healthy; then
         GRAFANA=UP;break
       fi
       sleep 2
