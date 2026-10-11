@@ -22,6 +22,9 @@ restore(){
     cp "$BACKUP/mon_ai_analysis.py" "$PORTAL/mon_ai_analysis.py" || true
     sudo cp -p "$BACKUP/portal-env" "$ENV" || true
     sudo systemctl restart mon-three-lab-portal.service || true
+    if [[ -d "$DIR" && ! -L "$DIR" ]]; then
+      mv -- "$DIR" "$BACKUP/monitoring-failed" || true
+    fi
   fi
   if [[ -n "$STAGE" && -d "$STAGE" ]]; then rm -rf "$STAGE"; fi
   exit "$rc"
