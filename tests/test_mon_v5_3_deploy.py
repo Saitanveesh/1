@@ -39,3 +39,17 @@ def test_incident_flow_removes_visible_overlapping_timeline_and_playback():
     assert 'data-testid="mon-normal-traffic"' in scene
     assert "Recorded case sequence" not in scene
     assert "incident-play" not in scene
+
+def test_grafana_permissions_repair_is_surgical_and_parseable():
+    repair = ROOT / 'tools/mon-grafana-permissions-repair.sh'
+    syntax = subprocess.run(['bash', '-n', str(repair)], capture_output=True, text=True)
+    assert syntax.returncode == 0, syntax.stderr
+    source = repair.read_text()
+    assert 'datasources/mon-loki.yaml' in source
+    assert 'datasources/mon-prometheus.yml' in source
+    assert 'dashboards/mon/mon-network.json' in source
+    assert 'chmod 644' in source
+    assert 'GRAFANA REPAIR: COMPLETE' in source
+    assert 'docker compose -p mon-observability' in source
+    for unsafe in ('chmod -R 777', 'docker volume rm', 'docker compose down', 'wg-quick', 'nft flush', 'iptables -F'):
+        assert unsafe not in source
