@@ -221,7 +221,8 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
             })}
             {model.nodes.map(node => <button type="button" key={node.id}
               data-testid={"mon3d-node-" + node.kind}
-              className={"mon3d-node " + node.kind + (selected === node.id ? " selected" : "")}
+              className={"mon3d-node " + node.kind + (selected === node.id ? " selected" : "") +
+                (current?.reference === node.ref ? " timeline-active" : "")}
               title={node.detail}
               style={{ left: "calc(50% + " + (node.x * 82) + "px)",
                 top: "calc(50% - " + (node.y * 82) + "px)",
