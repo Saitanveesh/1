@@ -57,3 +57,6 @@
 @media(prefers-reduced-motion:reduce){.mon3d-universe{transition:none}}
 
 .mon3d-node.timeline-active {outline:3px double #111;outline-offset:5px;box-shadow:0 0 0 10px #1111,7px 10px 0 #1112;z-index:3}
+
+.mon-incident-actions{display:flex;align-items:center;gap:15px;flex-wrap:wrap;justify-content:flex-end}
+.mon-incident-actions .control-button{min-width:150px}
