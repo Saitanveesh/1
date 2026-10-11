@@ -279,7 +279,9 @@ def analyze_incident(
     )
     next_check = (
         "Correlate source IP with SSH journal and approved lab activity."
-        if failure_pattern else "Inspect underlying endpoint logs and corroborating network telemetry."
+        if failure_pattern else (
+            "Inspect underlying endpoint logs and corroborating network telemetry."
+        )
     )
     if isinstance(explanation, str):
         try:
