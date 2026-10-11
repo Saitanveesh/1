@@ -18,10 +18,10 @@ export function usePacketCapture(authenticated: boolean): PacketCaptureSnapshot 
         if (!cancelled) setCapture(next);
       } catch {
         if (!cancelled) setCapture({
-          source: "linux-af_packet", interface: "wg0", status: "UNAVAILABLE",
+          source: "linux-af_packet", interface: "wg0", capture_scope: "wg0", status: "UNAVAILABLE",
           error: "Packet sensor unavailable", observed_at: new Date().toISOString(),
           sample_interval_seconds: 1, capture_window_seconds: COUNT,
-          direction: "Incoming only", packet_layer: "IP", samples: [], flows: []
+          direction: "inbound and outbound", packet_layer: "IP", samples: [], flows: []
         });
       }
     }
@@ -73,7 +73,7 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
         <div>
           <span className="mon-eyebrow">NETWORK / WIREGUARD INGEST</span>
           <h2>Live packet flow</h2>
-          <p>Real IP packet headers · wg0 ingress · 1-second buckets · rolling 90s window</p>
+          <p>Real IP headers · {capture?.capture_scope ?? "wg0"} · inbound + outbound · 90 seconds</p>
         </div>
         <span className={"mon-tag " + (capturing ? "mon-tag-active" : "")}>
           <span className="mon-dot" />{capture?.status ?? "CONNECTING"}
@@ -111,7 +111,7 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
         </svg>
       </div>
       <div className="mon-chart-footer">
-        <span>BLACK TRACE = CAPTURED PACKETS / SECOND</span>
+        <span>BLACK TRACE = OBSERVED IP INTERFACE PACKETS / SECOND</span>
         <span>{capturing ? new Date(capture.observed_at).toLocaleTimeString() : "NO GENERATED OR ESTIMATED PACKETS"}</span>
       </div>
     </section>
