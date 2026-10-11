@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { PacketCaptureSnapshot } from "./types";
-import type { SceneModel, SceneNode } from "./Incident3D";
+import type { SceneModel } from "./Incident3D";
 import "./IncidentFlowMap.css";
 
 interface Props {
