@@ -157,6 +157,35 @@ describe("IncidentDetail", () => {
     await waitFor(() => expect(screen.getByDisplayValue("10.77.0.60")).toBeTruthy());
   });
 
+  it("analyzes verified incident evidence locally without changing containment", async () => {
+    const ai = {
+      incident_id: "inc-1",
+      model: "qwen3:4b",
+      analysis: "Observed facts: eight failed logins. No packet counts provided.",
+      evidence_ids: ["e1"],
+      evidence_count: 1,
+      read_only: true,
+      advisory: "AI analysis is advisory, not an authorization to block."
+    };
+    const mockedFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => investigation })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ai });
+    vi.stubGlobal("fetch", mockedFetch);
+    render(
+      <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
+    );
+    await waitFor(() => expect(screen.getByTestId("ai-incident-panel")).toBeTruthy());
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("analyze-with-ai"));
+    await waitFor(() => expect(screen.getByTestId("local-ai-result")).toBeTruthy());
+    expect(screen.getByText(/No packet counts provided/)).toBeTruthy();
+    expect(mockedFetch.mock.calls[1][0]).toBe("/portal/ai/investigate");
+    const sent = JSON.parse(mockedFetch.mock.calls[1][1].body as string);
+    expect(sent).toEqual({ incident_id: "inc-1", tenant_id: "t", site_id: "s" });
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("planned-response")).toBeNull();
+  });
+
   it("surfaces an authorization failure instead of showing data", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({}) }));
     render(
