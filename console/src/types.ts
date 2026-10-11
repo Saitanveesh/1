@@ -254,10 +254,23 @@ export interface PacketSample {
   bytes: number;
 }
 
+export interface PacketEvent {
+  timestamp: string;
+  interface: string;
+  direction: "inbound" | "outbound";
+  src_ip: string;
+  dst_ip: string;
+  protocol: string;
+  dst_port: number | null;
+  ip_bytes: number;
+}
+
 export interface PacketCaptureSnapshot {
   source: "linux-af_packet";
   interface: string;
   capture_scope?: string;
+  observed_interfaces?: Record<string, number>;
+  events?: PacketEvent[];
   raw_frames?: number;
   decoded_packets?: number;
   last_packet_at?: number;
