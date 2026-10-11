@@ -272,6 +272,9 @@ export interface AiIncidentAnalysis {
   incident_id: string;
   model: string;
   analysis: string;
+  headline: string;
+  assessment: string;
+  next_check: string;
   evidence_ids: string[];
   evidence_count: number;
   read_only: boolean;
