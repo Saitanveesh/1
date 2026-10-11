@@ -493,7 +493,7 @@ export default function App() {
           </section>
         )}
         {view === "Overview" && (
-          <>
+          <div className="mon-command-desk" data-testid="mon-single-console">
             <section className="mon-overview-strip" data-testid="overview-status-strip">
               <div><small>MON STATUS</small><strong>{state.connection === "LIVE" ? "ONLINE" : state.connection}</strong></div>
               <div><small>OPEN INCIDENTS</small><strong>{metrics.active.length}</strong></div>
@@ -503,18 +503,28 @@ export default function App() {
               <div><small>PACKET CAPTURE</small><strong>{packetCapture?.status ?? "CONNECTING"}</strong></div>
             </section>
             <SocGauges state={state} capture={packetCapture} />
-            <PacketHistory capture={packetCapture} />
-            <section className="split">
-              <article className="panel">
-                <div className="panel-head"><div><span className="eyebrow">ACTIVE</span><h2>Incidents</h2></div></div>
-                <IncidentTable incidents={metrics.active.slice(0, 8)} />
-              </article>
-              <article className="panel">
-                <div className="panel-head"><div><span className="eyebrow">DETECTION</span><h2>Latest findings</h2></div></div>
-                <FindingTable findings={state.findings} />
-              </article>
-            </section>
-          </>
+            <div className="mon-command-desk-grid">
+              <div className="mon-desk-traffic">
+                <PacketHistory capture={packetCapture} compact />
+              </div>
+              <div className="mon-desk-incidents">
+                <section className="panel">
+                  <div className="panel-head">
+                    <div><span className="eyebrow">PRIORITY QUEUE</span><h2>Active incidents</h2></div>
+                    <button type="button" className="mon-desk-action" onClick={() => setView("Incidents")}>VIEW ALL ↗</button>
+                  </div>
+                  <IncidentTable incidents={metrics.active.slice(0, 6)} />
+                </section>
+                <section className="panel">
+                  <div className="panel-head">
+                    <div><span className="eyebrow">LATEST DETECTION</span><h2>Recent findings</h2></div>
+                    <button type="button" className="mon-desk-action" onClick={() => setView("Investigation")}>INVESTIGATE ↗</button>
+                  </div>
+                  <FindingTable findings={state.findings.slice(0, 5)} />
+                </section>
+              </div>
+            </div>
+          </div>
         )}
 
         {view === "Incidents" && (
