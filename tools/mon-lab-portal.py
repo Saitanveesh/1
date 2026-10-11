@@ -118,6 +118,9 @@ class FlowCapture:
         # Bounded, metadata-only packet observations for a real SOC event log.
         # No payload storage or historical event fabrication.
         self.recent_events: collections.deque[dict] = collections.deque(maxlen=250)
+        self.recent_lab_route: collections.deque[tuple[float, dict]] = (
+            collections.deque(maxlen=180)
+        )
         self.interface_packets: collections.Counter[str] = collections.Counter()
         self.current_start = int(time.time())
         self.error: str | None = None
@@ -184,7 +187,7 @@ class FlowCapture:
                             self.packet_totals[direction] += 1
                             self.byte_totals[direction] += length
                             self.last_packet = int(time.time())
-                            self.recent_events.append({
+                            event = {
                                 "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"),
                                 "interface": observed_interface,
                                 "direction": direction,
@@ -193,7 +196,10 @@ class FlowCapture:
                                 "protocol": proto,
                                 "dst_port": port,
                                 "ip_bytes": length,
-                            })
+                            }
+                            self.recent_events.append(event)
+                            if {src, dst} == {"10.77.0.60", "10.77.0.50"}:
+                                self.recent_lab_route.append((time.time(), event))
         except Exception as exc:
             self.state = "UNAVAILABLE"
             self.error = str(exc)[:200]
@@ -226,6 +232,10 @@ class FlowCapture:
             ]
             interfaces = dict(self.interface_packets.most_common(12))
             events = list(self.recent_events)[-60:][::-1]
+            route_events = [
+                event for stamped, event in self.recent_lab_route
+                if 0 <= time.time() - stamped <= 90
+            ][::-1]
             raw_count = self.raw_frames
             decoded_count = sum(self.packet_totals.values())
             last_packet = self.last_packet
@@ -247,6 +257,7 @@ class FlowCapture:
             "capture_scope": INTERFACE,
             "observed_interfaces": interfaces,
             "events": events,
+            "lab_route_events": route_events,
             "packet_layer": "IP headers only; no application payload captured",
             "samples": [{k: v for k, v in row.items() if k != "flows"} for row in samples],
             "flows": top,
