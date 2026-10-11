@@ -341,7 +341,7 @@ export default function IncidentDetail({
           </article>
         </div>
       )}
-      {caseTab === "response" && <div className="detail-grid mon-incident-response-grid">
+      {investigation && caseTab === "response" && <div className="detail-grid mon-incident-response-grid">
           <article>
             <h3>Containment capability</h3>
             <ul data-testid="containment-capabilities">
