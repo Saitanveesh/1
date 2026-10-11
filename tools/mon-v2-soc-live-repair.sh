@@ -9,7 +9,7 @@ V2="$BASE/console-v2"
 GATEWAY="$BASE/tools"
 ENVFILE=/etc/mon-three/lab-portal.env
 METRICS="$BASE/monitoring"
-PIN=@PIN@
+PIN=5400bf2a9139fa9f3b9afecef7f42029a7078d13
 BRANCH=fix/linux-ssh-journal-ingestion-20261010
 TEMP=""
 BACKUP=""
@@ -28,6 +28,7 @@ cleanup() {
     cp "$BACKUP/mon_ai_analysis.py" "$GATEWAY/mon_ai_analysis.py" || true
     sudo cp -p "$BACKUP/portal-env" "$ENVFILE" || true
     sudo systemctl restart mon-three-lab-portal.service || true
+    sudo systemctl restart mon-three-console-v2.service || true
     if [[ "$NEW_METRICS" == 1 && -d "$METRICS" ]]; then
       mv "$METRICS" "$BACKUP/monitoring-failed" || true
     fi
@@ -75,7 +76,8 @@ for file in "${FILES[@]}"; do cp "$TEMP/$file" "$V2/$file"; done
 cp "$TEMP/mon-lab-portal.py" "$GATEWAY/mon-lab-portal.py"
 cp "$TEMP/mon_ai_analysis.py" "$GATEWAY/mon_ai_analysis.py"
 (cd "$V2" && npm run build)
-echo '[PASS] New 5-second rate curve, raw packet log and compact AI bar compiled'
+sudo systemctl restart mon-three-console-v2.service
+echo '[PASS] New 5-second rate curve, raw packet log and compact AI bar compiled and V2 refreshed'
 
 echo '========== ENSURE METRICS CONFIGURATION =========='
 if [[ ! -d "$METRICS" && ! -L "$METRICS" ]]; then
