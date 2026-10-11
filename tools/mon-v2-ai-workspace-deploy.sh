@@ -5,7 +5,8 @@ REPO=/home/pc-2/mon-three-code
 V2=/home/pc-2/mon-three/console-v2
 PIN=e40395e0579fe20ae9ddd2e0a2806c9cef4ba2e2
 UNIT=mon-three-console-v2.service
-FILES=(src/App.tsx src/AiAnalysis.tsx src/AiAnalysis.css)
+FILES=(src/App.tsx src/AiAnalysis.tsx src/AiAnalysis.css src/IncidentDetail.tsx src/PacketObservability.tsx src/types.ts)
+PORTAL=/home/pc-2/mon-three/tools/mon_ai_analysis.py
 STAGE="" BACKUP="" ALTERED=0 OK=0
 
 on_exit() {
@@ -20,6 +21,8 @@ on_exit() {
         rm -f "$V2/$file"
       fi
     done
+    cp "$BACKUP/mon_ai_analysis.py" "$PORTAL" || true
+    sudo systemctl restart mon-three-lab-portal.service || true
     sudo systemctl restart "$UNIT" || true
   fi
   if [[ -n "$STAGE" && -d "$STAGE" ]]; then rm -rf "$STAGE"; fi
@@ -29,7 +32,7 @@ trap on_exit EXIT
 
 echo '========== MON V2 AI WORKSPACE PREFLIGHT =========='
 [[ "$(id -un)" == pc-2 && ! -L "$V2" && -d "$REPO/.git" ]] || exit 1
-[[ -f "$V2/src/App.tsx" && -x "$V2/node_modules/.bin/tsc" ]] || exit 1
+[[ -f "$V2/src/App.tsx" && -x "$V2/node_modules/.bin/tsc" && -f "$PORTAL" ]] || exit 1
 sudo -v
 sudo systemctl is-active --quiet "$UNIT"
 sudo systemctl cat "$UNIT" | grep -Fq "$V2"
@@ -48,18 +51,23 @@ for file in "${FILES[@]}"; do
   mkdir -p "$STAGE/$(dirname "$file")"
   git -C "$REPO" show "$PIN:console/$file" > "$STAGE/$file"
 done
+git -C "$REPO" show "$PIN:tools/mon_ai_analysis.py" > "$STAGE/mon_ai_analysis.py"
+python3 -m py_compile "$STAGE/mon_ai_analysis.py"
 grep -Fq '"AI Analysis"' "$STAGE/src/App.tsx"
 BACKUP=$(mktemp -d /home/pc-2/mon-three/ai-backup.XXXXXXXX)
 mkdir -p "$BACKUP/src"
+cp "$PORTAL" "$BACKUP/mon_ai_analysis.py"
 for file in "${FILES[@]}"; do
   if [[ -f "$V2/$file" ]]; then cp "$V2/$file" "$BACKUP/$file"; fi
 done
 ALTERED=1
 for file in "${FILES[@]}"; do cp "$STAGE/$file" "$V2/$file"; done
 (cd "$V2" && npm run build)
-echo '[PASS] AI Analysis compiled in existing V2'
+cp "$STAGE/mon_ai_analysis.py" "$PORTAL"
+echo '[PASS] SOC UI and read-only local AI packet tool compiled'
 
 echo '========== RESTART ISOLATED FRONTEND =========='
+sudo systemctl restart mon-three-lab-portal.service
 sudo systemctl restart "$UNIT"
 READY=0
 for i in $(seq 1 25); do
@@ -81,6 +89,6 @@ for url in http://127.0.0.1:8080/health http://127.0.0.1:8090/health http://100.
   curl --noproxy '*' -fsS --max-time 6 "$url" >/dev/null
 done
 OK=1
-echo '[PASS] AI Analysis tab is served by MON V2; network/control services untouched'
+echo '[PASS] Incident timeline, Operations, live network graph and local AI tool deployed'
 echo "Backup: $BACKUP"
 echo 'OPEN http://100.75.116.62:5174/?tenant=mon-lab&site=site-a'
