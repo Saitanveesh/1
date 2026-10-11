@@ -445,6 +445,10 @@ export default function App() {
     return { active, highest, attackPressure, critical };
   }, [state.incidents]);
 
+  const displayedIncident = state.incidents.find(item =>
+    item.incident_id === selectedIncident?.incident_id
+  ) ?? state.incidents[0] ?? null;
+
   if (authState === "UNAUTHENTICATED") {
     return <LoginPage loading={false} onAuthenticated={() => window.location.reload()} />;
   }
@@ -530,23 +534,13 @@ export default function App() {
 
         {view === "Incidents" && (
           <div className="mon-incidents-workspace" data-testid="incident-workspace">
-            <IncidentQueue
-              incidents={state.incidents}
-              selectedId={(selectedIncident && state.incidents.some(row =>
-                row.incident_id === selectedIncident.incident_id)
-                ? selectedIncident : state.incidents[0])?.incident_id ?? null}
-              onSelect={setSelectedIncident}
-            />
+            <IncidentQueue incidents={state.incidents}
+              selectedId={displayedIncident?.incident_id ?? null}
+              onSelect={setSelectedIncident} />
             <div className="mon-incidents-main">
-              {(selectedIncident && state.incidents.some(row =>
-                row.incident_id === selectedIncident.incident_id)
-                ? state.incidents.find(row => row.incident_id === selectedIncident.incident_id)
-                : state.incidents[0]) ? (
+              {displayedIncident ? (
                 <IncidentDetail
-                  incident={(selectedIncident && state.incidents.some(row =>
-                    row.incident_id === selectedIncident.incident_id)
-                    ? state.incidents.find(row => row.incident_id === selectedIncident.incident_id)
-                    : state.incidents[0])!}
+                  incident={displayedIncident}
                   tenantId={tenantId}
                   siteId={siteId}
                   executions={state.response_executions}
@@ -558,8 +552,8 @@ export default function App() {
                 />
               ) : (
                 <section className="mon-case-waiting">
-                  <h2>No incident selected</h2>
-                  <p>Once MON detects an incident, its evidence will appear here.</p>
+                  <h2>No incidents recorded</h2>
+                  <p>When MON detects an incident, its evidence will appear here.</p>
                 </section>
               )}
             </div>
