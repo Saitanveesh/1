@@ -26,11 +26,18 @@ export function observedForTarget(
   source: string | null, targetIps: string[], capture: PacketCaptureSnapshot | null
 ) {
   if (!source || !targetIps.length || capture?.status !== "CAPTURING") return [];
-  const packets = capture.lab_route_events ?? capture.events ?? [];
-  return packets.filter(event =>
+  // Lab-route events are a subset of the general capture buffer. Merge rather than
+  // prefer them, so an unrelated new incident still gets its own packet matches.
+  const packets = [...(capture.events ?? []), ...(capture.lab_route_events ?? [])];
+  const matches = packets.filter(event =>
     (event.src_ip === source && targetIps.includes(event.dst_ip)) ||
     (event.dst_ip === source && targetIps.includes(event.src_ip))
   );
+  const unique = new Map(matches.map(event => [
+    [event.timestamp, event.interface, event.direction, event.src_ip, event.dst_ip,
+      event.protocol, event.dst_port, event.ip_bytes].join("|"), event
+  ]));
+  return [...unique.values()];
 }
 
 function TrafficTrace({ capture }: { capture: PacketCaptureSnapshot | null }) {
