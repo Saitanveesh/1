@@ -17,6 +17,7 @@ interface Props {
   siteId: string;
   executions: ResponseExecution[];
   auditRecords: AuditRecord[];
+  onOpen3D?: (incident: Incident) => void;
 }
 
 export default function IncidentDetail({
@@ -24,7 +25,8 @@ export default function IncidentDetail({
   tenantId,
   siteId,
   executions,
-  auditRecords
+  auditRecords,
+  onOpen3D
 }: Props) {
   const [investigation, setInvestigation] = useState<IncidentInvestigation | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -217,9 +219,15 @@ export default function IncidentDetail({
           <span className="eyebrow">INCIDENT INVESTIGATION</span>
           <h2 data-testid="incident-detail-title">{incident.title}</h2>
         </div>
-        <span className="mono">
-          {incident.severity} / {incident.status} / {Math.round(incident.confidence * 100)}%
-        </span>
+        <div className="mon-incident-actions">
+          <span className="mono">
+            {incident.severity} / {incident.status} / {Math.round(incident.confidence * 100)}%
+          </span>
+          {onOpen3D && <button type="button" className="control-button"
+            data-testid="open-3d-investigation" onClick={() => onOpen3D(incident)}>
+            RECONSTRUCT IN 3D ↗
+          </button>}
+        </div>
       </div>
       {error && <div className="empty" role="alert">{error}</div>}
       {!error && !investigation && <div className="empty">Loading investigation…</div>}
