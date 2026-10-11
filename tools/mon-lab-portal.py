@@ -224,6 +224,11 @@ class FlowCapture:
                 }
                 for k, v in totals.most_common(30)
             ]
+            interfaces = dict(self.interface_packets.most_common(12))
+            events = list(self.recent_events)[-60:][::-1]
+            raw_count = self.raw_frames
+            decoded_count = sum(self.packet_totals.values())
+            last_packet = self.last_packet
         return {
             "source": "linux-af_packet",
             "interface": INTERFACE,
@@ -233,12 +238,12 @@ class FlowCapture:
             "sample_interval_seconds": 1,
             "capture_window_seconds": WINDOW,
             "direction": "inbound and outbound interface observations; forwarding may be counted twice",
-            "raw_frames": self.raw_frames,
-            "decoded_packets": sum(self.packet_totals.values()),
-            "last_packet_at": self.last_packet,
+            "raw_frames": raw_count,
+            "decoded_packets": decoded_count,
+            "last_packet_at": last_packet,
             "capture_scope": INTERFACE,
-            "observed_interfaces": dict(self.interface_packets.most_common(12)),
-            "events": list(self.recent_events)[-60:][::-1],
+            "observed_interfaces": interfaces,
+            "events": events,
             "packet_layer": "IP headers only; no application payload captured",
             "samples": [{k: v for k, v in row.items() if k != "flows"} for row in samples],
             "flows": top,
