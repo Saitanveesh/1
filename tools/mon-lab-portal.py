@@ -115,6 +115,10 @@ class FlowCapture:
         self.raw_frames = 0
         self.decode_errors = 0
         self.last_packet = 0
+        # Bounded, metadata-only packet observations for a real SOC event log.
+        # No payload storage or historical event fabrication.
+        self.recent_events: collections.deque[dict] = collections.deque(maxlen=250)
+        self.interface_packets: collections.Counter[str] = collections.Counter()
         self.current_start = int(time.time())
         self.error: str | None = None
         self.state = "STARTING"
@@ -163,11 +167,13 @@ class FlowCapture:
                         self._flush(int(time.time()))
                         continue
                     kind = address[2]
+                    observed_interface = str(address[0])
                     observation = parse_packet(packet, kind)
                     self._flush(int(time.time()))
                     direction = "outbound" if kind == socket.PACKET_OUTGOING else "inbound"
                     with self.lock:
                         self.raw_frames += 1
+                        self.interface_packets[observed_interface] += 1
                         if observation is None:
                             self.decode_errors += 1
                         else:
@@ -178,6 +184,16 @@ class FlowCapture:
                             self.packet_totals[direction] += 1
                             self.byte_totals[direction] += length
                             self.last_packet = int(time.time())
+                            self.recent_events.append({
+                                "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds"),
+                                "interface": observed_interface,
+                                "direction": direction,
+                                "src_ip": src,
+                                "dst_ip": dst,
+                                "protocol": proto,
+                                "dst_port": port,
+                                "ip_bytes": length,
+                            })
         except Exception as exc:
             self.state = "UNAVAILABLE"
             self.error = str(exc)[:200]
@@ -221,7 +237,9 @@ class FlowCapture:
             "decoded_packets": sum(self.packet_totals.values()),
             "last_packet_at": self.last_packet,
             "capture_scope": INTERFACE,
-            "packet_layer": "IP layer; no application payload captured",
+            "observed_interfaces": dict(self.interface_packets.most_common(12)),
+            "events": list(self.recent_events)[-60:][::-1],
+            "packet_layer": "IP headers only; no application payload captured",
             "samples": [{k: v for k, v in row.items() if k != "flows"} for row in samples],
             "flows": top,
         }
