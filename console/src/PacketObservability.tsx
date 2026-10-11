@@ -185,7 +185,7 @@ export function NetworkPath({
           <text className="mon-link-label" x="710" y="140" textAnchor="middle">FORWARDED</text>
           <text className="mon-route-note" x="520" y="289" textAnchor="middle">
             {packets ? human(packets) + " packets · " + human(bytes) + " bytes · 10s" +
-              (baselinePackets > 0 ? " · " + baselinePackets + " ICMP baseline" : "") :
+              (baselinePackets > 0 ? " · " + baselinePackets + " ICMP expected-baseline" : "") :
               "No packet observation for this route in the latest window"}
           </text>
           <text className="mon-svg-label" x="520" y="313" textAnchor="middle">
@@ -206,7 +206,7 @@ export function NetworkPath({
               {flows.slice(0, 15).map((flow, index) => <tr key={index}>
                 <td>{flow.src_ip}</td><td>{flow.dst_ip}</td>
                 <td>{protocol(flow)}{flow.src_ip === "10.77.0.60" && flow.dst_ip === "10.77.0.50" &&
-                  flow.protocol === "ICMP" ? " · BASELINE" : ""}</td>
+                  flow.protocol === "ICMP" ? " · EXPECTED-BASELINE" : ""}</td>
                 <td>{human(flow.packets)}</td><td>{human(flow.bytes)}</td>
               </tr>)}
               {!flows.length && <tr>
