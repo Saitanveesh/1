@@ -124,7 +124,10 @@ def test_compact_ai_result_never_exposes_model_instruction_echo(monkeypatch):
         return {
             "model": "qwen3:4b",
             "message": {
-                "content": "We are given a JSON evidence. Steps: read the JSON and explain instructions."
+                "content": (
+                    "We are given a JSON evidence. "
+                    "Steps: read the JSON and explain instructions."
+                )
             },
         }
 
