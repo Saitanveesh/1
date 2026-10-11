@@ -194,12 +194,6 @@ export function NetworkPath({
     (attackerIps.find(ip => ip !== "10.77.0.1") ?? "10.77.0.60");
   const flows = capture?.flows ?? [];
   const target = "10.77.0.50";
-  const traffic = flows.filter(f =>
-    (f.src_ip === source && f.dst_ip === target) ||
-    (f.src_ip === target && f.dst_ip === source));
-  const packets = traffic.reduce((n, flow) => n + flow.packets, 0);
-  const bytes = traffic.reduce((n, flow) => n + flow.bytes, 0);
-  const baselinePackets = traffic.filter(f => f.protocol === "ICMP").reduce((n, f) => n + f.packets, 0);
   const now = Date.parse(capture?.observed_at ?? "");
   const recent = (capture?.lab_route_events ?? capture?.events ?? []).filter(event =>
     ((event.src_ip === source && event.dst_ip === target) ||
@@ -211,6 +205,7 @@ export function NetworkPath({
   const active = measured && recent.some(event =>
     now - Date.parse(event.timestamp) <= 5000
   );
+  const recentBytes = recent.reduce((sum, event) => sum + event.ip_bytes, 0);
   const lastMatch = recent.length ? new Date(recent[0].timestamp).toLocaleTimeString() : null;
   const observedIfaces = Object.keys(capture?.observed_interfaces ?? {});
 
@@ -225,7 +220,7 @@ export function NetworkPath({
         <span className="mon-tag">{active ? "TRAFFIC OBSERVED NOW" : recent.length ? "RECENT MATCH" : "NO MATCHING RECENT PACKETS"}</span>
       </div>
       <div className="mon-topology-canvas">
-        <svg viewBox="0 0 1040 330" role="img"
+        <svg viewBox="0 0 1040 265" role="img"
           aria-label="Three computer lab topology: PC6, via PC2 gateway, to PC5">
           <defs>
             <marker id="mon-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
@@ -260,23 +255,12 @@ export function NetworkPath({
 
           <text className="mon-link-label" x="332" y="140" textAnchor="middle">TUNNEL</text>
           <text className="mon-link-label" x="710" y="140" textAnchor="middle">FORWARDED</text>
-          <text className="mon-route-note" x="520" y="289" textAnchor="middle">
-            {active
-              ? human(packets) + " flow packets · " + human(bytes) + " bytes" +
-                  (baselinePackets ? " · " + baselinePackets + " ICMP probes" : "")
-              : lastMatch ? "LAST PC6 ↔ PC5 OBSERVATION: " + lastMatch +
-                  " · " + recent.length + " recent IP header records"
-              : "No matching PC6 ↔ PC5 packets in retained capture window"}
-          </text>
-          <text className="mon-svg-label" x="520" y="313" textAnchor="middle">
-            {measured ? "Animation is enabled only by recent matching IP headers, not inferred network hops" :
-              "Configured topology is not proof of individual packet hop traversal"}
-          </text>
+
         </svg>
       </div>
       <div className="mon-route-observations" data-testid="route-observation-summary">
         <span>CAPTURE: {capture?.status ?? "CONNECTING"}</span>
-        <span>PC6 ↔ PC5: {recent.length} recent IP records</span>
+        <span data-testid="route-count">PC6 ↔ PC5: {recent.length} observed IP packets · {human(recentBytes)} IP bytes (90s)</span>
         <span>LAST SEEN: {lastMatch ?? "NOT OBSERVED"}</span>
         <span>INTERFACES: {observedIfaces.join(", ") || capture?.capture_scope || "UNKNOWN"}</span>
       </div>
