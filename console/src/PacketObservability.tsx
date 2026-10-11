@@ -112,7 +112,9 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
       </div>
       <div className="mon-chart-footer">
         <span>BLACK TRACE = OBSERVED IP INTERFACE PACKETS / SECOND</span>
-        <span>{capturing ? new Date(capture.observed_at).toLocaleTimeString() : "NO GENERATED OR ESTIMATED PACKETS"}</span>
+        <span>{capturing
+          ? `RAW ${capture.raw_frames ?? "—"} · DECODED ${capture.decoded_packets ?? "—"} · ${new Date(capture.observed_at).toLocaleTimeString()}`
+          : "NO GENERATED OR ESTIMATED PACKETS"}</span>
       </div>
     </section>
   );
