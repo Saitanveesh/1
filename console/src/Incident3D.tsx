@@ -69,16 +69,28 @@ export function buildIncidentScene(
   const links: SceneLink[] = [];
   if (source) nodes.push({
     id: "source:" + source, label: source, detail: "Source from recorded finding or case",
-    kind: "source", x: -3.3, y: .7, z: 0, ref: source
+    kind: "source", x: kind === "beacon" ? -.9 : -3.3,
+    y: kind === "beacon" ? -1.65 : .7, z: kind === "beacon" ? 1.3 : 0,
+    ref: source
   });
   assets.forEach((asset, i) => {
     const offset = i - (assets.length - 1) / 2;
+    const spread = Math.min(1.35, 4 / Math.max(1, assets.length));
+    const theta = i * Math.PI * 2 / Math.max(1, assets.length);
+    const x = kind === "lateral" ? -1 + (i + 1) * .85 :
+      kind === "beacon" ? Math.cos(theta) * 2.55 + .8 :
+      kind === "containment" ? .7 : kind === "reconnaissance" ? 3 : 2.45;
+    const y = kind === "beacon" ? Math.sin(theta) * 1.9 + .7 :
+      kind === "lateral" ? (i % 2 ? 1.6 : -.2) :
+      kind === "containment" ? 1.35 : offset * spread;
+    const z = kind === "lateral" ? Math.sin(i * 1.2) * 1.25 :
+      kind === "beacon" ? Math.cos(theta) * 1.1 :
+      kind === "containment" ? -.75 :
+      assets.length < 2 ? 0 : Math.sin(i * 1.2) * 1.1;
     nodes.push({
       id: "asset:" + asset.asset_id, label: asset.display_name,
       detail: asset.ip_addresses.join(", ") || asset.asset_id,
-      kind: "asset", x: kind === "reconnaissance" ? 3 : 2.45,
-      y: offset * 1.8, z: assets.length < 2 ? 0 : Math.sin(i * 1.2) * 1.1,
-      ref: asset.asset_id
+      kind: "asset", x, y, z, ref: asset.asset_id
     });
     if (source) links.push({
       id: "case:" + i, from: "source:" + source, to: "asset:" + asset.asset_id,
@@ -150,7 +162,7 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [momentIndex, setMomentIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [verifiedOnly, setVerifiedOnly] = useState(true);
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const dragging = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (!playing || model.timeline.length < 2) return;
@@ -182,7 +194,7 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
         <span>{model.nodes.length} EVIDENCE / ENTITY NODES</span>
         <span>{model.packets} MATCHED RECENT IP HEADERS</span>
         <label><input type="checkbox" checked={verifiedOnly}
-          onChange={e => setVerifiedOnly(e.target.checked)} /> VERIFIED LINKS ONLY</label>
+          onChange={e => setVerifiedOnly(e.target.checked)} /> VERIFIED LINKS ONLY (HIDE CASE ASSOCIATIONS)</label>
       </div>
       {projection === "3d" ? (
         <div className="mon3d-stage" data-testid="incident-3d-viewport"
