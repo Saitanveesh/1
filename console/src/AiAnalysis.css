@@ -263,3 +263,40 @@
 @media (prefers-reduced-motion: reduce) {
   .aiwb *, .aiwb *::before, .aiwb *::after { animation:none!important; transition:none!important; }
 }
+
+
+/* SOC case chronology belongs to Incidents; analysis panels have full width. */
+.mon-case-chronology {
+  display: grid; grid-template-columns: minmax(0,1.5fr) minmax(310px,1fr);
+  gap: 14px; padding: 0 24px 20px; align-items: start;
+}
+.mon-case-chronology .aiwb-timeline { min-width: 0; }
+.mon-case-inspector { min-width: 0; border:1px solid #d5d6d8; }
+.mon-case-inspector .aiwb-selected-detail code { overflow-wrap:anywhere; }
+.aiwb-analysis-columns { display:block; }
+.aiwb-analysis-columns .aiwb-inspector {
+  display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);
+  gap: 18px; align-items:start;
+}
+.aiwb-analysis-columns .aiwb-ai-box { grid-row:span 2; }
+.aiwb-hunt { margin-top: 20px; }
+.aiwb-hunt-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-bottom:1px solid #ddd; }
+.aiwb-hunt-metrics>div { padding:16px 18px; border-right:1px solid #ddd; min-width:0; }
+.aiwb-hunt-metrics>div:last-child { border-right:0; }
+.aiwb-hunt-metrics small { display:block; color:#666; font:9px ui-monospace,monospace; }
+.aiwb-hunt-metrics strong { display:block; font:700 20px ui-monospace,monospace; margin-top:10px; overflow-wrap:anywhere; }
+.aiwb-hunt-table { overflow-x:auto; max-height:310px; overflow-y:auto; }
+.aiwb-hunt-table td { font:10px ui-monospace,monospace; overflow-wrap:anywhere; }
+.aiwb-tool-list { padding: 8px 20px; }
+.aiwb-tool-list>div { padding:13px 0; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #eee; }
+.aiwb-tool-list strong { font:700 10px ui-monospace,monospace; }
+.aiwb-tool-list span {font:11px ui-monospace,monospace; color:#555; text-align:right; }
+.aiwb-tool-result-list { border-top:1px solid #ddd; padding-top:12px; display:grid; gap:9px; }
+.aiwb-tool-result-list>div { display:grid; grid-template-columns:1fr auto; gap:5px; }
+.aiwb-tool-result-list>div span { grid-column:span 2; font:10px ui-monospace,monospace; color:#666; }
+.mon-operations-nav { display:flex; flex-wrap:wrap; gap:8px; padding:17px 24px 0; }
+.mon-operations-nav button { padding:10px 15px; background:white; border:1px solid #bbb; cursor:pointer; font:700 11px ui-monospace,monospace; }
+.mon-operations-nav button[aria-pressed="true"] { background:#111; color:white; border-color:#111; }
+.mon-route-observations { padding:15px 21px; background:#f8f8f8; border-block:1px solid #ddd; display:flex; gap:20px; justify-content:space-between; flex-wrap:wrap; font:10px ui-monospace,monospace; }
+@media(max-width:1100px) { .mon-case-chronology { grid-template-columns:1fr; } .aiwb-analysis-columns .aiwb-inspector{grid-template-columns:1fr 1fr;} }
+@media(max-width:760px) { .mon-case-chronology{padding:0 12px 15px;} .aiwb-analysis-columns .aiwb-inspector{grid-template-columns:1fr;} .aiwb-hunt-metrics{grid-template-columns:repeat(2,minmax(0,1fr));} }
