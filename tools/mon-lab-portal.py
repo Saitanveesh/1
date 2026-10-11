@@ -351,6 +351,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(HTTPStatus.UNAUTHORIZED, {"error": "authentication required"})
                 return
             self.reply(HTTPStatus.OK, FLOW.snapshot())
+        elif path == "/portal/ids":
+            if not self._session():
+                self.reply(HTTPStatus.UNAUTHORIZED, {"error": "authentication required"})
+                return
+            try:
+                from mon_suricata_bridge import read_suricata_eve
+            except ImportError:
+                self.reply(HTTPStatus.OK, {
+                    "source": "suricata-eve",
+                    "status": "NOT_INSTALLED",
+                    "records": [],
+                    "alerts": 0,
+                    "observed_events": 0,
+                })
+                return
+            self.reply(HTTPStatus.OK, read_suricata_eve())
         elif path == "/portal/session":
             self.reply(HTTPStatus.OK, {"authenticated": self._session()})
         elif path == "/portal/metrics":
