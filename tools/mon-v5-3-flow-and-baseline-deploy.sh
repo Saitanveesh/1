@@ -87,15 +87,18 @@ for service in mon-three-lab-portal.service mon-three-console-v2.service; do
   echo "BOOT SERVICE: $service $(sudo systemctl is-enabled "$service")"
 done
 if [[ -f "$MONITOR/$DASH" ]]; then
-  cp "$STAGE/monitor/$DASH" "$MONITOR/$DASH"
   DASH_CHANGED=1
+  cp "$STAGE/monitor/$DASH" "$MONITOR/$DASH"
   echo '[PASS] Grafana adds 5-minute traffic baseline and Prometheus scrape health'
 else
   echo '[CHECK] No provisioned Grafana dashboard on PC2; skipped optional dashboard update'
 fi
 if command -v docker >/dev/null 2>&1; then
+  if sudo systemctl is-active --quiet docker.service; then
+    sudo systemctl enable docker.service >/dev/null
+  fi
   if sudo systemctl is-enabled docker.service >/dev/null 2>&1; then echo 'DOCKER BOOT: ENABLED'
-  else echo '[CHECK] Docker is not enabled at boot; Grafana may not survive host reboot'; fi
+  else echo '[CHECK] Docker boot service not enabled or not managed by docker.service'; fi
 fi
 if curl --noproxy '*' -fsS --max-time 6 http://100.75.116.62:3000/api/health 2>/dev/null |
   python3 -c 'import json,sys; assert json.load(sys.stdin).get("database")=="ok"' >/dev/null 2>&1; then
