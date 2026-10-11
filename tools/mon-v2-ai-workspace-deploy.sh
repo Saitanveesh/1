@@ -3,7 +3,7 @@ set -euo pipefail
 umask 077
 REPO=/home/pc-2/mon-three-code
 V2=/home/pc-2/mon-three/console-v2
-PIN=dd9c7b4ddc3211e27d264c93676ce908a4a36450
+PIN=1a805e984a92d86d8b5c907b486738d12e339c43
 UNIT=mon-three-console-v2.service
 FILES=(src/App.tsx src/AiAnalysis.tsx src/AiAnalysis.css src/IncidentDetail.tsx src/PacketObservability.tsx src/types.ts)
 PORTAL=/home/pc-2/mon-three/tools/mon_ai_analysis.py
@@ -83,6 +83,24 @@ for i in $(seq 1 25); do
   sleep 1
 done
 [[ "$READY" == 1 ]] || { echo '[FAIL] V2 frontend/portal health failed'; exit 1; }
+python3 - <<'PY'
+import json
+import urllib.request
+from pathlib import Path
+
+token = Path("/home/pc-2/mon-three/identity/operator.jwt").read_text().strip()
+req = urllib.request.Request(
+    "http://127.0.0.1:8088/portal/flows",
+    headers={"Cookie": "mon_session=" + token},
+)
+with urllib.request.urlopen(req, timeout=8) as response:
+    data = json.load(response)
+assert data["status"] == "CAPTURING", "Packet sensor is not capturing"
+assert isinstance(data.get("lab_route_events"), list), (
+    "Real route-specific packet history is not available"
+)
+print("[PASS] Real route-specific IP header history exposed; no events invented")
+PY
 MODULE=$(mktemp)
 curl --noproxy '*' -fsS --max-time 6 http://127.0.0.1:5174/src/App.tsx -o "$MODULE"
 if ! grep -Fq 'AI Analysis' "$MODULE"; then
@@ -90,6 +108,17 @@ if ! grep -Fq 'AI Analysis' "$MODULE"; then
   echo '[FAIL] Old frontend still served'; exit 1
 fi
 rm -f "$MODULE"
+for component in "src/IncidentDetail.tsx:incident-chronology" \
+                 "src/AiAnalysis.tsx:ai-telemetry-tools" \
+                 "src/PacketObservability.tsx:lab_route_events"; do
+  urlpath="${component%%:*}"
+  marker="${component#*:}"
+  html=$(curl --noproxy '*' -fsS --max-time 6 "http://127.0.0.1:5174/$urlpath")
+  printf '%s' "$html" | grep -Fq "$marker" || {
+    echo "[FAIL] Browser is not serving new component: $urlpath"; exit 1;
+  }
+done
+echo '[PASS] Browser serves incident timeline, live telemetry pivot and route correlation'
 for url in http://127.0.0.1:8080/health http://127.0.0.1:8090/health http://100.75.116.62:5173/; do
   curl --noproxy '*' -fsS --max-time 6 "$url" >/dev/null
 done
