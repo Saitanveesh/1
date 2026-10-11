@@ -54,6 +54,14 @@ describe("3D scene is rebuilt from recorded MON incident evidence", () => {
       expect(classifyIncident({ ...incident, title, detector_ids: [] })).toBe(expected);
     }
     expect(classifyIncident(incident)).toBe("authentication");
+    const auth = buildIncidentScene(investigation, [], [], null);
+    const beaconIncident = { ...incident, title: "Periodic C2 beacon",
+      detector_ids: ["dns-beacon-pressure"] };
+    const beacon = buildIncidentScene({
+      ...investigation, incident: beaconIncident
+    }, [], [], null);
+    expect(auth.nodes.find(n => n.kind === "asset")?.y)
+      .not.toEqual(beacon.nodes.find(n => n.kind === "asset")?.y);
   });
 
   it("does not manufacture intermediate network devices or attacker hops", () => {
