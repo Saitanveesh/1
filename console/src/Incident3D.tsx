@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, fetchInvestigation } from "./api";
 import { buildCaseTimeline, type CaseMoment } from "./AiAnalysis";
 import IncidentEventFlow from "./IncidentEventFlow";
+import IncidentFlowMap from "./IncidentFlowMap";
 import type { Incident, IncidentInvestigation, ResponseExecution, AuditRecord, PacketCaptureSnapshot } from "./types";
 import "./Incident3D.css";
 
@@ -390,6 +391,6 @@ export default function Investigation3D({
     {error && <p role="alert" className="mon3d-empty">{error}</p>}
     {id && !error && !model && <p className="mon3d-empty" role="status">Loading MON evidence…</p>}
     {model && investigation && <IncidentEventFlow investigation={investigation} responses={executions} compact />}
-    {model && <Incident3DScene key={id} model={model} />}
+    {model && <IncidentFlowMap key={id} model={model} capture={capture} />}
   </section>;
 }
