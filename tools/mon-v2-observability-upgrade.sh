@@ -8,7 +8,7 @@ STATE=/home/pc-2/mon-three
 APP=$STATE/console-v2
 PORTAL=$STATE/tools
 ENV=/etc/mon-three/lab-portal.env
-PIN=23121d1678219de5fb47a4125f36da2805ec66c2
+PIN=2f91e795399b7d6f775f8f4e220749c703ac1ac8
 DIR=$STATE/monitoring
 FILES=(src/App.tsx src/IncidentDetail.tsx src/PacketObservability.tsx src/types.ts src/styles.css)
 STAGE="" BACKUP="" MODIFIED=0 DONE=0
@@ -137,10 +137,14 @@ echo "[CHECK] Cumulative decoded IP: inbound=$INBOUND outbound=$OUTBOUND"
 
 echo '========== OPTIONAL GRAFANA + PROMETHEUS =========='
 if command -v docker >/dev/null && sudo docker compose version >/dev/null 2>&1; then
-  sudo docker compose -f "$DIR/compose.yaml" --project-name mon-observability up -d
-  echo '[PASS] Grafana and Prometheus requested at http://100.75.116.62:3000/'
+  if sudo docker compose -f "$DIR/compose.yaml" --project-name mon-observability up -d; then
+    echo '[PASS] Grafana and Prometheus requested at http://100.75.116.62:3000/'
+  else
+    echo '[CHECK] Docker Compose could not start Grafana. MON capture remains independent.'
+    echo "[CHECK] Retry later: sudo docker compose -f $DIR/compose.yaml -p mon-observability up -d"
+  fi
 else
-  echo '[CHECK] Docker Compose unavailable: Grafana deployment deferred, MON capture works'
+  echo '[CHECK] Docker Compose unavailable: Grafana deployment deferred; MON capture still works'
 fi
 
 curl --noproxy '*' -fsS --max-time 6 http://127.0.0.1:8080/health >/dev/null
