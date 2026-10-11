@@ -114,9 +114,9 @@ else
   echo '[INSTALL] Ubuntu packages: suricata and tcpdump (passive tools)'
   WAS_INSTALLED=1
   command -v suricata >/dev/null || WAS_INSTALLED=0
-  if ! command -v suricata >/dev/null || ! command -v tcpdump >/dev/null; then
+  if ! command -v suricata >/dev/null || ! command -v tcpdump >/dev/null || ! command -v logrotate >/dev/null; then
     sudo apt-get update
-    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y suricata tcpdump
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y suricata tcpdump logrotate
   fi
   if [[ "$WAS_INSTALLED" == 0 ]] && sudo systemctl is-active --quiet suricata.service; then
     sudo systemctl disable --now suricata.service
@@ -151,6 +151,22 @@ WantedBy=multi-user.target
 EOF
   sudo install -m 0644 "$TMPUNIT" /etc/systemd/system/mon-suricata-passive.service
   rm -f "$TMPUNIT"
+  # Bound the disk footprint of full EVE data, which may contain sensitive metadata.
+  ROTATE=$(mktemp)
+  cat > "$ROTATE" <<EOF
+$LOGDIR/eve.json {
+    daily
+    maxsize 20M
+    rotate 7
+    compress
+    missingok
+    notifempty
+    copytruncate
+    su pc-2 pc-2
+}
+EOF
+  sudo install -m 0644 "$ROTATE" /etc/logrotate.d/mon-suricata-eve
+  rm -f "$ROTATE"
   sudo systemctl daemon-reload
   sudo systemctl enable --now mon-suricata-passive.service
   sleep 7
