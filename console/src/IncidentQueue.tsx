@@ -1,3 +1,4 @@
+import "./IncidentWorkspace.css";
 import type { Incident } from "./types";
 
 function incidentSource(incident: Incident): string {
