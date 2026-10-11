@@ -158,9 +158,16 @@ def packet_tool_context(
     result["status"] = _limited(snapshot.get("status"), 30)
     result["observed_at"] = _limited(snapshot.get("observed_at"), 70)
     result["scope"] = _limited(snapshot.get("capture_scope"), 40)
-    values = snapshot.get("events", [])
-    if not isinstance(values, list):
+    route_values = snapshot.get("lab_route_events", [])
+    general_values = snapshot.get("events", [])
+    values = (
+        route_values + general_values if (
+            isinstance(route_values, list) and isinstance(general_values, list)
+        ) else []
+    )
+    if not values:
         return result
+    seen: set[tuple[str, str, str, str]] = set()
     targets = set(target_ips)
     for row in values[:80]:
         if not isinstance(row, dict):
@@ -171,6 +178,13 @@ def packet_tool_context(
             (a == source_ip and (not targets or b in targets))
             or (b == source_ip and (not targets or a in targets))
         ):
+            identity = (
+                str(row.get("timestamp", "")), a, b,
+                str(row.get("protocol", "")),
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
             result["matched_count"] += 1
             if len(result["matched_events"]) < 6:
                 result["matched_events"].append({
