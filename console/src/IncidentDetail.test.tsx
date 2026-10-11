@@ -161,7 +161,10 @@ describe("IncidentDetail", () => {
     const ai = {
       incident_id: "inc-1",
       model: "qwen3:4b",
-      analysis: "Observed facts: eight failed logins. No packet counts provided.",
+      analysis: "Repeated SSH failures merit review.",
+      headline: "203.0.113.50 → web-01: 8 failed logins in 300s",
+      assessment: "Repeated SSH failures merit review.",
+      next_check: "Inspect SSH journal records.",
       evidence_ids: ["e1"],
       evidence_count: 1,
       read_only: true,
@@ -177,8 +180,8 @@ describe("IncidentDetail", () => {
     await waitFor(() => expect(screen.getByTestId("ai-incident-panel")).toBeTruthy());
     expect(mockedFetch).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("analyze-with-ai"));
-    await waitFor(() => expect(screen.getByTestId("local-ai-result")).toBeTruthy());
-    expect(screen.getByText(/No packet counts provided/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/8 failed logins in 300s/)).toBeTruthy());
+    expect(screen.getByText(/Inspect SSH journal records/)).toBeTruthy();
     expect(mockedFetch.mock.calls[1][0]).toBe("/portal/ai/investigate");
     const sent = JSON.parse(mockedFetch.mock.calls[1][1].body as string);
     expect(sent).toEqual({ incident_id: "inc-1", tenant_id: "t", site_id: "s" });
