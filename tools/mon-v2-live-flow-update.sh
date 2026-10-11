@@ -8,12 +8,16 @@ COMMIT="d091528f112fafe6649d46a76e8c489b111237d2"
 BRANCH="fix/linux-ssh-journal-ingestion-20261010"
 UNIT="mon-three-console-v2.service"
 BACKUP=""
+STAGED=""
 SWAPPED=0
 restore(){
   local rc=$?
   trap - EXIT
   if [[ "$SWAPPED" == 1 && -f "$BACKUP" ]]; then
     tar -xzf "$BACKUP" -C "$APP" || true
+  fi
+  if [[ -n "$STAGED" && -d "$STAGED" ]]; then
+    rm -rf -- "$STAGED"
   fi
   exit "$rc"
 }
@@ -43,7 +47,6 @@ echo "========== STAGE PINNED UI PATCH =========="
 git -C "$CODE" fetch --no-tags https://github.com/Saitanveesh/1.git "refs/heads/$BRANCH"
 git -C "$CODE" merge-base --is-ancestor "$COMMIT" FETCH_HEAD
 STAGED=$(mktemp -d)
-trap 'rm -rf "$STAGED"' EXIT
 for file in src/PacketObservability.tsx src/styles.css; do
   mkdir -p "$STAGED/$(dirname "$file")"
   git -C "$CODE" show "$COMMIT:console/$file" > "$STAGED/$file"
