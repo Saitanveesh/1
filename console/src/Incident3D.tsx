@@ -265,7 +265,7 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
 }
 
 export default function Investigation3D({
-  incidents, executions, audits, capture, tenantId, siteId, onOpen
+  incidents, executions, audits, capture, tenantId, siteId, initialIncidentId, onOpen
 }: {
   incidents: Incident[];
   executions: ResponseExecution[];
@@ -273,6 +273,7 @@ export default function Investigation3D({
   capture: PacketCaptureSnapshot | null;
   tenantId: string;
   siteId: string;
+  initialIncidentId?: string;
   onOpen: (incident: Incident) => void;
 }) {
   const [choice, setChoice] = useState("");
@@ -280,7 +281,9 @@ export default function Investigation3D({
   const [error, setError] = useState<string | null>(null);
   const cases = useMemo(() => [...incidents].sort((a, b) =>
     b.last_seen.localeCompare(a.last_seen)), [incidents]);
-  const id = cases.some(c => c.incident_id === choice) ? choice : cases[0]?.incident_id ?? "";
+  const id = cases.some(c => c.incident_id === choice) ? choice :
+    cases.some(c => c.incident_id === initialIncidentId) ? initialIncidentId! :
+      cases[0]?.incident_id ?? "";
   useEffect(() => {
     if (!id) { setInvestigation(null); return; }
     let cancelled = false;
