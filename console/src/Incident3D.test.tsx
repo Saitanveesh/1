@@ -94,8 +94,13 @@ describe("3D scene is rebuilt from recorded MON incident evidence", () => {
     const model = buildIncidentScene(investigation, [response], [], null);
     render(<Incident3DScene model={model} />);
     expect(screen.getByTestId("incident-3d-viewport")).toBeTruthy();
+    expect(screen.getByTestId("scene-inspector")).toBeTruthy();
+    expect(screen.getByText(/Recorded entities/)).toBeTruthy();
+    expect(screen.getByText(/Last matched IP header/)).toBeTruthy();
     expect(screen.getByTestId("mon3d-node-source")).toBeTruthy();
     expect(screen.getByTestId("mon3d-node-asset")).toBeTruthy();
+    expect(screen.getAllByTestId("mon3d-node-response")).toHaveLength(1);
+    expect(screen.getAllByTestId("mon3d-node-evidence")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "2D" }));
     const flat = screen.getByTestId("incident-2d-view");
     expect(within(flat).getByText("lab-pc5")).toBeTruthy();
