@@ -3,10 +3,11 @@ set -euo pipefail
 umask 077
 REPO=/home/pc-2/mon-three-code
 V2=/home/pc-2/mon-three/console-v2
-PIN=ddf76b2afcb6557c94ea627a3d31d9c7b2ccd652
+PIN=dd9c7b4ddc3211e27d264c93676ce908a4a36450
 UNIT=mon-three-console-v2.service
 FILES=(src/App.tsx src/AiAnalysis.tsx src/AiAnalysis.css src/IncidentDetail.tsx src/PacketObservability.tsx src/types.ts)
 PORTAL=/home/pc-2/mon-three/tools/mon_ai_analysis.py
+SENSOR=/home/pc-2/mon-three/tools/mon-lab-portal.py
 STAGE="" BACKUP="" ALTERED=0 OK=0
 
 on_exit() {
@@ -22,6 +23,7 @@ on_exit() {
       fi
     done
     cp "$BACKUP/mon_ai_analysis.py" "$PORTAL" || true
+    cp "$BACKUP/mon-lab-portal.py" "$SENSOR" || true
     sudo systemctl restart mon-three-lab-portal.service || true
     sudo systemctl restart "$UNIT" || true
   fi
@@ -32,7 +34,7 @@ trap on_exit EXIT
 
 echo '========== MON V2 AI WORKSPACE PREFLIGHT =========='
 [[ "$(id -un)" == pc-2 && ! -L "$V2" && -d "$REPO/.git" ]] || exit 1
-[[ -f "$V2/src/App.tsx" && -x "$V2/node_modules/.bin/tsc" && -f "$PORTAL" ]] || exit 1
+[[ -f "$V2/src/App.tsx" && -x "$V2/node_modules/.bin/tsc" && -f "$PORTAL" && -f "$SENSOR" ]] || exit 1
 sudo -v
 sudo systemctl is-active --quiet "$UNIT"
 sudo systemctl cat "$UNIT" | grep -Fq "$V2"
@@ -52,11 +54,13 @@ for file in "${FILES[@]}"; do
   git -C "$REPO" show "$PIN:console/$file" > "$STAGE/$file"
 done
 git -C "$REPO" show "$PIN:tools/mon_ai_analysis.py" > "$STAGE/mon_ai_analysis.py"
-python3 -m py_compile "$STAGE/mon_ai_analysis.py"
+git -C "$REPO" show "$PIN:tools/mon-lab-portal.py" > "$STAGE/mon-lab-portal.py"
+python3 -m py_compile "$STAGE/mon_ai_analysis.py" "$STAGE/mon-lab-portal.py"
 grep -Fq '"AI Analysis"' "$STAGE/src/App.tsx"
 BACKUP=$(mktemp -d /home/pc-2/mon-three/ai-backup.XXXXXXXX)
 mkdir -p "$BACKUP/src"
 cp "$PORTAL" "$BACKUP/mon_ai_analysis.py"
+cp "$SENSOR" "$BACKUP/mon-lab-portal.py"
 for file in "${FILES[@]}"; do
   if [[ -f "$V2/$file" ]]; then cp "$V2/$file" "$BACKUP/$file"; fi
 done
@@ -64,6 +68,7 @@ ALTERED=1
 for file in "${FILES[@]}"; do cp "$STAGE/$file" "$V2/$file"; done
 (cd "$V2" && npm run build)
 cp "$STAGE/mon_ai_analysis.py" "$PORTAL"
+cp "$STAGE/mon-lab-portal.py" "$SENSOR"
 echo '[PASS] SOC UI and read-only local AI packet tool compiled'
 
 echo '========== RESTART ISOLATED FRONTEND =========='
