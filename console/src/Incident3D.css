@@ -55,3 +55,5 @@
 @media(max-width:1050px){.mon3d-stage {height:390px}.mon3d-inspect{grid-template-columns:repeat(2,minmax(0,1fr))}.mon3d-node{min-width:100px;max-width:140px;padding:8px}.mon3d-node strong{font-size:12px}}
 @media(max-width:680px){.mon3d-page{margin:12px}.mon3d-casebar{padding:20px}.mon3d-stage{height:340px}.mon3d-scene-head{padding:16px}.mon3d-scene-head h3{font-size:22px}.mon3d-inspect{grid-template-columns:1fr}.mon3d-player{flex-wrap:wrap}.mon3d-player time{width:100%}}
 @media(prefers-reduced-motion:reduce){.mon3d-universe{transition:none}}
+
+.mon3d-node.timeline-active {outline:3px double #111;outline-offset:5px;box-shadow:0 0 0 10px #1111,7px 10px 0 #1112;z-index:3}
