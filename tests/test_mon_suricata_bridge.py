@@ -76,3 +76,11 @@ def test_malformed_eve_json_does_not_crash_or_fabricate_events(tmp_path):
     data = bridge().read_suricata_eve(path)
     assert data["records"] == []
     assert data["alerts"] == 0
+
+
+def test_configured_idle_sensor_is_distinct_from_never_installed(tmp_path):
+    marker = tmp_path / ".mon-passive-configured"
+    marker.write_text("configured")
+    result = bridge().read_suricata_eve(tmp_path / "eve.json")
+    assert result["status"] == "CONFIGURED_NO_EVE"
+    assert result["alerts"] == 0
