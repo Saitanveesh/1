@@ -114,7 +114,7 @@ export function buildIncidentScene(
       id: "response:" + r.execution_id,
       label: r.plan.request.action + " · " + r.status,
       detail: r.execution_id,
-      kind: "response", x: -1.2 + (i % 3) * 1.2,
+      kind: "response", x: -1.5 + (i % 3) * 1.65,
       y: -1.7 - Math.floor(i / 3) * .7, z: .55, ref: r.execution_id
     });
   });
