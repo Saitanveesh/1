@@ -168,10 +168,18 @@ EOF
   sudo install -m 0644 "$ROTATE" /etc/logrotate.d/mon-suricata-eve
   rm -f "$ROTATE"
   sudo systemctl daemon-reload
-  sudo systemctl enable --now mon-suricata-passive.service
+  if ! sudo systemctl enable --now mon-suricata-passive.service; then
+    sudo systemctl disable --now mon-suricata-passive.service || true
+    echo '[CHECK] Passive IDS service could not start. Existing MON services remain operational'
+    exit 2
+  fi
   sleep 7
-  sudo systemctl is-active --quiet mon-suricata-passive.service ||
-    { echo '[CHECK] Passive IDS service failed. MON UI remains operational'; exit 2; }
+  if ! sudo systemctl is-active --quiet mon-suricata-passive.service; then
+    sudo journalctl -u mon-suricata-passive.service -n 20 --no-pager || true
+    sudo systemctl disable --now mon-suricata-passive.service || true
+    echo '[CHECK] Passive IDS became inactive. MON UI remains operational'
+    exit 2
+  fi
   touch "$LOGDIR/.mon-passive-configured"
   echo '[PASS] Suricata passive IDS running on wg0; no packet blocking enabled'
 fi
