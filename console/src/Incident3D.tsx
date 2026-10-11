@@ -139,7 +139,8 @@ function SceneEdge({ a, b, recorded }: { a: SceneNode; b: SceneNode; recorded: b
   const transform = "translate3d(0, 0, " + (a.z * 82) + "px) rotateY(" +
     yaw + "deg) rotateZ(" + (-pitch) + "deg)";
   return <div className={"mon3d-edge " + (recorded ? "recorded" : "inferred")}
-    style={{ left: a.x * 82, top: -a.y * 82, width: length * 82, transform }}
+    style={{ left: "calc(50% + " + (a.x * 82) + "px)",
+      top: "calc(50% - " + (a.y * 82) + "px)", width: length * 82, transform }}
     aria-hidden="true" />;
 }
 
