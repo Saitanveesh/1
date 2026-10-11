@@ -237,7 +237,10 @@ class FlowCapture:
             "observed_at": datetime.now(UTC).isoformat(),
             "sample_interval_seconds": 1,
             "capture_window_seconds": WINDOW,
-            "direction": "inbound and outbound interface observations; forwarding may be counted twice",
+            "direction": (
+                "inbound and outbound interface observations; "
+                "forwarding may be counted twice"
+            ),
             "raw_frames": raw_count,
             "decoded_packets": decoded_count,
             "last_packet_at": last_packet,
