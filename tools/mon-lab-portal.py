@@ -40,6 +40,7 @@ TOKEN_FILE = Path(
 AUTH_WINDOW = 120
 AUTH_ATTEMPTS = 5
 WINDOW = 90
+METRICS_TOKEN = os.environ.get("MON_METRICS_TOKEN", "")
 
 
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
@@ -62,8 +63,8 @@ def verify_password(password: str, verifier: str) -> bool:
 
 
 def parse_packet(data: bytes, packet_kind: int) -> tuple[str, str, str, int | None, int] | None:
-    """Return IP endpoints and on-wire IP length, excluding outgoing duplicates."""
-    if packet_kind == socket.PACKET_OUTGOING or not data:
+    """Return IP header fields for inbound AND outbound interface packets."""
+    if not data:
         return None
     version = data[0] >> 4
     if version == 4:
@@ -103,12 +104,17 @@ class FlowCapture:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.history: collections.deque[dict] = collections.deque(maxlen=WINDOW)
-        self.current: collections.Counter[tuple[str, str, str, int | None]] = (
+        self.current: collections.Counter[tuple[str, str, str, int | None, str]] = (
             collections.Counter()
         )
-        self.bytes: collections.Counter[tuple[str, str, str, int | None]] = (
+        self.bytes: collections.Counter[tuple[str, str, str, int | None, str]] = (
             collections.Counter()
         )
+        self.packet_totals: collections.Counter[str] = collections.Counter()
+        self.byte_totals: collections.Counter[str] = collections.Counter()
+        self.raw_frames = 0
+        self.decode_errors = 0
+        self.last_packet = 0
         self.current_start = int(time.time())
         self.error: str | None = None
         self.state = "STARTING"
@@ -121,10 +127,11 @@ class FlowCapture:
                 rows = [
                     {
                         "src_ip": src, "dst_ip": dst, "protocol": proto,
-                        "dst_port": port, "packets": packets,
-                        "bytes": self.bytes[(src, dst, proto, port)],
+                        "dst_port": port, "direction": direction, "packets": packets,
+                        "bytes": self.bytes[(src, dst, proto, port, direction)],
                     }
-                    for (src, dst, proto, port), packets in self.current.most_common(100)
+                    for (src, dst, proto, port, direction), packets in
+                    self.current.most_common(100)
                 ]
                 rows.sort(key=lambda row: row["bytes"], reverse=True)
                 self.history.append({
@@ -145,7 +152,8 @@ class FlowCapture:
             with socket.socket(
                 socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x0003)
             ) as reader:
-                reader.bind((INTERFACE, 0))
+                if INTERFACE != "any":
+                    reader.bind((INTERFACE, 0))
                 reader.settimeout(0.3)
                 self.state = "CAPTURING"
                 while True:
@@ -154,14 +162,22 @@ class FlowCapture:
                     except TimeoutError:
                         self._flush(int(time.time()))
                         continue
-                    observation = parse_packet(packet, address[2])
+                    kind = address[2]
+                    observation = parse_packet(packet, kind)
                     self._flush(int(time.time()))
-                    if observation is not None:
-                        src, dst, proto, port, length = observation
-                        key = src, dst, proto, port
-                        with self.lock:
+                    direction = "outbound" if kind == socket.PACKET_OUTGOING else "inbound"
+                    with self.lock:
+                        self.raw_frames += 1
+                        if observation is None:
+                            self.decode_errors += 1
+                        else:
+                            src, dst, proto, port, length = observation
+                            key = src, dst, proto, port, direction
                             self.current[key] += 1
                             self.bytes[key] += length
+                            self.packet_totals[direction] += 1
+                            self.byte_totals[direction] += length
+                            self.last_packet = int(time.time())
         except Exception as exc:
             self.state = "UNAVAILABLE"
             self.error = str(exc)[:200]
@@ -170,24 +186,25 @@ class FlowCapture:
         self._flush(int(time.time()))
         with self.lock:
             samples = list(self.history)
-            totals: collections.Counter[tuple[str, str, str, int | None]] = (
+            totals: collections.Counter[tuple[str, str, str, int | None, str]] = (
                 collections.Counter()
             )
-            bytes_: collections.Counter[tuple[str, str, str, int | None]] = (
+            bytes_: collections.Counter[tuple[str, str, str, int | None, str]] = (
                 collections.Counter()
             )
             for sample in samples[-10:]:
                 for row in sample["flows"]:
                     key = (
                         row["src_ip"], row["dst_ip"],
-                        row["protocol"], row["dst_port"],
+                        row["protocol"], row["dst_port"], row["direction"],
                     )
                     totals[key] += row["packets"]
                     bytes_[key] += row["bytes"]
             top = [
                 {
                     "src_ip": k[0], "dst_ip": k[1], "protocol": k[2],
-                    "dst_port": k[3], "packets": v, "bytes": bytes_[k],
+                    "dst_port": k[3], "direction": k[4],
+                    "packets": v, "bytes": bytes_[k],
                 }
                 for k, v in totals.most_common(30)
             ]
@@ -199,12 +216,51 @@ class FlowCapture:
             "observed_at": datetime.now(UTC).isoformat(),
             "sample_interval_seconds": 1,
             "capture_window_seconds": WINDOW,
-            "direction": "incoming only; excludes forwarded outgoing duplicates",
+            "direction": "inbound and outbound interface observations; forwarding may be counted twice",
+            "raw_frames": self.raw_frames,
+            "decoded_packets": sum(self.packet_totals.values()),
+            "last_packet_at": self.last_packet,
+            "capture_scope": INTERFACE,
             "packet_layer": "IP layer; no application payload captured",
             "samples": [{k: v for k, v in row.items() if k != "flows"} for row in samples],
             "flows": top,
         }
 
+
+    def metrics(self) -> str:
+        self._flush(int(time.time()))
+        with self.lock:
+            counters = dict(self.packet_totals)
+            byte_counts = dict(self.byte_totals)
+            last = self.last_packet
+            raw = self.raw_frames
+            invalid = self.decode_errors
+            active = int(self.state == "CAPTURING")
+        lines = [
+            "# HELP mon_capture_up Kernel header capture operational",
+            "# TYPE mon_capture_up gauge",
+            f"mon_capture_up {active}",
+            "# HELP mon_capture_raw_frames_total Frames observed on selected interfaces",
+            "# TYPE mon_capture_raw_frames_total counter",
+            f"mon_capture_raw_frames_total {raw}",
+            "# HELP mon_capture_decode_errors_total Frames not parsed as IP",
+            "# TYPE mon_capture_decode_errors_total counter",
+            f"mon_capture_decode_errors_total {invalid}",
+            "# HELP mon_capture_last_packet_timestamp_seconds Last IP packet observation",
+            "# TYPE mon_capture_last_packet_timestamp_seconds gauge",
+            f"mon_capture_last_packet_timestamp_seconds {last}",
+        ]
+        for name, counts, kind in (
+            ("mon_capture_packets_total", counters, "packets"),
+            ("mon_capture_bytes_total", byte_counts, "bytes"),
+        ):
+            lines.extend([
+                f"# HELP {name} Observed IP {kind} by interface direction",
+                f"# TYPE {name} counter",
+            ])
+            for direction in ("inbound", "outbound"):
+                lines.append(f'{name}{{direction="{direction}"}} {counts.get(direction, 0)}')
+        return "\n".join(lines) + "\n"
 
 FLOW = FlowCapture()
 FAILURES: collections.deque[float] = collections.deque()
@@ -260,6 +316,20 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(HTTPStatus.OK, FLOW.snapshot())
         elif path == "/portal/session":
             self.reply(HTTPStatus.OK, {"authenticated": self._session()})
+        elif path == "/portal/metrics":
+            provided = self.headers.get("Authorization", "")
+            if not METRICS_TOKEN or not hmac.compare_digest(
+                provided, "Bearer " + METRICS_TOKEN
+            ):
+                self.reply(HTTPStatus.UNAUTHORIZED, {"error": "metrics token required"})
+                return
+            payload = FLOW.metrics().encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
         else:
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
