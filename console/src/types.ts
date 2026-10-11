@@ -271,6 +271,7 @@ export interface PacketCaptureSnapshot {
   capture_scope?: string;
   observed_interfaces?: Record<string, number>;
   events?: PacketEvent[];
+  lab_route_events?: PacketEvent[];
   raw_frames?: number;
   decoded_packets?: number;
   last_packet_at?: number;
