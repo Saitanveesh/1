@@ -267,3 +267,13 @@ export interface PacketCaptureSnapshot {
   samples: PacketSample[];
   flows: PacketFlow[];
 }
+
+export interface AiIncidentAnalysis {
+  incident_id: string;
+  model: string;
+  analysis: string;
+  evidence_ids: string[];
+  evidence_count: number;
+  read_only: boolean;
+  advisory: string;
+}
