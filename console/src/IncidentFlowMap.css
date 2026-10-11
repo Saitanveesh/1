@@ -1,0 +1,62 @@
+/* MON V5.3: legible case-specific flow. Scope deliberately excludes Locker Overview. */
+.mon-flow-workspace{border:1px solid #d1d1d1;background:#fff;color:#141414;min-width:0}
+.mon-flow-workspace *{box-sizing:border-box}
+.mon-flow-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 20px;border-bottom:1px solid #dcdcdc}
+.mon-flow-head small,.mon-flow-network-title small,.mon-flow-case-card>small,.mon-flow-inspector>small,.mon-flow-grafana>small,.mon-flow-signal small{font:700 9px/1.5 ui-monospace,monospace;letter-spacing:.1em;color:#696969}
+.mon-flow-head h3{font-size:clamp(20px,1.8vw,26px);letter-spacing:-.04em;margin:4px 0}
+.mon-flow-head p{font:12px/1.5 system-ui,sans-serif;margin:0;color:#666;max-width:680px}
+.mon-flow-head .mon3d-switch{flex:none}
+.mon-flow-summary{display:flex;gap:10px 23px;padding:10px 20px;flex-wrap:wrap;border-bottom:1px solid #dedede;background:#fafafa;font:10px/1.5 ui-monospace,monospace;color:#656565}
+.mon-flow-summary b{color:#111;font-size:12px}
+.mon-flow-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(270px,.8fr);min-width:0}
+.mon-flow-network{min-width:0;border-right:1px solid #dedede}
+.mon-flow-network-title{display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:19px 19px 12px}
+.mon-flow-network-title h4,.mon-flow-signal h4,.mon-flow-case h4{font-size:16px;letter-spacing:-.03em;margin:5px 0 0}
+.mon-flow-network-title>span{font:700 9px ui-monospace,monospace;color:#444;letter-spacing:.04em}
+.mon-flow-diagram{display:grid;grid-template-columns:minmax(140px,1fr) minmax(105px,.7fr) minmax(155px,1.2fr);align-items:center;gap:10px;padding:36px 23px 43px;min-height:260px;background:linear-gradient(180deg,#f8f8f8,#fff);overflow:visible}
+.mon-flow-node{min-width:0;border:1px solid #222;background:#fff;padding:18px 15px;text-align:left;color:#111;display:flex;flex-direction:column;align-items:start;gap:10px;box-shadow:0 4px 0 #dbdbdb;overflow-wrap:anywhere}
+button.mon-flow-node{cursor:pointer}
+button.mon-flow-node:hover{outline:2px solid #777;outline-offset:2px}
+.mon-flow-node small{font:700 9px ui-monospace,monospace;letter-spacing:.05em}
+.mon-flow-node strong{font:700 clamp(13px,1.3vw,17px)/1.4 ui-monospace,monospace;overflow-wrap:anywhere}
+.mon-flow-node span,.mon-flow-node em{font:10px/1.55 ui-monospace,monospace;color:#666;font-style:normal}
+.mon-flow-source{background:#141414;border-color:#141414;color:#fff}
+.mon-flow-source span{color:#c6c6c6}
+.mon-flow-links{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-width:0;gap:8px}
+.mon-flow-links svg{width:100%;max-width:170px;height:56px}
+.mon-flow-links strong{font:700 11px/1.3 ui-monospace,monospace}
+.mon-flow-links small{font:10px/1.4 ui-monospace,monospace;color:#666;overflow-wrap:anywhere}
+.mon-flow-destinations{display:grid;gap:13px;min-width:0;max-height:390px;overflow:auto;padding:3px}
+.mon-flow-target em{padding-top:5px;border-top:1px solid #dedede;width:100%;font-size:9px}
+.mon-flow-diagram.is-depth .mon-flow-source,.mon-flow-diagram.is-depth .mon-flow-target{box-shadow:8px 9px 0 #d7d7d7,12px 13px 12px #0000000b;position:relative}
+.mon-flow-diagram.is-depth .mon-flow-source:before,.mon-flow-diagram.is-depth .mon-flow-target:before{position:absolute;content:"";width:100%;height:6px;background:#d6d6d6;left:4px;top:-7px;transform:skewX(-43deg);transform-origin:bottom}
+.mon-flow-diagram.is-depth .mon-flow-source:before{background:#444}
+.mon-flow-verification{padding:15px 20px;border-top:1px solid #dedede;border-bottom:1px solid #dedede}
+.mon-flow-verification strong{font-size:12px}
+.mon-flow-verification p{font:11px/1.7 system-ui,sans-serif;color:#666;margin:7px 0}
+.mon-flow-verification span{font:10px ui-monospace,monospace;color:#666}
+.mon-flow-signal{margin:17px 20px 22px;padding:16px;border:1px solid #ddd}
+.mon-flow-signal-heading{display:flex;align-items:start;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.mon-flow-signal svg{display:block;width:100%;height:108px;margin:15px 0 10px}
+.mon-flow-online,.mon-flow-offline{font:700 10px ui-monospace,monospace;padding:5px 8px;border:1px solid #bbb}
+.mon-flow-online{border-color:#111}
+.mon-flow-no-signal{min-height:85px;display:flex;align-items:center;color:#666;font-size:11px}
+.mon-flow-signal-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;font:10px ui-monospace,monospace}
+.mon-flow-signal p{font:10px/1.6 system-ui,sans-serif;color:#777;margin:12px 0 0}
+.mon-flow-case{display:grid;align-content:start;min-width:0}
+.mon-flow-case-card,.mon-flow-inspector,.mon-flow-grafana{padding:17px 19px;border-bottom:1px solid #ddd;min-width:0}
+.mon-flow-case-card p,.mon-flow-inspector p,.mon-flow-grafana p{font:11px/1.6 system-ui,sans-serif;color:#666;margin:9px 0}
+.mon-flow-case-card button{width:100%;text-align:left;border:1px solid #dedede;background:#fff;color:#111;cursor:pointer;padding:10px 12px;display:flex;flex-direction:column;align-items:start;gap:5px;margin-top:7px;min-width:0}
+.mon-flow-case-card button span{font:700 9px ui-monospace,monospace;color:#666}
+.mon-flow-case-card button strong{font:700 11px/1.5 ui-monospace,monospace;overflow-wrap:anywhere;max-width:100%}
+.mon-flow-case-card button.is-selected,.mon-flow-case-card button:hover{border-color:#111;background:#f6f6f6}
+.mon-flow-inspector h4,.mon-flow-grafana h4{overflow-wrap:anywhere}
+.mon-flow-inspector>div{display:grid;gap:5px;border-top:1px solid #e4e4e4;padding-top:12px}
+.mon-flow-inspector>div span{font:9px ui-monospace,monospace;color:#777}
+.mon-flow-inspector>div strong{font:700 11px ui-monospace,monospace;overflow-wrap:anywhere}
+.mon-flow-grafana a{display:block;text-align:center;padding:12px 10px;text-decoration:none;background:#151515;color:#fff;font:700 10px ui-monospace,monospace;margin-top:13px}
+.mon-flow-grafana a:hover{background:#373737}
+.mon-flow-footer{font:10px/1.6 system-ui,sans-serif;color:#737373;padding:12px 18px;border-top:1px solid #ddd}
+@media(max-width:1250px){.mon-flow-grid{grid-template-columns:minmax(0,1fr)}.mon-flow-network{border-right:0}.mon-flow-case{border-top:1px solid #dedede;grid-template-columns:repeat(2,minmax(0,1fr))}.mon-flow-case-card:nth-child(odd){border-right:1px solid #ddd}}
+@media(max-width:760px){.mon-flow-diagram{grid-template-columns:minmax(0,1fr);min-height:0;padding:22px;gap:15px}.mon-flow-links svg{transform:rotate(90deg);width:80px;height:56px}.mon-flow-links{gap:0}.mon-flow-case{grid-template-columns:minmax(0,1fr)}.mon-flow-case-card:nth-child(odd){border-right:0}.mon-flow-summary{gap:9px 15px}.mon-flow-node{width:100%}.mon-flow-head{padding:15px}.mon-flow-signal{margin:12px}.mon-flow-network-title{padding:16px}}
+@media(prefers-reduced-motion:reduce){.mon-flow-node{transition:none}}

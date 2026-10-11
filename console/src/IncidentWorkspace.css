@@ -104,3 +104,31 @@
 .mon-event-chain-arrow{display:none}
 .mon-incidents-main .response-controls{grid-template-columns:1fr}
 }
+
+
+/* V5.3 readability: no floating arrows across neighboring labels. */
+.mon-event-chain{overflow:hidden}
+.mon-event-chain>header{align-items:flex-start}
+.mon-event-chain-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.mon-event-chain-step{padding:14px 15px;gap:8px;min-width:0}
+.mon-event-chain-step strong{display:block;min-height:0;font-size:12px;line-height:1.5;overflow-wrap:anywhere;word-break:break-word}
+.mon-event-chain-step time{display:block;font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+.mon-event-chain-step p{font-size:10px;line-height:1.65}
+.mon-event-chain-arrow{display:none!important}
+.mon-event-chain-step:before{content:"";position:absolute;top:0;left:0;right:0;border-top:3px solid #222}
+.mon-event-chain-step:nth-child(2):before{border-top-color:#666}
+.mon-event-chain-step:nth-child(3):before{border-top-color:#888}
+.mon-event-chain-step:nth-child(4):before{border-top-color:#aaa}
+/* Replace the uninformative horizontal time rail with the existing interactive event rows. */
+.mon-incidents-main .aiwb-rail,.mon-incidents-main .aiwb-rail-times{display:none!important}
+.mon-incidents-main .aiwb-timeline .aiwb-events{max-height:340px}
+@media(max-width:1480px){
+  .mon-event-chain-steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mon-event-chain-step:nth-child(2){border-right:0}
+  .mon-event-chain-step:nth-child(-n+2){border-bottom:1px solid #ddd}
+}
+@media(max-width:620px){
+  .mon-event-chain-steps{grid-template-columns:minmax(0,1fr)}
+  .mon-event-chain-step{border-right:0;border-bottom:1px solid #ddd}
+  .mon-event-chain-step:last-child{border-bottom:0}
+}

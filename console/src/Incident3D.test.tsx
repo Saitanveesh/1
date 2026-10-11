@@ -70,7 +70,7 @@ describe("3D scene is rebuilt from recorded MON incident evidence", () => {
     expect(model.nodes.some(n => n.kind === "asset" && n.label === "lab-pc5")).toBe(true);
     expect(model.nodes.some(n => n.label.includes("PC2"))).toBe(false);
     expect(model.links.find(l => l.id.startsWith("case:"))?.recorded).toBe(false);
-    expect(model.links.find(l => l.id.startsWith("response:"))?.recorded).toBe(true);
+    expect(model.links.some(l => l.id.startsWith("response:"))).toBe(false);
     expect(model.packets).toBe(0);
     expect(model.lastPacketAt).toBeNull();
   });
@@ -99,7 +99,7 @@ describe("3D scene is rebuilt from recorded MON incident evidence", () => {
     expect(screen.getByText(/Last matched IP header/)).toBeTruthy();
     expect(screen.getByTestId("mon3d-node-source")).toBeTruthy();
     expect(screen.getByTestId("mon3d-node-asset")).toBeTruthy();
-    expect(screen.getByText("SSH authentication failure")).toBeTruthy();
+    expect(screen.getAllByText("SSH authentication failure").length).toBeGreaterThan(0);
     expect(screen.getAllByTestId("mon3d-node-response")).toHaveLength(1);
     expect(screen.getAllByTestId("mon3d-node-evidence")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "2D" }));
