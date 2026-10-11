@@ -1,0 +1,57 @@
+.mon3d-page {margin:22px 25px 35px; color:#111;}
+.mon3d-page * {box-sizing:border-box}
+.mon3d-casebar {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;padding:24px 26px;background:#111;color:#fff}
+.mon3d-casebar span,.mon3d-scene-head small {display:block;font:700 10px ui-monospace,Consolas,monospace;letter-spacing:.14em;color:#aaa}
+.mon3d-casebar h2 {font-size:clamp(24px,3vw,40px);margin:10px 0 0;letter-spacing:-.04em}
+.mon3d-casebar label {display:flex;flex-direction:column;gap:8px;min-width:min(410px,100%);font:700 10px ui-monospace,monospace}
+.mon3d-casebar select {padding:12px;background:#fff;border:1px solid #777;color:#111;max-width:450px;font-size:12px}
+.mon3d-casebar>button {padding:13px 17px;background:#fff;color:#111;border:1px solid #fff;cursor:pointer;font:700 11px ui-monospace,monospace}
+.mon3d-workspace {border:1px solid #c8c8c8;background:#fff}
+.mon3d-scene-head {padding:22px 27px;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+.mon3d-scene-head h3 {font-size:26px;letter-spacing:-.04em;margin:6px 0}
+.mon3d-scene-head p {color:#777;font-size:12px;margin:0;line-height:1.5}
+.mon3d-switch {display:flex;gap:0;border:1px solid #111;align-self:center}
+.mon3d-switch button {border:0;background:white;color:#111;padding:11px 14px;cursor:pointer;font:700 11px ui-monospace,monospace}
+.mon3d-switch button+button {border-left:1px solid #111}
+.mon3d-switch button[aria-pressed=true] {background:#111;color:#fff}
+.mon3d-scene-meta {display:flex;gap:22px;align-items:center;flex-wrap:wrap;padding:13px 26px;border-block:1px solid #d7d7d7;background:#f8f8f8;font:700 10px ui-monospace,monospace;color:#555}
+.mon3d-scene-meta label {display:flex;gap:7px;align-items:center;cursor:pointer}
+.mon3d-stage {height:490px;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 30%,#fafafa 0%,#efefef 92%);perspective:1050px;touch-action:none;cursor:grab;outline-offset:-3px}
+.mon3d-stage:active {cursor:grabbing}
+.mon3d-stage:focus-visible {outline:2px solid #111}
+.mon3d-grid {position:absolute;inset:0;background-image:linear-gradient(#11111109 1px,transparent 1px),linear-gradient(90deg,#11111109 1px,transparent 1px);background-size:45px 45px;transform:perspective(680px) rotateX(64deg) scale(2);transform-origin:center 75%;opacity:.5;pointer-events:none}
+.mon3d-universe {width:100%;height:100%;position:absolute;inset:0;transform-style:preserve-3d;transition:transform .10s ease-out}
+.mon3d-node {position:absolute;min-width:135px;max-width:185px;padding:12px 14px;border:2px solid #222;background:#fff;color:#111;display:grid;text-align:left;gap:8px;cursor:pointer;box-shadow:7px 10px 0 #1112;transform-style:preserve-3d;overflow-wrap:anywhere}
+.mon3d-node small {font:700 9px ui-monospace,monospace;letter-spacing:.09em;color:#777}
+.mon3d-node strong {font:700 14px/1.35 ui-monospace,monospace}
+.mon3d-node.source {background:#111;color:#fff}
+.mon3d-node.source small {color:#bbb}
+.mon3d-node.asset {border-width:3px}
+.mon3d-node.response {background:#e3e3e3;border-style:double}
+.mon3d-node.evidence {min-width:100px;max-width:125px;padding:10px;border-style:dotted;background:#f7f7f7}
+.mon3d-node.selected {outline:4px solid #777;outline-offset:3px;z-index:4}
+.mon3d-edge {position:absolute;height:2px;top:50%;left:50%;transform-origin:0 50%;pointer-events:none;background:#555}
+.mon3d-edge.inferred {border-top:2px dashed #aaa;background:transparent}
+.mon3d-edge.recorded {background:#111;height:3px}
+.mon3d-help {position:absolute;right:12px;bottom:12px;background:#fff;padding:7px 10px;font:9px ui-monospace,monospace;color:#666;pointer-events:none}
+.mon3d-list {min-height:350px;padding:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;background:#f9f9f9}
+.mon3d-list button {background:#fff;border:1px solid #111;padding:17px;display:grid;text-align:left;gap:9px;cursor:pointer;color:#111}
+.mon3d-list small {font:10px ui-monospace,monospace;color:#666}
+.mon3d-list strong {font-size:16px;overflow-wrap:anywhere}
+.mon3d-list span {font:11px ui-monospace,monospace;color:#777;overflow-wrap:anywhere}
+.mon3d-inspect {border-top:1px solid #ddd;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.mon3d-inspect>div {min-width:0;padding:16px 20px;border-right:1px solid #ddd;display:grid;gap:10px}
+.mon3d-inspect>div:last-child {border:0}
+.mon3d-inspect small {font:700 9px ui-monospace,monospace;color:#666}
+.mon3d-inspect strong {font:700 12px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}
+.mon3d-player {border-top:1px solid #ddd;display:flex;gap:20px;align-items:center;padding:15px 23px}
+.mon3d-player button {padding:13px 20px;background:#111;color:#fff;border:0;cursor:pointer;font:700 11px ui-monospace,monospace}
+.mon3d-player button:disabled {opacity:.4;cursor:not-allowed}
+.mon3d-player input {flex:1;accent-color:#111;min-width:85px}
+.mon3d-player span,.mon3d-player time {font:10px ui-monospace,monospace;color:#444}
+.mon3d-player time {max-width:215px;overflow-wrap:anywhere}
+.mon3d-disclaimer {margin:0;border-top:1px solid #eee;padding:14px 23px;color:#777;font-size:11px;line-height:1.65}
+.mon3d-empty {padding:30px;border:1px solid #ccc;color:#666;font-size:13px}
+@media(max-width:1050px){.mon3d-stage {height:390px}.mon3d-inspect{grid-template-columns:repeat(2,minmax(0,1fr))}.mon3d-node{min-width:100px;max-width:140px;padding:8px}.mon3d-node strong{font-size:12px}}
+@media(max-width:680px){.mon3d-page{margin:12px}.mon3d-casebar{padding:20px}.mon3d-stage{height:340px}.mon3d-scene-head{padding:16px}.mon3d-scene-head h3{font-size:22px}.mon3d-inspect{grid-template-columns:1fr}.mon3d-player{flex-wrap:wrap}.mon3d-player time{width:100%}}
+@media(prefers-reduced-motion:reduce){.mon3d-universe{transition:none}}
