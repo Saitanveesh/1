@@ -527,6 +527,10 @@ export default function App() {
                 siteId={siteId}
                 executions={state.response_executions}
                 auditRecords={state.audit_records}
+                onOpen3D={(incident) => {
+                  setSelectedIncident(incident);
+                  setView("Investigation");
+                }}
               />
             )}
           </>
@@ -539,6 +543,7 @@ export default function App() {
             capture={packetCapture}
             tenantId={tenantId}
             siteId={siteId}
+            initialIncidentId={selectedIncident?.incident_id}
             onOpen={(incident) => {
               setSelectedIncident(incident);
               setView("Incidents");
