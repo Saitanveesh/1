@@ -70,6 +70,10 @@ def test_analysis_is_local_and_never_calls_response_endpoints(monkeypatch):
     module = load_analyst()
     calls = []
     monkeypatch.setattr(module, "get_evidence", lambda *_args: sample_investigation())
+    monkeypatch.setattr(module, "packet_tool_context", lambda *_args: {
+        "tool": "mon_recent_ip_headers", "status": "CAPTURING",
+        "matched_count": 0, "scope": "wg0", "matched_events": []
+    })
 
     def fake_fetch(req, timeout):
         calls.append((req.full_url, timeout, json.loads(req.data)))
@@ -119,6 +123,10 @@ def test_portal_keeps_ai_readonly_authenticated_and_origin_checked():
 def test_compact_ai_result_never_exposes_model_instruction_echo(monkeypatch):
     module = load_analyst()
     monkeypatch.setattr(module, "get_evidence", lambda *_args: sample_investigation())
+    monkeypatch.setattr(module, "packet_tool_context", lambda *_args: {
+        "tool": "mon_recent_ip_headers", "status": "CAPTURING",
+        "matched_count": 0, "scope": "wg0", "matched_events": []
+    })
 
     def response_with_old_verbose_thoughts(_req, timeout):
         return {
@@ -137,13 +145,17 @@ def test_compact_ai_result_never_exposes_model_instruction_echo(monkeypatch):
     )
     assert outcome["headline"].startswith("10.77.0.60")
     assert "8 authentication failures observed in 300s" in outcome["headline"]
-    assert outcome["assessment"] == "Cause not established from current evidence."
+    assert outcome["assessment"].startswith("MON confirms repeated authentication failures")
     assert "We are given" not in outcome["analysis"]
 
 
 def test_compact_ai_result_accepts_only_short_structured_advice(monkeypatch):
     module = load_analyst()
     monkeypatch.setattr(module, "get_evidence", lambda *_args: sample_investigation())
+    monkeypatch.setattr(module, "packet_tool_context", lambda *_args: {
+        "tool": "mon_recent_ip_headers", "status": "CAPTURING",
+        "matched_count": 0, "scope": "wg0", "matched_events": []
+    })
 
     def good_json(_req, timeout):
         return {
@@ -163,3 +175,31 @@ def test_compact_ai_result_accepts_only_short_structured_advice(monkeypatch):
     assert answer["assessment"].startswith("Repeated SSH")
     assert answer["next_check"].startswith("Compare source IP")
     assert "steps" not in answer["analysis"].lower()
+
+
+def test_packet_tool_is_read_only_and_filters_to_incident_ips(monkeypatch):
+    module = load_analyst()
+    recorded = []
+
+    def fake_fetch(req, timeout):
+        recorded.append((req.full_url, req.method, timeout))
+        return {
+            "status": "CAPTURING", "observed_at": "2026-10-11T05:00:00Z",
+            "capture_scope": "any",
+            "events": [
+                {"timestamp": "2026-10-11T04:59:58Z", "interface": "wg0",
+                 "src_ip": "10.77.0.60", "dst_ip": "10.77.0.50",
+                 "protocol": "ICMP", "dst_port": None},
+                {"timestamp": "2026-10-11T04:59:57Z", "interface": "eth0",
+                 "src_ip": "10.77.0.60", "dst_ip": "192.168.1.1",
+                 "protocol": "TCP", "dst_port": 443},
+            ],
+        }
+
+    monkeypatch.setattr(module, "_fetch_json", fake_fetch)
+    ctx = module.packet_tool_context("signed-jwt", "10.77.0.60", ["10.77.0.50"])
+    assert ctx["matched_count"] == 1
+    assert ctx["matched_events"][0]["dst_ip"] == "10.77.0.50"
+    assert recorded[0][0] == "http://127.0.0.1:8088/portal/flows"
+    assert recorded[0][1] == "GET"
+    assert ctx["scope"] == "any"
