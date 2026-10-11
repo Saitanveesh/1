@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import AiAnalysis from "./AiAnalysis";
+import Investigation3D from "./Incident3D";
+import SocGauges from "./SocGauges";
 import SuricataPanel from "./SuricataPanel";
 import LoginPage from "./LoginPage";
 import { NetworkPath, PacketHistory, usePacketCapture } from "./PacketObservability";
@@ -20,12 +22,12 @@ import type {
 } from "./types";
 import "./styles.css";
 
-type View = "Overview" | "Incidents" | "Network" | "AI Analysis" | "Operations";
-type OperationsArea = "Assets" | "Enforcement" | "Response" | "Audit" | "Fleet" | "Telemetry";
+type View = "Overview" | "Incidents" | "Investigation" | "Network" | "AI Analysis" | "Operations";
+type OperationsArea = "Assets" | "Enforcement" | "Response" | "Audit" | "Fleet" | "Telemetry" | "Admin";
 
-const views: View[] = ["Overview", "Incidents", "Network", "AI Analysis", "Operations"];
+const views: View[] = ["Overview", "Incidents", "Investigation", "Network", "AI Analysis", "Operations"];
 const operationsAreas: OperationsArea[] = [
-  "Assets", "Enforcement", "Response", "Audit", "Fleet", "Telemetry"
+  "Assets", "Enforcement", "Response", "Audit", "Fleet", "Telemetry", "Admin"
 ];
 
 const rank: Record<Severity, number> = {
@@ -471,11 +473,7 @@ export default function App() {
             }}>SIGN OUT ↗</button>
           )}
           <div className={`connection ${state.connection.toLowerCase()}`}><span />{state.connection}</div>
-          <small data-testid="operator-context">
-            {operator ? `${operator.subject} · ${operator.roles.join(", ")}` : "not authenticated"}
-          </small>
-          <small>{tenantId} / {siteId}</small>
-          <small>SEQ {state.sequence}</small>
+
         </div>
       </aside>
 
@@ -504,6 +502,7 @@ export default function App() {
               <div><small>ATTACK PRESSURE</small><strong>{Math.round(metrics.attackPressure)}</strong></div>
               <div><small>PACKET CAPTURE</small><strong>{packetCapture?.status ?? "CONNECTING"}</strong></div>
             </section>
+            <SocGauges state={state} capture={packetCapture} />
             <PacketHistory capture={packetCapture} />
             <section className="split">
               <article className="panel">
@@ -532,6 +531,20 @@ export default function App() {
             )}
           </>
         )}
+        {view === "Investigation" && (
+          <Investigation3D
+            incidents={state.incidents}
+            executions={state.response_executions}
+            audits={state.audit_records}
+            capture={packetCapture}
+            tenantId={tenantId}
+            siteId={siteId}
+            onOpen={(incident) => {
+              setSelectedIncident(incident);
+              setView("Incidents");
+            }}
+          />
+        )}
         {view === "AI Analysis" && (
           <AiAnalysis
             incidents={state.incidents}
@@ -551,10 +564,7 @@ export default function App() {
             attackerIps={state.findings.map(f => f.src_ip).filter((ip): ip is string => !!ip)} />
           <PacketHistory capture={packetCapture} />
           <SuricataPanel />
-          <details className="mon-advanced-evidence">
-            <summary>Raw correlation graph / analyst evidence (advanced)</summary>
-            <AttackGraph state={state} />
-          </details>
+
         </>}
         {view === "Operations" && (
           <div className="mon-operations" data-testid="operations-workspace">
@@ -565,7 +575,26 @@ export default function App() {
                   onClick={() => setOperationsArea(area)}>{area}</button>
               ))}
             </div>
-            {operationsArea === "Telemetry" && <TelemetryPanel state={state} />}
+            {operationsArea === "Telemetry" && <>
+              <TelemetryPanel state={state} />
+              <SocGauges state={state} capture={packetCapture} />
+            </>}
+            {operationsArea === "Admin" && (
+              <section className="panel full mon-admin-details" data-testid="mon-admin-debug">
+                <div className="panel-head"><div><span className="eyebrow">ADVANCED / OPERATOR ONLY</span>
+                  <h2>System diagnostics</h2></div></div>
+                <dl>
+                  <dt>Operator</dt><dd>{operator?.subject ?? "Not authenticated"}</dd>
+                  <dt>Scope</dt><dd>{tenantId} / {siteId}</dd>
+                  <dt>Snapshot sequence</dt><dd>{state.sequence}</dd>
+                  <dt>Live transport</dt><dd>{state.connection}</dd>
+                  <dt>Capture scope</dt><dd>{packetCapture?.capture_scope ?? "Unavailable"}</dd>
+                </dl>
+                <details className="mon-advanced-evidence"><summary>Raw graph identifiers (diagnostics)</summary>
+                  <AttackGraph state={state} />
+                </details>
+              </section>
+            )}
             {operationsArea === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
             {operationsArea === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
             {operationsArea === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
