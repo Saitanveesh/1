@@ -37,7 +37,7 @@ def test_capture_ipv4_tcp_header_without_payload_or_fake_counts() -> None:
     tcp = struct.pack("!HH", 59000, 22) + b"\x00" * 16
     parsed = module.parse_packet(bytes(header) + tcp, 0)
     assert parsed == ("10.77.0.60", "10.77.0.50", "TCP", 22, 40)
-    assert module.parse_packet(bytes(header) + tcp, socket.PACKET_OUTGOING) is None
+    assert module.parse_packet(bytes(header) + tcp, socket.PACKET_OUTGOING) == parsed
 
 
 def test_no_packets_means_zero_measurements_not_synthetic_flows() -> None:
@@ -49,3 +49,22 @@ def test_no_packets_means_zero_measurements_not_synthetic_flows() -> None:
     assert snapshot["samples"][0]["packets"] == 0
     assert snapshot["samples"][0]["bytes"] == 0
     assert snapshot["flows"] == []
+
+
+def test_packet_counters_and_grafana_metrics_expose_real_observations_only() -> None:
+    module = load()
+    capture = module.FlowCapture()
+    assert "mon_capture_up 0" in capture.metrics()
+    assert 'mon_capture_packets_total{direction="inbound"} 0' in capture.metrics()
+    assert 'mon_capture_packets_total{direction="outbound"} 0' in capture.metrics()
+    with capture.lock:
+        capture.current[("10.77.0.60", "10.77.0.50", "ICMP", None, "outbound")] = 1
+        capture.bytes[("10.77.0.60", "10.77.0.50", "ICMP", None, "outbound")] = 84
+        capture.packet_totals["outbound"] = 1
+        capture.byte_totals["outbound"] = 84
+        capture.raw_frames = 1
+    capture._flush(capture.current_start + 1)
+    snapshot = capture.snapshot()
+    assert snapshot["flows"][0]["direction"] == "outbound"
+    assert snapshot["samples"][-1]["packets"] == 1
+    assert 'mon_capture_packets_total{direction="outbound"} 1' in capture.metrics()
