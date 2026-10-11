@@ -3,7 +3,7 @@ set -euo pipefail
 umask 077
 REPO=/home/pc-2/mon-three-code
 V2=/home/pc-2/mon-three/console-v2
-PIN=e40395e0579fe20ae9ddd2e0a2806c9cef4ba2e2
+PIN=ddf76b2afcb6557c94ea627a3d31d9c7b2ccd652
 UNIT=mon-three-console-v2.service
 FILES=(src/App.tsx src/AiAnalysis.tsx src/AiAnalysis.css src/IncidentDetail.tsx src/PacketObservability.tsx src/types.ts)
 PORTAL=/home/pc-2/mon-three/tools/mon_ai_analysis.py
@@ -89,6 +89,6 @@ for url in http://127.0.0.1:8080/health http://127.0.0.1:8090/health http://100.
   curl --noproxy '*' -fsS --max-time 6 "$url" >/dev/null
 done
 OK=1
-echo '[PASS] Incident timeline, Operations, live network graph and local AI tool deployed'
+echo '[PASS] Incident timeline, unified Operations, live network and read-only AI tools deployed'
 echo "Backup: $BACKUP"
 echo 'OPEN http://100.75.116.62:5174/?tenant=mon-lab&site=site-a'
