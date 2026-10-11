@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { ApiError, executeResponse, fetchInvestigation, planResponse, rollbackResponse } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { ApiError, analyzeIncidentWithLocalAi, executeResponse, fetchInvestigation, planResponse, rollbackResponse } from "./api";
 import type {
+  AiIncidentAnalysis,
   AuditRecord,
   Incident,
   IncidentInvestigation,
@@ -38,11 +39,19 @@ export default function IncidentDetail({
   const [responseBusy, setResponseBusy] = useState(false);
   const [responseMessage, setResponseMessage] = useState<string | null>(null);
   const [responseError, setResponseError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiIncidentAnalysis | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const aiSequence = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     setInvestigation(null);
     setError(null);
+    aiSequence.current += 1;
+    setAiResult(null);
+    setAiError(null);
+    setAiBusy(false);
     fetchInvestigation(incident.incident_id, tenantId, siteId)
       .then((value) => {
         if (cancelled) return;
@@ -87,6 +96,27 @@ export default function IncidentDetail({
   const identities = (investigation?.evidence ?? []).filter(
     (item) => item.evidence_class === "IDENTITY"
   );
+
+  async function handleAiAnalysis(): Promise<void> {
+    const key = ++aiSequence.current;
+    setAiBusy(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const result = await analyzeIncidentWithLocalAi(incident.incident_id, tenantId, siteId);
+      if (key === aiSequence.current) setAiResult(result);
+    } catch (reason: unknown) {
+      if (key === aiSequence.current) {
+        setAiError(
+          reason instanceof ApiError
+            ? `Local incident analysis unavailable (HTTP ${reason.status})`
+            : "Local incident analysis failed"
+        );
+      }
+    } finally {
+      if (key === aiSequence.current) setAiBusy(false);
+    }
+  }
 
   function buildRequest(): ResponseRequestPayload {
     const ip = targetIp.trim();
@@ -190,6 +220,43 @@ export default function IncidentDetail({
       </div>
       {error && <div className="empty" role="alert">{error}</div>}
       {!error && !investigation && <div className="empty">Loading investigation…</div>}
+      {investigation && (
+        <section className="mon-ai-panel" data-testid="ai-incident-panel">
+          <div className="mon-ai-heading">
+            <div>
+              <span className="mon-eyebrow">LOCAL / READ-ONLY / QWEN3</span>
+              <h3>AI Incident Analyst</h3>
+              <p>On-demand analysis of this incident's verified MON evidence. Never authorizes enforcement.</p>
+            </div>
+            <button
+              type="button"
+              className="control-button"
+              data-testid="analyze-with-ai"
+              disabled={aiBusy}
+              onClick={() => void handleAiAnalysis()}
+            >
+              {aiBusy ? "ANALYZING LOCALLY…" : "ANALYZE WITH LOCAL AI"}
+            </button>
+          </div>
+          {aiBusy && <div className="mon-ai-status" role="status">Qwen3 is reviewing evidence on PC2. This can take 10–60 seconds.</div>}
+          {aiError && <div className="mon-ai-error" role="alert">{aiError}</div>}
+          {aiResult && (
+            <div className="mon-ai-output" data-testid="local-ai-result">
+              <div className="mon-ai-metadata">
+                <span>MODEL: {aiResult.model}</span>
+                <span>VERIFIED EVIDENCE REFERENCES: {aiResult.evidence_count}</span>
+                <span>READ ONLY: {aiResult.read_only ? "YES" : "NO"}</span>
+              </div>
+              <div className="mon-ai-analysis">{aiResult.analysis}</div>
+              <details className="mon-ai-references">
+                <summary>MON evidence IDs supplied to the model ({aiResult.evidence_ids.length})</summary>
+                <ul>{aiResult.evidence_ids.map(id => <li key={id}>{id}</li>)}</ul>
+              </details>
+              <p className="mon-ai-disclaimer">{aiResult.advisory}</p>
+            </div>
+          )}
+        </section>
+      )}
       {investigation && (
         <div className="detail-grid">
           <article>
