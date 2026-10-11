@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { buildCaseTimeline, TimelineStrip } from "./AiAnalysis";
 import { ApiError, analyzeIncidentWithLocalAi, executeResponse, fetchInvestigation, planResponse, rollbackResponse } from "./api";
 import type {
   AiIncidentAnalysis,
@@ -42,12 +43,14 @@ export default function IncidentDetail({
   const [aiResult, setAiResult] = useState<AiIncidentAnalysis | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [focusedMomentId, setFocusedMomentId] = useState<string | null>(null);
   const aiSequence = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     setInvestigation(null);
     setError(null);
+    setFocusedMomentId(null);
     aiSequence.current += 1;
     setAiResult(null);
     setAiError(null);
@@ -96,6 +99,10 @@ export default function IncidentDetail({
   const identities = (investigation?.evidence ?? []).filter(
     (item) => item.evidence_class === "IDENTITY"
   );
+  const moments = investigation
+    ? buildCaseTimeline(investigation, executions, auditRecords)
+    : [];
+  const selectedMoment = moments.find(item => item.id === focusedMomentId) ?? moments[0] ?? null;
 
   async function handleAiAnalysis(): Promise<void> {
     const key = ++aiSequence.current;
@@ -235,6 +242,30 @@ export default function IncidentDetail({
           </button>
           {aiResult && <span className="mon-ai-compact-meta">{aiResult.evidence_count} MON records · {aiResult.model}</span>}
         </section>
+      )}
+      {investigation && (
+        <div className="mon-case-chronology" data-testid="incident-chronology">
+          <TimelineStrip
+            moments={moments}
+            currentId={selectedMoment?.id ?? null}
+            onPick={setFocusedMomentId}
+          />
+          <div className="mon-case-inspector">
+            <div className="aiwb-section-top"><div>
+              <span className="aiwb-kicker">CASE FILE / EVIDENCE</span>
+              <h3>Selected event</h3>
+            </div></div>
+            {selectedMoment ? (
+              <div className="aiwb-selected-detail" data-testid="incident-selected-event">
+                <span className="aiwb-detail-kind">{selectedMoment.kind}</span>
+                <h4>{selectedMoment.headline}</h4>
+                <div className="aiwb-detail-pair"><span>TIMESTAMP</span><strong>{selectedMoment.timestamp ?? "Not recorded"}</strong></div>
+                <div className="aiwb-detail-pair"><span>RECORD ID</span><code>{selectedMoment.reference}</code></div>
+                <div className="aiwb-detail-pair"><span>ORIGIN</span><strong>{selectedMoment.description}</strong></div>
+              </div>
+            ) : <p className="empty">No timestamped evidence returned.</p>}
+          </div>
+        </div>
       )}
       {investigation && (
         <div className="detail-grid">
