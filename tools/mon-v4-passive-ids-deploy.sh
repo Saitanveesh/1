@@ -25,6 +25,7 @@ restore() {
     else
       rm -f "$PORTAL/mon_suricata_bridge.py"
     fi
+    cp "$BACKUP/mon_ai_analysis.py" "$PORTAL/mon_ai_analysis.py" || true
     sudo systemctl restart mon-three-lab-portal.service || true
     sudo systemctl restart mon-three-console-v2.service || true
   fi
@@ -52,11 +53,12 @@ for p in "${FILES[@]}"; do
   git -C "$REPO" show "$PIN:console/$p" > "$STAGE/$p"
   if [[ -f "$APP/$p" ]]; then cp "$APP/$p" "$BACKUP/$p"; fi
 done
-for p in mon-lab-portal.py mon_suricata_bridge.py; do
+for p in mon-lab-portal.py mon_suricata_bridge.py mon_ai_analysis.py; do
   git -C "$REPO" show "$PIN:tools/$p" > "$STAGE/$p"
 done
-python3 -m py_compile "$STAGE/mon-lab-portal.py" "$STAGE/mon_suricata_bridge.py"
+python3 -m py_compile "$STAGE/mon-lab-portal.py" "$STAGE/mon_suricata_bridge.py" "$STAGE/mon_ai_analysis.py"
 cp "$PORTAL/mon-lab-portal.py" "$BACKUP/mon-lab-portal.py"
+cp "$PORTAL/mon_ai_analysis.py" "$BACKUP/mon_ai_analysis.py"
 if [[ -f "$PORTAL/mon_suricata_bridge.py" ]]; then
   cp "$PORTAL/mon_suricata_bridge.py" "$BACKUP/mon_suricata_bridge.py"
   BRIDGE_EXISTED=1
@@ -65,6 +67,7 @@ ALTERED=1
 for p in "${FILES[@]}"; do cp "$STAGE/$p" "$APP/$p"; done
 cp "$STAGE/mon-lab-portal.py" "$PORTAL/mon-lab-portal.py"
 cp "$STAGE/mon_suricata_bridge.py" "$PORTAL/mon_suricata_bridge.py"
+cp "$STAGE/mon_ai_analysis.py" "$PORTAL/mon_ai_analysis.py"
 (cd "$APP" && npm run build)
 sudo systemctl restart mon-three-lab-portal.service
 sudo systemctl restart mon-three-console-v2.service
