@@ -209,6 +209,7 @@ class FlowCapture:
 FLOW = FlowCapture()
 FAILURES: collections.deque[float] = collections.deque()
 FAILURE_LOCK = threading.Lock()
+AI_BUSY = threading.Lock()  # one inference maximum; do not starve MON's CPU
 
 
 def operator_token() -> str:
@@ -262,13 +263,72 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
+    def _ai_investigate(self) -> None:
+        """Authorized, on-demand local inference; NEVER calls enforcement APIs."""
+        if not self._session():
+            self.reply(HTTPStatus.UNAUTHORIZED, {"error": "operator session required"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if (
+            not 1 <= length <= 512
+            or not self.headers.get("Content-Type", "").startswith("application/json")
+        ):
+            self.reply(HTTPStatus.BAD_REQUEST, {"error": "invalid investigation request"})
+            return
+        try:
+            body = json.loads(self.rfile.read(length))
+            incident_id = body["incident_id"]
+            tenant_id = body["tenant_id"]
+            site_id = body["site_id"]
+            if not all(isinstance(x, str) for x in (incident_id, tenant_id, site_id)):
+                raise ValueError("invalid fields")
+        except (ValueError, KeyError, TypeError, AttributeError):
+            self.reply(HTTPStatus.BAD_REQUEST, {"error": "invalid investigation identifiers"})
+            return
+
+        if not AI_BUSY.acquire(blocking=False):
+            self.reply(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                {"error": "Local AI is already analyzing another incident"},
+            )
+            return
+        try:
+            # Import lazily: ordinary lab portal startup does not depend on
+            # Ollama and packet capture stays live while the model is offline.
+            from mon_ai_analysis import AnalystUnavailable, analyze_incident
+
+            result = analyze_incident(
+                incident_id, tenant_id, site_id, operator_token()
+            )
+            self.reply(HTTPStatus.OK, result)
+        except ValueError:
+            self.reply(HTTPStatus.BAD_REQUEST, {"error": "invalid incident or scope"})
+        except AnalystUnavailable:
+            self.reply(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "Local AI or verified incident evidence unavailable"},
+            )
+        except (OSError, TimeoutError):
+            self.reply(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "Local model could not complete the analysis"},
+            )
+        finally:
+            AI_BUSY.release()
+
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in ("/portal/login", "/portal/logout"):
+        if path not in ("/portal/login", "/portal/logout", "/portal/ai/investigate"):
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
         if self.headers.get("Origin") != ORIGIN:
             self.reply(HTTPStatus.FORBIDDEN, {"error": "origin denied"})
+            return
+        if path == "/portal/ai/investigate":
+            self._ai_investigate()
             return
         if path == "/portal/logout":
             self.reply(
