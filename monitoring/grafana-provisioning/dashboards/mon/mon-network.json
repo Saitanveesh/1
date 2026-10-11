@@ -3,7 +3,7 @@
   "uid": "mon-network",
   "title": "MON | Measured Network and SOC Sensors",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "timezone": "browser",
   "refresh": "5s",
   "tags": [
@@ -438,6 +438,75 @@
           },
           "unit": "pps",
           "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Continuous traffic baseline · five-minute measured packet rate",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "description": "Always-on PC2 packet capture independent of security incidents. Zero means no PC2-observed packets, not proof that other network segments are idle.",
+      "targets": [
+        {
+          "expr": "sum(rate(mon_capture_packets_total[5m]))",
+          "refId": "A",
+          "legendFormat": "PC2-observed packets/s (5m)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#171717"
+          },
+          "unit": "pps",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Prometheus scrape health · PC2 sensor",
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "description": "1 indicates successful metrics scraping. 0 indicates a scrape or endpoint problem, whether or not any incident exists.",
+      "targets": [
+        {
+          "expr": "up{job=\"mon_pc2_capture\"}",
+          "refId": "A",
+          "legendFormat": "PC2 capture metrics scrape"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#171717"
+          }
         },
         "overrides": []
       }
