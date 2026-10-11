@@ -8,8 +8,8 @@ function Gauge({ name, display, percent, foot }: GaugeProps) {
   return <article className="mon-gauge">
     <div className="mon-gauge-name">{name}</div>
     <div className="mon-gauge-ring" style={{
-      background: "conic-gradient(#101010 0 " + (bounded * .75) +
-        "turn, #dedede " + (bounded * .75) + "turn .75turn, transparent .75turn 1turn)"
+      background: "conic-gradient(#101010 0 " + (bounded * .0075) +
+        "turn, #dedede " + (bounded * .0075) + "turn .75turn, transparent .75turn 1turn)"
     }}>
       <div className="mon-gauge-center"><strong>{display}</strong></div>
     </div>
