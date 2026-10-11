@@ -429,3 +429,33 @@ main { min-width: 0; }
   .mon-overview-strip {grid-template-columns:repeat(2,minmax(0,1fr))}
   .mon-ai-compact-meta {width:100%}
 }
+
+
+/* Readable SOC packet-rate graph: real 1s samples + derived 5s rate, never mock packets. */
+.mon-chart-control {
+  padding: 12px 20px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  border-top: 1px solid #ddd; border-bottom: 1px solid #ddd;
+  font: 10px ui-monospace,monospace; color: #444;
+}
+.mon-graph-switch { display: inline-flex; border: 1px solid #111; }
+.mon-graph-switch button {
+  background: #fff; border: 0; padding: 8px 12px; cursor: pointer;
+  color: #111; font: 700 10px ui-monospace,monospace;
+}
+.mon-graph-switch button + button { border-left: 1px solid #111; }
+.mon-graph-switch button[aria-pressed="true"] { background: #111; color: #fff; }
+.mon-packet-raw {
+  fill: none; stroke: #c0c0c0; stroke-width: 1;
+  stroke-linejoin: round; stroke-linecap: round; opacity: .9;
+}
+.mon-chart-frame .mon-packet-line {
+  fill: none; stroke: #111; stroke-width: 2.5;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.mon-packet-caveat {
+  color: #666; margin: 0; padding: 12px 18px 16px;
+  font-size: 11px; line-height: 1.6; border-top: 1px solid #e6e6e6;
+}
+.mon-flow-table-wrapper { overflow-x: auto; max-width: 100%; }
+.mon-flow-table td { overflow-wrap: anywhere; }
