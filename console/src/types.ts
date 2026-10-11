@@ -294,6 +294,7 @@ export interface AiIncidentAnalysis {
   next_check: string;
   evidence_ids: string[];
   evidence_count: number;
+  tool_results?: Array<{ tool: string; status: string; records?: number; matched_events?: number; scope?: string }>;
   read_only: boolean;
   advisory: string;
 }
