@@ -223,7 +223,7 @@ export function NetworkPath({
           {packets > 0 && <>
             <circle cx="260" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg1" />
             <circle cx="637" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg2" />
-          </>
+          </>}
           <rect className="mon-node mon-node-attacker" x="26" y="93" width="234" height="152" rx="4" />
           <text className="mon-node-label mon-inverse" x="45" y="122">01 / ATTACK SOURCE</text>
           <text className="mon-node-title mon-inverse" x="45" y="165">PC6 · Attacker</text>
