@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
+import IncidentQueue from "./IncidentQueue";
 import AiAnalysis from "./AiAnalysis";
 import Investigation3D from "./Incident3D";
 import SocGauges from "./SocGauges";
@@ -528,22 +529,41 @@ export default function App() {
         )}
 
         {view === "Incidents" && (
-          <>
-            <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CASE QUEUE</span><h2>Incident lifecycle</h2></div></div><IncidentTable incidents={state.incidents} selectedId={selectedIncident?.incident_id} onSelect={setSelectedIncident} /></section>
-            {selectedIncident && (
-              <IncidentDetail
-                incident={selectedIncident}
-                tenantId={tenantId}
-                siteId={siteId}
-                executions={state.response_executions}
-                auditRecords={state.audit_records}
-                onOpen3D={(incident) => {
-                  setSelectedIncident(incident);
-                  setView("Investigation");
-                }}
-              />
-            )}
-          </>
+          <div className="mon-incidents-workspace" data-testid="incident-workspace">
+            <IncidentQueue
+              incidents={state.incidents}
+              selectedId={(selectedIncident && state.incidents.some(row =>
+                row.incident_id === selectedIncident.incident_id)
+                ? selectedIncident : state.incidents[0])?.incident_id ?? null}
+              onSelect={setSelectedIncident}
+            />
+            <div className="mon-incidents-main">
+              {(selectedIncident && state.incidents.some(row =>
+                row.incident_id === selectedIncident.incident_id)
+                ? state.incidents.find(row => row.incident_id === selectedIncident.incident_id)
+                : state.incidents[0]) ? (
+                <IncidentDetail
+                  incident={(selectedIncident && state.incidents.some(row =>
+                    row.incident_id === selectedIncident.incident_id)
+                    ? state.incidents.find(row => row.incident_id === selectedIncident.incident_id)
+                    : state.incidents[0])!}
+                  tenantId={tenantId}
+                  siteId={siteId}
+                  executions={state.response_executions}
+                  auditRecords={state.audit_records}
+                  onOpen3D={(incident) => {
+                    setSelectedIncident(incident);
+                    setView("Investigation");
+                  }}
+                />
+              ) : (
+                <section className="mon-case-waiting">
+                  <h2>No incident selected</h2>
+                  <p>Once MON detects an incident, its evidence will appear here.</p>
+                </section>
+              )}
+            </div>
+          </div>
         )}
         {view === "Investigation" && (
           <Investigation3D
