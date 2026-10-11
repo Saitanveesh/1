@@ -58,12 +58,14 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
     );
     return {
       packets: values,
-      ceiling: Math.max(1, ...values),
+      ceiling: Math.max(4, ...values),
       total: values.reduce((a, b) => a + b, 0)
     };
   }, [capture]);
   const capturing = capture?.status === "CAPTURING";
-  const now = capture?.samples.at(-1);
+  const recentFive = capture?.samples.slice(-5) ?? [];
+  const recentPackets = recentFive.reduce((sum, row) => sum + row.packets, 0);
+  const recentBytes = recentFive.reduce((sum, row) => sum + row.bytes, 0);
   const path = graphPath(packets, ceiling);
   return (
     <section className="mon-panel mon-traffic-panel" data-testid="live-packet-history">
@@ -78,8 +80,8 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
         </span>
       </div>
       <div className="mon-flow-metrics">
-        <div><span>PACKETS / SECOND</span><strong>{capturing ? human(now?.packets ?? 0) : "—"}</strong></div>
-        <div><span>BYTES / SECOND</span><strong>{capturing ? human(now?.bytes ?? 0) : "—"}</strong></div>
+        <div><span>PACKETS / LAST 5S</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
+        <div><span>BYTES / LAST 5S</span><strong>{capturing ? human(recentBytes) : "—"}</strong></div>
         <div><span>90-SECOND PACKETS</span><strong>{capturing ? human(total) : "—"}</strong></div>
         <div><span>SOURCE</span><strong className="mon-smaller">{capturing ? "AF_PACKET · wg0" : "NOT CONNECTED"}</strong></div>
       </div>
@@ -133,6 +135,7 @@ export function NetworkPath({
   const traffic = flows.filter(f => f.src_ip === source && f.dst_ip === "10.77.0.50");
   const packets = traffic.reduce((n, flow) => n + flow.packets, 0);
   const bytes = traffic.reduce((n, flow) => n + flow.bytes, 0);
+  const baselinePackets = traffic.filter(f => f.protocol === "ICMP").reduce((n, f) => n + f.packets, 0);
 
   return (
     <section className="mon-panel mon-topology-panel" data-testid="network-path">
@@ -157,18 +160,14 @@ export function NetworkPath({
           <path className={"mon-route" + (packets ? " mon-route-active" : "")}
             d="M637 167 H782" markerEnd="url(#mon-arrow)" />
           {packets > 0 && <>
-            <circle r="5" className="mon-traffic-pulse">
-              <animateMotion path="M260 167 H403" dur="1.7s" repeatCount="indefinite" />
-            </circle>
-            <circle r="5" className="mon-traffic-pulse">
-              <animateMotion path="M637 167 H782" dur="1.7s" repeatCount="indefinite" />
-            </circle>
-          </>}
+            <circle cx="260" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg1" />
+            <circle cx="637" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg2" />
+          </>
           <rect className="mon-node mon-node-attacker" x="26" y="93" width="234" height="152" rx="4" />
           <text className="mon-node-label mon-inverse" x="45" y="122">01 / ATTACK SOURCE</text>
           <text className="mon-node-title mon-inverse" x="45" y="165">PC6 · Attacker</text>
           <text className="mon-node-ip mon-inverse" x="45" y="196">{source}</text>
-          <text className="mon-node-info mon-inverse" x="45" y="223">Observed in auth evidence</text>
+          <text className="mon-node-info mon-inverse" x="45" y="223">Lab test source · attack on demand</text>
 
           <rect className="mon-node" x="404" y="93" width="233" height="152" rx="4" />
           <text className="mon-node-label" x="423" y="122">02 / ROUTE + RESPONSE</text>
@@ -185,11 +184,12 @@ export function NetworkPath({
           <text className="mon-link-label" x="332" y="140" textAnchor="middle">TUNNEL</text>
           <text className="mon-link-label" x="710" y="140" textAnchor="middle">FORWARDED</text>
           <text className="mon-route-note" x="520" y="289" textAnchor="middle">
-            {packets ? human(packets) + " packets · " + human(bytes) + " bytes · 10-second window" :
+            {packets ? human(packets) + " packets · " + human(bytes) + " bytes · 10s" +
+              (baselinePackets > 0 ? " · " + baselinePackets + " ICMP baseline" : "") :
               "No packet observation for this route in the latest window"}
           </text>
           <text className="mon-svg-label" x="520" y="313" textAnchor="middle">
-            {measured ? "Measured on PC2 wg0; no payload capture" :
+            {measured ? "Animation indicates RECENT OBSERVED activity, not per-packet timing or inferred network hops" :
               "Packet capture offline; incident source is independently supported by PC5 auth logs"}
           </text>
         </svg>
@@ -204,7 +204,9 @@ export function NetworkPath({
             <thead><tr><th>SOURCE</th><th>DESTINATION</th><th>TRANSPORT</th><th>PACKETS</th><th>BYTES</th></tr></thead>
             <tbody>
               {flows.slice(0, 15).map((flow, index) => <tr key={index}>
-                <td>{flow.src_ip}</td><td>{flow.dst_ip}</td><td>{protocol(flow)}</td>
+                <td>{flow.src_ip}</td><td>{flow.dst_ip}</td>
+                <td>{protocol(flow)}{flow.src_ip === "10.77.0.60" && flow.dst_ip === "10.77.0.50" &&
+                  flow.protocol === "ICMP" ? " · BASELINE" : ""}</td>
                 <td>{human(flow.packets)}</td><td>{human(flow.bytes)}</td>
               </tr>)}
               {!flows.length && <tr>
