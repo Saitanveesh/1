@@ -3,7 +3,7 @@ set -euo pipefail
 umask 077
 REPO=/home/pc-2/mon-three-code
 V2=/home/pc-2/mon-three/console-v2
-PIN=1a805e984a92d86d8b5c907b486738d12e339c43
+PIN=696b2d0737e022fd2be75ca68548ed61f167af82
 UNIT=mon-three-console-v2.service
 FILES=(src/App.tsx src/AiAnalysis.tsx src/AiAnalysis.css src/IncidentDetail.tsx src/PacketObservability.tsx src/types.ts)
 PORTAL=/home/pc-2/mon-three/tools/mon_ai_analysis.py
