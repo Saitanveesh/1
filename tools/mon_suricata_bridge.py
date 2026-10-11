@@ -46,6 +46,9 @@ def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
         "scope": "Passive sensor on PC2; not inline packet enforcement",
     }
     try:
+        configured = (path.parent / ".mon-passive-configured").is_file()
+        if configured:
+            payload["status"] = "CONFIGURED_NO_EVE"
         st = path.stat()
         if not path.is_file():
             return payload
