@@ -19,29 +19,12 @@ import type {
 } from "./types";
 import "./styles.css";
 
-type View =
-  | "Overview"
-  | "Incidents"
-  | "AI Analysis"
-  | "Attack Graph"
-  | "Telemetry"
-  | "Assets"
-  | "Enforcement"
-  | "Response"
-  | "Audit"
-  | "Fleet";
+type View = "Overview" | "Incidents" | "Network" | "AI Analysis" | "Operations";
+type OperationsArea = "Assets" | "Enforcement" | "Response" | "Audit" | "Fleet" | "Telemetry";
 
-const views: View[] = [
-  "Overview",
-  "Incidents",
-  "AI Analysis",
-  "Attack Graph",
-  "Telemetry",
-  "Assets",
-  "Enforcement",
-  "Response",
-  "Audit",
-  "Fleet"
+const views: View[] = ["Overview", "Incidents", "Network", "AI Analysis", "Operations"];
+const operationsAreas: OperationsArea[] = [
+  "Assets", "Enforcement", "Response", "Audit", "Fleet", "Telemetry"
 ];
 
 const rank: Record<Severity, number> = {
@@ -373,6 +356,7 @@ export default function App() {
   const tenantId = params.get("tenant") || "default";
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
+  const [operationsArea, setOperationsArea] = useState<OperationsArea>("Assets");
   const [operator, setOperator] = useState<OperatorPrincipal | null>(null);
   const [authState, setAuthState] = useState<"CHECKING" | "OK" | "UNAUTHENTICATED" | "DENIED">("CHECKING");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
@@ -560,20 +544,32 @@ export default function App() {
             }}
           />
         )}
-        {view === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
-        {view === "Attack Graph" && <>
+        {view === "Network" && <>
           <NetworkPath capture={packetCapture}
             attackerIps={state.findings.map(f => f.src_ip).filter((ip): ip is string => !!ip)} />
+          <PacketHistory capture={packetCapture} />
           <details className="mon-advanced-evidence">
             <summary>Raw correlation graph / analyst evidence (advanced)</summary>
             <AttackGraph state={state} />
           </details>
         </>}
-        {view === "Telemetry" && <TelemetryPanel state={state} />}
-        {view === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
-        {view === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
-        {view === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
-        {view === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
+        {view === "Operations" && (
+          <div className="mon-operations" data-testid="operations-workspace">
+            <div className="mon-operations-nav" role="group" aria-label="Operations tools">
+              {operationsAreas.map(area => (
+                <button key={area} type="button"
+                  aria-pressed={operationsArea === area}
+                  onClick={() => setOperationsArea(area)}>{area}</button>
+              ))}
+            </div>
+            {operationsArea === "Telemetry" && <TelemetryPanel state={state} />}
+            {operationsArea === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
+            {operationsArea === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
+            {operationsArea === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
+            {operationsArea === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
+            {operationsArea === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
+          </div>
+        )}
       </main>
     </div>
   );
