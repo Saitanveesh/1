@@ -55,6 +55,7 @@ describe("Real packet visualization", () => {
     );
     expect(container.querySelectorAll(".mon-traffic-pulse")).toHaveLength(2);
     expect(screen.getByText("TRAFFIC OBSERVED NOW")).toBeTruthy();
+    expect(screen.getByTestId("route-count").textContent).toContain("1 observed IP packets · 84 IP bytes");
     rerender(<NetworkPath capture={{ ...recent, events: [] }} attackerIps={["10.77.0.60"]} />);
     expect(container.querySelectorAll(".mon-traffic-pulse")).toHaveLength(0);
     expect(screen.getByText("NO MATCHING RECENT PACKETS")).toBeTruthy();
@@ -63,7 +64,8 @@ describe("Real packet visualization", () => {
   it("describes ICMP from the lab source as expected baseline, not attack", () => {
     render(<NetworkPath capture={capture} attackerIps={["10.77.0.60"]} />);
     expect(screen.getByText(/EXPECTED-BASELINE/)).toBeTruthy();
-    expect(screen.getByText(/Animation is enabled only by recent matching IP headers/)).toBeTruthy();
+    expect(screen.queryByText(/Animation is enabled only/)).toBeNull();
+    expect(screen.queryByText(/0 flow packets/)).toBeNull();
   });
 });
 
