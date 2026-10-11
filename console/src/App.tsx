@@ -508,13 +508,13 @@ export default function App() {
         )}
         {view === "Overview" && (
           <>
-            <section className="metric-grid">
-              <Metric label="CONTROL PLANE LINK" value={state.connection === "LIVE" ? "ONLINE" : state.connection} note="authenticated WebSocket transport" progress={state.connection === "LIVE" ? 100 : 25} />
-              <Metric label="ATTACK PRESSURE" value={String(Math.round(metrics.attackPressure))} note="derived from active incident severity × confidence" progress={metrics.attackPressure} />
-              <Metric label="HIGHEST SEVERITY" value={metrics.highest} note={`${metrics.active.length} active incidents`} />
-              <Metric label="CRITICAL INCIDENTS" value={String(metrics.critical)} note="requires operator attention" />
-              <Metric label="ASSETS OBSERVED" value={String(state.assets.length)} note="evidence-backed identities in current site" />
-              <Metric label="DROPPED LIVE MSG" value={String(state.droppedMessages)} note="slow-client backpressure counter" />
+            <section className="mon-overview-strip" data-testid="overview-status-strip">
+              <div><small>MON STATUS</small><strong>{state.connection === "LIVE" ? "ONLINE" : state.connection}</strong></div>
+              <div><small>OPEN INCIDENTS</small><strong>{metrics.active.length}</strong></div>
+              <div><small>HIGHEST SEVERITY</small><strong>{metrics.highest}</strong></div>
+              <div><small>ASSETS</small><strong>{state.assets.length}</strong></div>
+              <div><small>ATTACK PRESSURE</small><strong>{Math.round(metrics.attackPressure)}</strong></div>
+              <div><small>PACKET CAPTURE</small><strong>{packetCapture?.status ?? "CONNECTING"}</strong></div>
             </section>
             <PacketHistory capture={packetCapture} />
             <section className="split">
