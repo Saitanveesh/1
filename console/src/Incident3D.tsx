@@ -97,32 +97,25 @@ export function buildIncidentScene(
       relation: "Case association; not a packet-level hop", recorded: false
     });
   });
-  investigation.evidence.slice(0, 6).forEach((e, i) => {
-    const angle = i * Math.PI * 2 / Math.max(1, Math.min(investigation.evidence.length, 6));
+  // Central evidence markers stay separate from the source and protected asset.
+  // Avoid overlapping full-size cards and crossing response edges.
+  const evidence = investigation.evidence.slice(0, 6);
+  evidence.forEach((e, i) => {
+    const x = -.9 + (i % 3) * 1.15;
+    const y = 1.8 + Math.floor(i / 3) * .72;
     nodes.push({
       id: "evidence:" + e.evidence_id, label: e.evidence_class,
-      detail: e.summary, kind: "evidence",
-      x: Math.cos(angle) * 1.15, y: Math.sin(angle) * 1.25,
-      z: -1.4, ref: e.evidence_id
-    });
-    const target = assets[i % Math.max(assets.length, 1)];
-    if (target) links.push({
-      id: "evidence:" + i, from: "evidence:" + e.evidence_id,
-      to: "asset:" + target.asset_id, relation: "Attached MON evidence",
-      recorded: true
+      detail: e.summary, kind: "evidence", x, y,
+      z: -.65 + (i % 3) * .25, ref: e.evidence_id
     });
   });
   related.slice(0, 4).forEach((r, i) => {
     nodes.push({
       id: "response:" + r.execution_id,
       label: r.plan.request.action + " · " + r.status,
-      detail: r.execution_id, kind: "response",
-      x: -1.15 + i * 1.12, y: -2.3, z: 1.1, ref: r.execution_id
-    });
-    if (assets[0]) links.push({
-      id: "response:" + i, from: "response:" + r.execution_id,
-      to: "asset:" + assets[0].asset_id, relation: "Recorded response",
-      recorded: true
+      detail: r.execution_id,
+      kind: "response", x: -1.2 + (i % 3) * 1.2,
+      y: -1.7 - Math.floor(i / 3) * .7, z: .55, ref: r.execution_id
     });
   });
   if (!nodes.length) nodes.push({
@@ -177,96 +170,142 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
   }, [playing, model.timeline.length]);
   const current = model.timeline[momentIndex];
   const picked = model.nodes.find(node => node.id === selected);
+  const coreLinks = model.links.filter(l => !verifiedOnly || l.recorded);
   return (
-    <article className="mon3d-workspace" data-testid="incident-3d-scene">
-      <div className="mon3d-scene-head">
-        <div><small>CASE-BASED SPATIAL RECONSTRUCTION / {model.kind.toUpperCase()}</small>
+    <article className="mon3d-workspace mon3d-studio" data-testid="incident-3d-scene">
+      <div className="mon3d-studio-top">
+        <div className="mon3d-scene-title">
+          <small>INVESTIGATION / {model.kind.toUpperCase()}</small>
           <h3>{model.label}</h3>
-          <p>Only recorded entities are placed. Spatial distance is a layout aid, not a network hop count.</p>
+          <p>Recorded entities · evidence-first reconstruction</p>
         </div>
         <div className="mon3d-switch">
           <button type="button" aria-pressed={projection === "3d"} onClick={() => setProjection("3d")}>3D</button>
           <button type="button" aria-pressed={projection === "2d"} onClick={() => setProjection("2d")}>2D</button>
-          <button type="button" onClick={() => setCamera({ x: -23, y: -19, zoom: 1 })}>RESET</button>
+          <button type="button" onClick={() => setCamera({ x: -23, y: -19, zoom: 1 })}>FIT VIEW</button>
         </div>
       </div>
-      <div className="mon3d-scene-meta">
-        <span>{model.nodes.length} EVIDENCE / ENTITY NODES</span>
-        <span>{model.packets} MATCHED RECENT IP HEADERS</span>
+      <div className="mon3d-studio-bar">
+        <span><strong>{model.nodes.length}</strong> entities</span>
+        <span><strong>{model.timeline.length}</strong> recorded events</span>
+        <span><strong>{model.packets}</strong> matching live IP headers</span>
         <label><input type="checkbox" checked={verifiedOnly}
-          onChange={e => setVerifiedOnly(e.target.checked)} /> VERIFIED LINKS ONLY (HIDE CASE ASSOCIATIONS)</label>
+          onChange={event => setVerifiedOnly(event.target.checked)} />
+          Verified links only</label>
       </div>
-      {projection === "3d" ? (
-        <div className="mon3d-stage" data-testid="incident-3d-viewport"
-          role="region" tabIndex={0} aria-label="Interactive 3D evidence topology; drag to orbit"
-          onPointerDown={e => {
-            if ((e.target as HTMLElement).closest("button")) return;
-            dragging.current = { x: e.clientX, y: e.clientY };
-            e.currentTarget.setPointerCapture(e.pointerId);
-          }}
-          onPointerMove={e => {
-            if (!dragging.current) return;
-            const dx = e.clientX - dragging.current.x;
-            const dy = e.clientY - dragging.current.y;
-            dragging.current = { x: e.clientX, y: e.clientY };
-            setCamera(v => ({ ...v, y: v.y + dx * .3,
-              x: Math.max(-65, Math.min(65, v.x - dy * .3)) }));
-          }}
-          onPointerUp={() => { dragging.current = null; }}
-          onPointerCancel={() => { dragging.current = null; }}
-          onWheel={e => setCamera(v => ({ ...v, zoom: Math.max(.6, Math.min(1.6, v.zoom - e.deltaY * .0008)) }))}
-          onKeyDown={e => {
-            if (e.key === "ArrowLeft") setCamera(v => ({ ...v, y: v.y - 9 }));
-            if (e.key === "ArrowRight") setCamera(v => ({ ...v, y: v.y + 9 }));
-            if (e.key === "+") setCamera(v => ({ ...v, zoom: Math.min(1.6, v.zoom + .1) }));
-            if (e.key === "-") setCamera(v => ({ ...v, zoom: Math.max(.6, v.zoom - .1) }));
-          }}>
-          <div className="mon3d-grid" />
-          <div className="mon3d-universe" style={{
-            transform: "rotateX(" + camera.x + "deg) rotateY(" + camera.y +
-              "deg) scale(" + camera.zoom + ")"
-          }}>
-            {model.links.filter(l => !verifiedOnly || l.recorded).map(link => {
-              const a = model.nodes.find(n => n.id === link.from);
-              const b = model.nodes.find(n => n.id === link.to);
-              return a && b ? <SceneEdge key={link.id} a={a} b={b} recorded={link.recorded} /> : null;
-            })}
-            {model.nodes.map(node => <button type="button" key={node.id}
-              data-testid={"mon3d-node-" + node.kind}
-              className={"mon3d-node " + node.kind + (selected === node.id ? " selected" : "") +
-                (current?.reference === node.ref ? " timeline-active" : "")}
-              title={node.detail}
-              style={{ left: "calc(50% + " + (node.x * 82) + "px)",
-                top: "calc(50% - " + (node.y * 82) + "px)",
-                transform: "translate3d(-50%, -50%, " + (node.z * 82) + "px)" }}
-              onClick={() => setSelected(node.id)}>
-              <small>{node.kind.toUpperCase()}</small><strong>{node.label}</strong>
-            </button>)}
+      <div className="mon3d-studio-grid">
+        <div className="mon3d-stage-panel">
+          {projection === "3d" ? (
+            <div className="mon3d-stage" data-testid="incident-3d-viewport"
+              role="region" tabIndex={0} aria-label="Interactive 3D evidence topology; drag to orbit"
+              onPointerDown={event => {
+                if ((event.target as HTMLElement).closest("button")) return;
+                dragging.current = { x: event.clientX, y: event.clientY };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={event => {
+                if (!dragging.current) return;
+                const dx = event.clientX - dragging.current.x;
+                const dy = event.clientY - dragging.current.y;
+                dragging.current = { x: event.clientX, y: event.clientY };
+                setCamera(v => ({
+                  ...v, y: v.y + dx * .24,
+                  x: Math.max(-55, Math.min(55, v.x - dy * .24))
+                }));
+              }}
+              onPointerUp={() => { dragging.current = null; }}
+              onPointerCancel={() => { dragging.current = null; }}
+              onWheel={event => setCamera(v => ({
+                ...v, zoom: Math.min(1.6, Math.max(.62, v.zoom - event.deltaY * .0007))
+              }))}
+              onKeyDown={event => {
+                if (event.key === "ArrowLeft") setCamera(v => ({ ...v, y: v.y - 9 }));
+                if (event.key === "ArrowRight") setCamera(v => ({ ...v, y: v.y + 9 }));
+                if (event.key === "+") setCamera(v => ({ ...v, zoom: Math.min(1.6, v.zoom + .1) }));
+                if (event.key === "-") setCamera(v => ({ ...v, zoom: Math.max(.62, v.zoom - .1) }));
+              }}>
+              <div className="mon3d-grid" aria-hidden="true" />
+              <div className="mon3d-universe" style={{
+                transform: "rotateX(" + camera.x + "deg) rotateY(" + camera.y +
+                  "deg) scale(" + camera.zoom + ")"
+              }}>
+                {coreLinks.map(link => {
+                  const a = model.nodes.find(node => node.id === link.from);
+                  const b = model.nodes.find(node => node.id === link.to);
+                  return a && b ? <SceneEdge key={link.id} a={a} b={b} recorded={link.recorded} /> : null;
+                })}
+                {model.nodes.map(node =>
+                  <button type="button" key={node.id}
+                    data-testid={"mon3d-node-" + node.kind}
+                    className={"mon3d-node " + node.kind +
+                      (selected === node.id ? " selected" : "") +
+                      (current?.reference === node.ref ? " timeline-active" : "")}
+                    title={node.detail}
+                    style={{ left: "calc(50% + " + node.x * 82 + "px)",
+                      top: "calc(50% - " + node.y * 82 + "px)",
+                      transform: "translate3d(-50%, -50%, " + node.z * 82 + "px)" }}
+                    onClick={() => setSelected(node.id)}>
+                    <small>{node.kind.toUpperCase()}</small>
+                    <strong>{node.label}</strong>
+                  </button>
+                )}
+              </div>
+              <div className="mon3d-help">DRAG TO ROTATE · SCROLL TO ZOOM</div>
+            </div>
+          ) : (
+            <div className="mon3d-list" data-testid="incident-2d-view">
+              {model.nodes.map(node =>
+                <button type="button" key={node.id} onClick={() => setSelected(node.id)}>
+                  <small>{node.kind.toUpperCase()}</small><strong>{node.label}</strong>
+                  <span>{node.detail}</span>
+                </button>
+              )}
+            </div>
+          )}
+          <div className="mon3d-legend">
+            <span><i className="mon3d-legend-source" /> Observed source</span>
+            <span><i className="mon3d-legend-asset" /> Asset</span>
+            <span><i className="mon3d-legend-evidence" /> Evidence</span>
+            <span><i className="mon3d-legend-response" /> Response</span>
           </div>
-          <span className="mon3d-help">DRAG TO ORBIT · SCROLL TO ZOOM · ARROWS TO ROTATE</span>
         </div>
-      ) : <div className="mon3d-list" data-testid="incident-2d-view">
-        {model.nodes.map(node => <button type="button" key={node.id}
-          onClick={() => setSelected(node.id)}><small>{node.kind.toUpperCase()}</small>
-          <strong>{node.label}</strong><span>{node.detail}</span></button>)}
-      </div>}
-      <div className="mon3d-inspect" data-testid="scene-inspector">
-        <div><small>ENTITY</small><strong>{picked?.label ?? "Select a node"}</strong></div>
-        <div><small>RECORD</small><strong>{picked?.detail ?? "MON case evidence"}</strong></div>
-        <div><small>CURRENT EVENT</small><strong>{current?.headline ?? "No timestamped records"}</strong></div>
-        <div><small>LAST PACKET OBSERVATION</small><strong>{model.lastPacketAt ?? "None retained"}</strong></div>
-      </div>
-      <div className="mon3d-player" aria-label="Recorded event playback">
-        <button type="button" data-testid="incident-play" disabled={model.timeline.length < 2}
-          onClick={() => setPlaying(v => !v)}>{playing ? "PAUSE" : "PLAY"} {playing ? "Ⅱ" : "▶"}</button>
-        <input type="range" min={0} max={Math.max(0, model.timeline.length - 1)}
-          value={momentIndex} disabled={!model.timeline.length}
-          aria-label="Select timeline event" onChange={e => {
-            setPlaying(false);
-            setMomentIndex(Number(e.target.value));
-          }} />
-        <span>{model.timeline.length ? (momentIndex + 1) + " / " + model.timeline.length : "NO EVENTS"}</span>
-        <time>{current?.timestamp ?? "Time not retained"}</time>
+        <aside className="mon3d-rail">
+          <section className="mon3d-rail-card" data-testid="scene-inspector">
+            <small>01 / EVIDENCE INSPECTOR</small>
+            <h4>{picked?.label ?? "Select an evidence node"}</h4>
+            <p>{picked?.detail ?? "Select a node to inspect its recorded identity or response."}</p>
+            <div className="mon3d-rail-stat">
+              <span>Current event</span><strong>{current?.headline ?? "No event selected"}</strong>
+            </div>
+            <div className="mon3d-rail-stat">
+              <span>Last matched IP header</span>
+              <strong>{model.lastPacketAt ?? "None retained"}</strong>
+            </div>
+          </section>
+          <section className="mon3d-rail-card mon3d-rail-playback">
+            <small>02 / RECORDED TIMELINE</small>
+            <div className="mon3d-player" aria-label="Recorded event playback">
+              <button type="button" data-testid="incident-play"
+                disabled={model.timeline.length < 2}
+                onClick={() => setPlaying(value => !value)}>
+                {playing ? "PAUSE Ⅱ" : "PLAY ▶"}
+              </button>
+              <span>{model.timeline.length ? momentIndex + 1 + " / " + model.timeline.length : "NO EVENTS"}</span>
+            </div>
+            <input type="range" min={0} max={Math.max(0, model.timeline.length - 1)}
+              value={momentIndex} disabled={!model.timeline.length}
+              aria-label="Select timeline event" onChange={event => {
+                setPlaying(false);
+                setMomentIndex(Number(event.target.value));
+              }} />
+            <time>{current?.timestamp ?? "Timestamp not recorded"}</time>
+            <p>{current?.description ?? "Recorded events will appear when MON creates an incident."}</p>
+          </section>
+          <div className="mon3d-rail-note">
+            Only recorded MON entities are drawn. Lines denote case associations,
+            not verified network hops. Playback cannot execute containment.
+          </div>
+        </aside>
       </div>
       <p className="mon3d-disclaimer">
         Playback is a sequence of recorded evidence, not reconstructed packet timing.
