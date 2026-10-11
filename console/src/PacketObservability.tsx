@@ -201,7 +201,7 @@ export function NetworkPath({
   const bytes = traffic.reduce((n, flow) => n + flow.bytes, 0);
   const baselinePackets = traffic.filter(f => f.protocol === "ICMP").reduce((n, f) => n + f.packets, 0);
   const now = Date.parse(capture?.observed_at ?? "");
-  const recent = (capture?.events ?? []).filter(event =>
+  const recent = (capture?.lab_route_events ?? capture?.events ?? []).filter(event =>
     ((event.src_ip === source && event.dst_ip === target) ||
      (event.src_ip === target && event.dst_ip === source)) &&
     Number.isFinite(Date.parse(event.timestamp)) &&
