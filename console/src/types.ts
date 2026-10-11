@@ -286,6 +286,38 @@ export interface PacketCaptureSnapshot {
   flows: PacketFlow[];
 }
 
+export interface SuricataRecord {
+  event_type: "alert" | "flow" | "dns" | "tls" | "http";
+  timestamp: string;
+  src_ip: string;
+  src_port: number | null;
+  dst_ip: string;
+  dst_port: number | null;
+  protocol: string;
+  application: string;
+  community_id: string;
+  signature?: string;
+  signature_id?: number;
+  severity?: number;
+  category?: string;
+  pkts_toserver?: number;
+  pkts_toclient?: number;
+  bytes_toserver?: number;
+  bytes_toclient?: number;
+  flow_state?: string;
+}
+
+export interface SuricataSnapshot {
+  source: "suricata-eve";
+  status: "NOT_INSTALLED" | "NO_RECENT_EVENTS" | "RECENT_EVE";
+  observed_events: number;
+  alerts: number;
+  last_seen: string | null;
+  records: SuricataRecord[];
+  capture_interface?: string;
+  scope?: string;
+}
+
 export interface AiIncidentAnalysis {
   incident_id: string;
   model: string;
