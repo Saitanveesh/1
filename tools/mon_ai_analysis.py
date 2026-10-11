@@ -196,7 +196,7 @@ def analyze_incident(
     )
     pressure = next(
         (str(row["summary"]) for row in bundle["evidence"]
-         if re.search(r"\\d+ .*auth.*fail", str(row["summary"]), re.I)),
+         if re.search(r"\d+ .*auth.*fail", str(row["summary"]), re.I)),
         "",
     )
     headline = (
