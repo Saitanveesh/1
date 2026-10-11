@@ -221,40 +221,19 @@ export default function IncidentDetail({
       {error && <div className="empty" role="alert">{error}</div>}
       {!error && !investigation && <div className="empty">Loading investigation…</div>}
       {investigation && (
-        <section className="mon-ai-panel" data-testid="ai-incident-panel">
-          <div className="mon-ai-heading">
-            <div>
-              <span className="mon-eyebrow">LOCAL / READ-ONLY / QWEN3</span>
-              <h3>AI Incident Analyst</h3>
-              <p>On-demand analysis of this incident's verified MON evidence. Never authorizes enforcement.</p>
-            </div>
-            <button
-              type="button"
-              className="control-button"
-              data-testid="analyze-with-ai"
-              disabled={aiBusy}
-              onClick={() => void handleAiAnalysis()}
-            >
-              {aiBusy ? "ANALYZING LOCALLY…" : "ANALYZE WITH LOCAL AI"}
-            </button>
+        <section className="mon-ai-compact" data-testid="ai-incident-panel">
+          <span className="mon-ai-compact-label">LOCAL AI</span>
+          <div className="mon-ai-compact-text">
+            <strong>{aiResult?.headline ?? "What happened? Analyze this incident using verified evidence."}</strong>
+            {aiResult && <span>{aiResult.assessment} · Check: {aiResult.next_check}</span>}
+            {aiError && <span role="alert">{aiError}</span>}
+            {aiBusy && <span role="status">Analyzing MON evidence locally…</span>}
           </div>
-          {aiBusy && <div className="mon-ai-status" role="status">Qwen3 is reviewing evidence on PC2. This can take 10–60 seconds.</div>}
-          {aiError && <div className="mon-ai-error" role="alert">{aiError}</div>}
-          {aiResult && (
-            <div className="mon-ai-output" data-testid="local-ai-result">
-              <div className="mon-ai-metadata">
-                <span>MODEL: {aiResult.model}</span>
-                <span>VERIFIED EVIDENCE REFERENCES: {aiResult.evidence_count}</span>
-                <span>READ ONLY: {aiResult.read_only ? "YES" : "NO"}</span>
-              </div>
-              <div className="mon-ai-analysis">{aiResult.analysis}</div>
-              <details className="mon-ai-references">
-                <summary>MON evidence IDs supplied to the model ({aiResult.evidence_ids.length})</summary>
-                <ul>{aiResult.evidence_ids.map(id => <li key={id}>{id}</li>)}</ul>
-              </details>
-              <p className="mon-ai-disclaimer">{aiResult.advisory}</p>
-            </div>
-          )}
+          <button type="button" className="control-button" data-testid="analyze-with-ai"
+            disabled={aiBusy} onClick={() => void handleAiAnalysis()}>
+            {aiBusy ? "ANALYZING…" : aiResult ? "REANALYZE" : "ANALYZE"}
+          </button>
+          {aiResult && <span className="mon-ai-compact-meta">{aiResult.evidence_count} MON records · {aiResult.model}</span>}
         </section>
       )}
       {investigation && (
