@@ -104,6 +104,8 @@ if sudo systemctl is-active --quiet suricata.service; then
   echo '[CHECK] Existing distribution Suricata active: not replacing or stopping it'
   echo '[CHECK] Connect its EVE JSON separately if desired'
 elif sudo systemctl is-active --quiet mon-suricata-passive.service; then
+  install -d -m 0700 "$ROOT/suricata"
+  touch "$ROOT/suricata/.mon-passive-configured"
   echo '[PASS] Existing MON passive Suricata service active'
 elif sudo test -f /etc/systemd/system/mon-suricata-passive.service; then
   echo '[CHECK] Previous MON Suricata service exists but is inactive; not overwriting'
@@ -153,6 +155,7 @@ EOF
   sleep 7
   sudo systemctl is-active --quiet mon-suricata-passive.service ||
     { echo '[CHECK] Passive IDS service failed. MON UI remains operational'; exit 2; }
+  touch "$LOGDIR/.mon-passive-configured"
   echo '[PASS] Suricata passive IDS running on wg0; no packet blocking enabled'
 fi
 for u in http://127.0.0.1:8080/health http://127.0.0.1:8090/health http://100.75.116.62:5173/; do
