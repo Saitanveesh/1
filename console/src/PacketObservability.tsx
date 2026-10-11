@@ -61,7 +61,7 @@ export function trailingPacketRate(samples: number[], seconds = 5): number[] {
   });
 }
 
-export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | null }) {
+export function PacketHistory({ capture, compact = false }: { capture: PacketCaptureSnapshot | null; compact?: boolean }) {
   const [display, setDisplay] = useState<"average" | "raw">("average");
   const { raw, smoothed, ceiling, total } = useMemo(() => {
     const samples = capture?.samples ?? [];
@@ -94,7 +94,7 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
     ? new Date(capture.last_packet_at * 1000).toLocaleTimeString()
     : "none recorded";
   return (
-    <section className="mon-panel mon-traffic-panel" data-testid="live-packet-history">
+    <section className={"mon-panel mon-traffic-panel" + (compact ? " mon-traffic-compact" : "")} data-testid="live-packet-history">
       <div className="mon-panel-heading">
         <div>
           <span className="mon-eyebrow">NETWORK / MEASURED IP HEADERS</span>
@@ -147,7 +147,7 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
         <span>RAW FRAMES {capture?.raw_frames ?? "—"} · DECODED IP {capture?.decoded_packets ?? "—"} · LAST PACKET {lastPacket}</span>
         <span>Observed interfaces: {interfaces.join(", ") || scope}</span>
       </div>
-      <div className="mon-flow-section" data-testid="real-network-event-log">
+      {!compact && <div className="mon-flow-section" data-testid="real-network-event-log">
         <div className="mon-panel-heading mon-panel-heading-small">
           <h3>Recent network observations <span>REAL IP METADATA · NOT SIMULATED</span></h3>
           <span>{events.length} recent records · volatile buffer</span>
@@ -173,7 +173,8 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
+      {compact && <p className="mon-compact-network-hint">Full packet log and protocol analysis are available in Network.</p>}
       <p className="mon-packet-caveat">5S RATE is a calculated average of measured one-second samples, never a packet generator. PC2 cannot observe traffic that bypasses PC2. Forwarded packets seen on multiple interfaces may appear more than once.</p>
     </section>
   );
