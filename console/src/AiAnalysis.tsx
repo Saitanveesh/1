@@ -260,6 +260,7 @@ export default function AiAnalysis({
     setInvestigation(null);
     setAi(null);
     setAiError(null);
+    setAiLoading(false);
     setActiveMoment(null);
     setLoading(true);
     setLoadError(null);
