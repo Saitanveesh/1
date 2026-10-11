@@ -19,10 +19,6 @@ interface Props {
   auditRecords: AuditRecord[];
 }
 
-function nodeLabel(id: string): string {
-  return id.replace(/^[A-Za-z]+:/, "");
-}
-
 export default function IncidentDetail({
   incident,
   tenantId,
