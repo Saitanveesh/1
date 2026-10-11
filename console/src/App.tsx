@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
+import AiAnalysis from "./AiAnalysis";
 import LoginPage from "./LoginPage";
 import { NetworkPath, PacketHistory, usePacketCapture } from "./PacketObservability";
 import { LiveClient, type LiveState } from "./live";
@@ -21,6 +22,7 @@ import "./styles.css";
 type View =
   | "Overview"
   | "Incidents"
+  | "AI Analysis"
   | "Attack Graph"
   | "Telemetry"
   | "Assets"
@@ -32,6 +34,7 @@ type View =
 const views: View[] = [
   "Overview",
   "Incidents",
+  "AI Analysis",
   "Attack Graph",
   "Telemetry",
   "Assets",
@@ -543,6 +546,19 @@ export default function App() {
               />
             )}
           </>
+        )}
+        {view === "AI Analysis" && (
+          <AiAnalysis
+            incidents={state.incidents}
+            tenantId={tenantId}
+            siteId={siteId}
+            executions={state.response_executions}
+            auditRecords={state.audit_records}
+            onOpenIncident={(incident) => {
+              setSelectedIncident(incident);
+              setView("Incidents");
+            }}
+          />
         )}
         {view === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
         {view === "Attack Graph" && <>
