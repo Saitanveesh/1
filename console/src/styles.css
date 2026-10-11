@@ -320,3 +320,31 @@ main { min-width: 0; }
   .mon-login-left-footer { display:none; }
   .mon-login-right { min-height:620px; padding:30px 25px; }
 }
+
+/* Lab packet-path motion is enabled ONLY for recently measured flows.
+   It illustrates observed activity, not exact packet transit timing. */
+.mon-traffic-pulse {
+  fill:#0b0b0b;
+  transform-box: view-box;
+  will-change: transform;
+}
+.mon-pulse-leg1 {
+  animation: mon-flight-leg-one 1.4s linear infinite;
+}
+.mon-pulse-leg2 {
+  animation: mon-flight-leg-two 1.4s linear infinite;
+  animation-delay: -0.7s;
+}
+@keyframes mon-flight-leg-one {
+  0% { transform: translateX(0); opacity:0; }
+  10%,85% {opacity:1}
+  100% { transform:translateX(143px);opacity:0; }
+}
+@keyframes mon-flight-leg-two {
+  0% { transform: translateX(0); opacity:0; }
+  10%,85% {opacity:1}
+  100% { transform:translateX(145px);opacity:0; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .mon-pulse-leg1,.mon-pulse-leg2 { animation:none; opacity:0; }
+}
