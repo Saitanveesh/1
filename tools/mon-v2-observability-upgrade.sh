@@ -110,11 +110,30 @@ for i in $(seq 1 20); do
 done
 [[ "$READY" == 1 ]] || { echo '[FAIL] Real capture not operational'; exit 1; }
 TOKEN=$(cat "$DIR/metrics-token")
-curl --noproxy '*' -fsS --max-time 6 -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8088/portal/metrics |
-  grep -q 'mon_capture_packets_total{direction="outbound"}'
+read_metric(){
+  curl --noproxy '*' -fsS --max-time 6 -H "Authorization: Bearer $TOKEN" \
+    http://127.0.0.1:8088/portal/metrics |
+    awk -v name="$1" '$1 == name {print $2}'
+}
+BEFORE=$(read_metric 'mon_capture_raw_frames_total')
+[[ "$BEFORE" =~ ^[0-9]+$ ]] || { echo '[FAIL] Raw frame metric missing'; exit 1; }
+# Generate real, harmless local browser HTTP requests, not fabricated counters.
+for i in $(seq 1 5); do
+  curl --noproxy '*' -fsS --max-time 6 http://100.75.116.62:5174/portal/health >/dev/null
+  sleep 1
+done
+AFTER=$(read_metric 'mon_capture_raw_frames_total')
+OUTBOUND=$(read_metric 'mon_capture_packets_total{direction="outbound"}')
+INBOUND=$(read_metric 'mon_capture_packets_total{direction="inbound"}')
 unset TOKEN
-echo '[PASS] Kernel capture active with authenticated inbound/outbound counters'
+if [[ ! "$AFTER" =~ ^[0-9]+$ || ! "$OUTBOUND" =~ ^[0-9]+$ ||
+      ! "$INBOUND" =~ ^[0-9]+$ || "$AFTER" -le "$BEFORE" ]]; then
+  echo "[FAIL] Capture reports CAPTURING but raw frames did not increase (before=$BEFORE after=$AFTER)" >&2
+  echo '[CHECK] Inspect CAP_NET_RAW, interface visibility and AF_PACKET counters on PC2' >&2
+  exit 1
+fi
+echo "[PASS] REAL interface traffic observed: $((AFTER-BEFORE)) new frames"
+echo "[CHECK] Cumulative decoded IP: inbound=$INBOUND outbound=$OUTBOUND"
 
 echo '========== OPTIONAL GRAFANA + PROMETHEUS =========='
 if command -v docker >/dev/null && sudo docker compose version >/dev/null 2>&1; then
