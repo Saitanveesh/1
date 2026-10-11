@@ -53,7 +53,10 @@ test.describe("authenticated operator (tenant A)", () => {
 
     // evidence
     await expect(page.getByTestId("incident-chronology")).toBeVisible();
+    await expect(page.getByTestId("incident-event-chain")).toBeVisible();
+    await expect(page.getByTestId("incident-case-queue")).toBeVisible();
     await expect(page.getByTestId("ai-timeline-event").first()).toBeVisible();
+    await page.getByRole("tab", { name: /EVIDENCE/ }).click();
     await expect(page.getByTestId("evidence-item").first()).toBeVisible();
     expect(await page.getByTestId("evidence-item").count()).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("evidence-list")).toContainText("IDENTITY");
@@ -66,6 +69,7 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByTestId("graph-edge").first()).toBeVisible();
 
     // containment capability
+    await page.getByRole("tab", { name: /RESPONSE/ }).click();
     const capability = page.getByTestId("containment-capability").first();
     await expect(capability).toContainText(seed.enforcement_point_id);
     await expect(capability).toContainText("BLOCK_IP");
@@ -113,7 +117,7 @@ test.describe("authenticated operator (tenant A)", () => {
     await page.getByRole("button", { name: "3D", exact: true }).click();
     await expect(page.getByTestId("scene-inspector")).toBeVisible();
     await expect(page.getByText(/Recorded entities/)).toBeVisible();
-    await expect(page.getByText(/Spatial distance is a layout aid/)).toBeVisible();
+    await expect(page.getByTestId("incident-event-chain")).toBeVisible();
   });
 
   test("enforcement, response and audit views show the same recorded state", async ({ page }) => {
