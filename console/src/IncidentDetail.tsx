@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { buildCaseTimeline, TimelineStrip } from "./AiAnalysis";
+import IncidentEventFlow from "./IncidentEventFlow";
 import { ApiError, analyzeIncidentWithLocalAi, executeResponse, fetchInvestigation, planResponse, rollbackResponse } from "./api";
 import type {
   AiIncidentAnalysis,
@@ -42,6 +43,7 @@ export default function IncidentDetail({
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [focusedMomentId, setFocusedMomentId] = useState<string | null>(null);
+  const [caseTab, setCaseTab] = useState<"events" | "evidence" | "response">("events");
   const aiSequence = useRef(0);
 
   useEffect(() => {
@@ -49,6 +51,7 @@ export default function IncidentDetail({
     setInvestigation(null);
     setError(null);
     setFocusedMomentId(null);
+    setCaseTab("events");
     aiSequence.current += 1;
     setAiResult(null);
     setAiError(null);
@@ -247,7 +250,18 @@ export default function IncidentDetail({
           {aiResult && <span className="mon-ai-compact-meta">{aiResult.evidence_count} MON records · {aiResult.model}</span>}
         </section>
       )}
-      {investigation && (
+      {investigation && <>
+        <IncidentEventFlow investigation={investigation} responses={related} compact />
+        <div className="mon-case-tabs" role="tablist" aria-label="Incident case sections">
+          <button type="button" role="tab" aria-selected={caseTab === "events"}
+            onClick={() => setCaseTab("events")}>TIMELINE <span>{moments.length}</span></button>
+          <button type="button" role="tab" aria-selected={caseTab === "evidence"}
+            onClick={() => setCaseTab("evidence")}>EVIDENCE <span>{investigation.evidence.length}</span></button>
+          <button type="button" role="tab" aria-selected={caseTab === "response"}
+            onClick={() => setCaseTab("response")}>RESPONSE <span>{related.length}</span></button>
+        </div>
+      </>}
+      {investigation && caseTab === "events" && (
         <div className="mon-case-chronology" data-testid="incident-chronology">
           <TimelineStrip
             moments={moments}
@@ -271,8 +285,8 @@ export default function IncidentDetail({
           </div>
         </div>
       )}
-      {investigation && (
-        <div className="detail-grid">
+      {investigation && caseTab === "evidence" && (
+        <div className="detail-grid mon-incident-evidence-grid">
           <article>
             <h3>Evidence ({investigation.evidence.length})</h3>
             <ul data-testid="evidence-list">
@@ -325,6 +339,9 @@ export default function IncidentDetail({
             </div>
 
           </article>
+        </div>
+      )}
+      {caseTab === "response" && <div className="detail-grid mon-incident-response-grid">
           <article>
             <h3>Containment capability</h3>
             <ul data-testid="containment-capabilities">
@@ -430,9 +447,6 @@ export default function IncidentDetail({
               {responseError && <div className="action-state error" role="alert">{responseError}</div>}
             </div>
           </article>
-        </div>
-      )}
-      <div className="detail-grid">
         <article>
           <h3>Response, policy and recovery</h3>
           <ul data-testid="response-list">
@@ -478,7 +492,7 @@ export default function IncidentDetail({
             {!audit.length && <li className="empty">No audit records for this incident's responses.</li>}
           </ul>
         </article>
-      </div>
+      </div>}
     </section>
   );
 }
