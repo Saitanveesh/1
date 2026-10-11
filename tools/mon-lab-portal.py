@@ -289,6 +289,15 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(HTTPStatus.BAD_REQUEST, {"error": "invalid investigation identifiers"})
             return
 
+        # Local packet collection must survive an optional missing AI module.
+        try:
+            from mon_ai_analysis import AnalystUnavailable, analyze_incident
+        except ImportError:
+            self.reply(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "Local AI integration is not installed"},
+            )
+            return
         if not AI_BUSY.acquire(blocking=False):
             self.reply(
                 HTTPStatus.TOO_MANY_REQUESTS,
@@ -296,10 +305,6 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         try:
-            # Import lazily: ordinary lab portal startup does not depend on
-            # Ollama and packet capture stays live while the model is offline.
-            from mon_ai_analysis import AnalystUnavailable, analyze_incident
-
             result = analyze_incident(
                 incident_id, tenant_id, site_id, operator_token()
             )
