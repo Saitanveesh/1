@@ -295,6 +295,10 @@ export default function AiAnalysis({
     correlated && (event.src_ip === correlated.source || event.dst_ip === correlated.source)
   );
   const captureScope = capture?.capture_scope ?? "NOT AVAILABLE";
+  const linkedAuditCount = auditRecords.filter(row =>
+    row.object_id === chosenId ||
+    caseResponses.some(response => response.execution_id === row.object_id)
+  ).length;
 
   async function askLocalModel() {
     if (!chosenId || !investigation || aiLoading) return;
@@ -427,7 +431,7 @@ export default function AiAnalysis({
                   <div><strong>ENDPOINT IDENTITY</strong><span>{investigation.evidence.filter(e => e.evidence_class === "IDENTITY").length} attached records</span></div>
                   <div><strong>DETECTION</strong><span>{investigation.findings.length} findings</span></div>
                   <div><strong>NETWORK ATTRIBUTION</strong><span>Live packet metadata below; historical PCAP not installed</span></div>
-                  <div><strong>RESPONSE AUDIT</strong><span>{caseResponses.length} linked execution(s)</span></div>
+                  <div><strong>RESPONSE AUDIT</strong><span>{caseResponses.length} execution(s) · {linkedAuditCount} audit record(s)</span></div>
                 </div>
               </section>
               <section className="aiwb-panel aiwb-ai-box" data-testid="ai-model-investigation">
@@ -442,6 +446,15 @@ export default function AiAnalysis({
                     <div><small>ASSESSMENT · AI GENERATED</small><p>{ai.assessment}</p></div>
                     <div><small>WHAT TO CHECK NEXT</small><p>{ai.next_check}</p></div>
                     <span>{ai.evidence_count} MON references · {ai.model} · no enforcement</span>
+                    <div className="aiwb-tool-result-list">
+                      {(ai.tool_results ?? []).map(tool =>
+                        <div key={tool.tool}><small>{tool.tool}</small>
+                          <strong>{tool.status}</strong>
+                          <span>{tool.records == null ? "" : tool.records + " evidence records "}
+                            {tool.matched_events == null ? "" : tool.matched_events + " matching recent packets"}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>}
                   {aiError && <p className="aiwb-ai-failure" role="alert">{aiError}</p>}
                   <button type="button" className="aiwb-action" data-testid="ai-generate-brief"
