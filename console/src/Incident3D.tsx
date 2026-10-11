@@ -157,6 +157,18 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
   const [playing, setPlaying] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const dragging = useRef<{ x: number; y: number } | null>(null);
+  const sceneElement = useRef<HTMLDivElement | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(980);
+  useEffect(() => {
+    const element = sceneElement.current;
+    if (!element) return;
+    const update = () => setViewportWidth(element.getBoundingClientRect().width || 980);
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [projection]);
   useEffect(() => {
     if (!playing || model.timeline.length < 2) return;
     const clock = window.setInterval(() => setMomentIndex(i => {
@@ -171,6 +183,8 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
   const current = model.timeline[momentIndex];
   const picked = model.nodes.find(node => node.id === selected);
   const coreLinks = model.links.filter(l => !verifiedOnly || l.recorded);
+  // Fixed world scale at full width; fit the actual stage when the analyst resizes MON.
+  const fitScale = Math.min(1, Math.max(.5, (viewportWidth - 125) / 670));
   return (
     <article className="mon3d-workspace mon3d-studio" data-testid="incident-3d-scene">
       <div className="mon3d-studio-top">
@@ -196,7 +210,7 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
       <div className="mon3d-studio-grid">
         <div className="mon3d-stage-panel">
           {projection === "3d" ? (
-            <div className="mon3d-stage" data-testid="incident-3d-viewport"
+            <div className="mon3d-stage" ref={sceneElement} data-testid="incident-3d-viewport"
               role="region" tabIndex={0} aria-label="Interactive 3D evidence topology; drag to orbit"
               onPointerDown={event => {
                 if ((event.target as HTMLElement).closest("button")) return;
@@ -227,7 +241,7 @@ export function Incident3DScene({ model }: { model: SceneModel }) {
               <div className="mon3d-grid" aria-hidden="true" />
               <div className="mon3d-universe" style={{
                 transform: "rotateX(" + camera.x + "deg) rotateY(" + camera.y +
-                  "deg) scale(" + camera.zoom + ")"
+                  "deg) scale(" + (camera.zoom * fitScale) + ")"
               }}>
                 {coreLinks.map(link => {
                   const a = model.nodes.find(node => node.id === link.from);
