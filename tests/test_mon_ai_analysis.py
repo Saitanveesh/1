@@ -120,7 +120,7 @@ def test_compact_ai_result_never_exposes_model_instruction_echo(monkeypatch):
     module = load_analyst()
     monkeypatch.setattr(module, "get_evidence", lambda *_args: sample_investigation())
 
-    def response_with_old_verbose_thoughts(_req, _timeout):
+    def response_with_old_verbose_thoughts(_req, timeout):
         return {
             "model": "qwen3:4b",
             "message": {
@@ -145,7 +145,7 @@ def test_compact_ai_result_accepts_only_short_structured_advice(monkeypatch):
     module = load_analyst()
     monkeypatch.setattr(module, "get_evidence", lambda *_args: sample_investigation())
 
-    def good_json(_req, _timeout):
+    def good_json(_req, timeout):
         return {
             "model": "qwen3:4b",
             "message": {
