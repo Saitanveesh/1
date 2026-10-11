@@ -70,15 +70,18 @@ sudo systemctl restart mon-three-lab-portal.service
 sudo systemctl restart mon-three-console-v2.service
 echo '========== VERIFY REAL IDS API AND NEW V2 MODULES =========='
 TOKEN=$(cat "$ROOT/identity/operator.jwt")
+API_OK=0
 for n in $(seq 1 25); do
   if curl --noproxy '*' -fsS --max-time 5 -H "Cookie: mon_session=$TOKEN" \
     http://127.0.0.1:8088/portal/ids 2>/dev/null |
     python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["source"]=="suricata-eve" and isinstance(d["records"],list)' 2>/dev/null; then
+    API_OK=1
     break
   fi
   sleep 1
 done
 unset TOKEN
+[[ "$API_OK" == 1 ]] || { echo '[FAIL] Authenticated Suricata endpoint not served'; exit 1; }
 F=$(mktemp)
 for p in 'src/App.tsx:SuricataPanel' \
          'src/PacketObservability.tsx:route-count' \
