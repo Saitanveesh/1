@@ -538,6 +538,7 @@ export default function App() {
             siteId={siteId}
             executions={state.response_executions}
             auditRecords={state.audit_records}
+            capture={packetCapture}
             onOpenIncident={(incident) => {
               setSelectedIncident(incident);
               setView("Incidents");
