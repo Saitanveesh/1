@@ -16,3 +16,18 @@
 .mon-admin-details dt{color:#777}.mon-admin-details dd{margin:0;overflow-wrap:anywhere}
 @media(max-width:950px){.mon-gauge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mon-gauge{border-bottom:1px solid #eee}}
 @media(max-width:550px){.mon-gauges{margin:12px}.mon-gauge-grid{grid-template-columns:1fr 1fr}.mon-gauge{padding:12px}.mon-gauge-name{font-size:9px}.mon-admin-details dl{grid-template-columns:1fr}}
+
+
+/* Command desk: calibrated gauges without forcing users to zoom the browser out */
+.mon-command-desk .mon-gauges{margin:10px 14px 12px}
+.mon-command-desk .mon-gauges-header{padding:9px 15px}
+.mon-command-desk .mon-gauges-header h2{font-size:16px}
+.mon-command-desk .mon-gauges-header a{padding:7px 10px;font-size:9px}
+.mon-command-desk .mon-gauge{padding:9px 12px;gap:5px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;justify-items:stretch}
+.mon-command-desk .mon-gauge-name{grid-column:1;grid-row:1;font-size:9px;text-align:left}
+.mon-command-desk .mon-gauge-ring{grid-column:2;grid-row:1/3;width:70px}
+.mon-command-desk .mon-gauge-center strong{font-size:11px}
+.mon-command-desk .mon-gauge small{grid-column:1;grid-row:2;font-size:9px;text-align:left;line-height:1.35}
+.mon-command-desk .mon-gauges-note{padding:6px 14px;font-size:9px}
+@media(max-width:900px){.mon-command-desk .mon-gauge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:530px){.mon-command-desk .mon-gauges{margin:9px}.mon-command-desk .mon-gauge-ring{width:56px}.mon-command-desk .mon-gauge small{font-size:8px}}
