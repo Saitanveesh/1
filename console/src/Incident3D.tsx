@@ -105,8 +105,10 @@ export function buildIncidentScene(
     const x = -.9 + (i % 3) * 1.15;
     const y = 1.8 + Math.floor(i / 3) * .72;
     nodes.push({
-      id: "evidence:" + e.evidence_id, label: e.evidence_class,
-      detail: e.summary, kind: "evidence", x, y,
+      id: "evidence:" + e.evidence_id,
+      label: e.summary ? (e.summary.length > 29 ? e.summary.slice(0, 26) + "…" : e.summary) : e.evidence_class,
+      detail: e.summary + " · " + e.source + " · " + e.evidence_class,
+      kind: "evidence", x, y,
       z: -.65 + (i % 3) * .25, ref: e.evidence_id
     });
   });
