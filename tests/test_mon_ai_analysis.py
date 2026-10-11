@@ -182,7 +182,7 @@ def test_packet_tool_is_read_only_and_filters_to_incident_ips(monkeypatch):
     recorded = []
 
     def fake_fetch(req, timeout):
-        recorded.append((req.full_url, req.method, timeout))
+        recorded.append((req.full_url, req.get_method(), timeout))
         return {
             "status": "CAPTURING", "observed_at": "2026-10-11T05:00:00Z",
             "capture_scope": "any",
