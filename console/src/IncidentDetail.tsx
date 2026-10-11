@@ -319,17 +319,7 @@ export default function IncidentDetail({
               ))}
               {!investigation.graph.edges.length && <div className="empty">No observed path edges.</div>}
             </div>
-            <details className="mon-raw-evidence">
-              <summary>Inspect raw graph node identifiers ({investigation.graph.edges.length} edges)</summary>
-              {investigation.graph.edges.slice(0, 70).map(edge => (
-                <div className="graph-edge" key={edge.edge_id}>
-                  <span>{nodeLabel(edge.src_node_id)}</span>
-                  <i>→ {edge.relation} →</i>
-                  <span>{nodeLabel(edge.dst_node_id)}</span>
-                  <b>{edge.event_count} evt</b>
-                </div>
-              ))}
-            </details>
+
           </article>
           <article>
             <h3>Containment capability</h3>
