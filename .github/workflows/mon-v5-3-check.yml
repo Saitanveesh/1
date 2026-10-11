@@ -31,5 +31,5 @@ jobs:
           python-version: "3.12"
       - name: Verify installer syntax and scope
         run: |
-          python -m pip install pytest
+          python -m pip install -e '.[dev]'
           pytest -q tests/test_mon_v5_2_investigation_deploy.py tests/test_mon_v5_3_deploy.py
