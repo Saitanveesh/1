@@ -8,7 +8,7 @@ STATE=/home/pc-2/mon-three
 APP=$STATE/console-v2
 PORTAL=$STATE/tools
 ENV=/etc/mon-three/lab-portal.env
-PIN=2f91e795399b7d6f775f8f4e220749c703ac1ac8
+PIN=b976b7d223c56c3ecfa4aa88ab806ff1fd88b3f0
 DIR=$STATE/monitoring
 FILES=(src/App.tsx src/IncidentDetail.tsx src/PacketObservability.tsx src/types.ts src/styles.css)
 STAGE="" BACKUP="" MODIFIED=0 DONE=0
