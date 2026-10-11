@@ -5,7 +5,7 @@ ROOT=/home/pc-2/mon-three
 CODE=/home/pc-2/mon-three-code
 WEB=$ROOT/console-v2
 LOCAL=$ROOT/tools
-PIN=60b4c0b8470e7650339112d7dd592258d68c2d88
+PIN=76face5d11377d66b10b3dedcea4622518fa7073
 WEBFILES="src/App.tsx src/IncidentDetail.tsx src/Incident3D.tsx src/Incident3D.css src/SocGauges.tsx src/SocGauges.css src/PacketObservability.tsx src/SuricataPanel.tsx src/AiAnalysis.tsx src/AiAnalysis.css src/types.ts src/styles.css"
 TOOLFILES="mon-lab-portal.py mon_ai_analysis.py mon_suricata_bridge.py mon-incident-pcap.sh"
 STAGE="" BACKUP="" CHANGED=0 SUCCESS=0
