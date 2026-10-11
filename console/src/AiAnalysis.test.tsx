@@ -131,9 +131,10 @@ describe("AI Analysis / real incident reconstruction", () => {
     render(<AiAnalysis incidents={[incident]} tenantId="mon-lab" siteId="site-a"
       executions={[relevantResponse]}
       auditRecords={[audit("audit-related", "resp-1", "2026-10-10T17:19:25Z")]}
+      capture={null}
       onOpenIncident={vi.fn()} />);
-    await waitFor(() => expect(screen.getByTestId("ai-timeline")).toBeTruthy());
-    expect(screen.getAllByTestId("ai-timeline-event").length).toBeGreaterThanOrEqual(5);
+    await waitFor(() => expect(screen.getByTestId("ai-telemetry-tools")).toBeTruthy());
+    expect(screen.queryByTestId("ai-timeline")).toBeNull();
     expect(within(screen.getByTestId("ai-case-correlation")).getByText("10.77.0.60")).toBeTruthy();
     expect(within(screen.getByTestId("ai-case-correlation")).getByText("lab-pc5")).toBeTruthy();
     expect(screen.getByText(/NOT A PACKET HOP TRACE/)).toBeTruthy();
@@ -152,7 +153,7 @@ describe("AI Analysis / real incident reconstruction", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     render(<AiAnalysis incidents={[]} tenantId="mon-lab" siteId="site-a"
-      executions={[]} auditRecords={[]} onOpenIncident={vi.fn()} />);
+      executions={[]} auditRecords={[]} capture={null} onOpenIncident={vi.fn()} />);
     expect(screen.getByText(/No incident records exist for this site/)).toBeTruthy();
     expect(fetch).not.toHaveBeenCalled();
   });
