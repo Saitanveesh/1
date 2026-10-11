@@ -33,6 +33,14 @@ const capture = {
     { second: 1, packets: 2, bytes: 140 },
     { second: 2, packets: 4, bytes: 260 }
   ],
+  events: [
+    { timestamp: "2026-10-11T09:00:00Z", interface: "wg0",
+      direction: "inbound", src_ip: "10.77.0.60", dst_ip: "10.77.0.50",
+      protocol: "TCP", dst_port: 22, ip_bytes: 80 },
+    { timestamp: "2026-10-11T09:01:00Z", interface: "eth0",
+      direction: "inbound", src_ip: "10.77.0.90", dst_ip: "10.77.0.50",
+      protocol: "TCP", dst_port: 443, ip_bytes: 80 }
+  ],
   lab_route_events: [
     { timestamp: "2026-10-11T09:00:00Z", interface: "wg0",
       direction: "inbound", src_ip: "10.77.0.60", dst_ip: "10.77.0.50",
@@ -74,6 +82,7 @@ describe("MON V5.3 case flow", () => {
 
   it("scopes matches to recorded source and target addresses, not unrelated traffic", () => {
     expect(observedForTarget("10.77.0.60", ["10.77.0.50"], capture)).toHaveLength(1);
+    expect(observedForTarget("10.77.0.90", ["10.77.0.50"], capture)).toHaveLength(1);
     expect(observedForTarget("10.77.0.61", ["10.77.0.50"], capture)).toHaveLength(0);
     expect(observedForTarget(null, ["10.77.0.50"], capture)).toHaveLength(0);
   });
