@@ -99,6 +99,7 @@ describe("3D scene is rebuilt from recorded MON incident evidence", () => {
     expect(screen.getByText(/Last matched IP header/)).toBeTruthy();
     expect(screen.getByTestId("mon3d-node-source")).toBeTruthy();
     expect(screen.getByTestId("mon3d-node-asset")).toBeTruthy();
+    expect(screen.getByText("SSH authentication failure")).toBeTruthy();
     expect(screen.getAllByTestId("mon3d-node-response")).toHaveLength(1);
     expect(screen.getAllByTestId("mon3d-node-evidence")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "2D" }));
