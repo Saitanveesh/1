@@ -101,24 +101,39 @@ assert isinstance(data.get("lab_route_events"), list), (
 )
 print("[PASS] Real route-specific IP header history exposed; no events invented")
 PY
+echo '========== VERIFY ACTUAL V2 JAVASCRIPT, NOT A CACHED HTML FALLBACK =========='
+# Preserve the body on disk. A grep -q over piped curl/printf output under
+# pipefail may falsely report failure if the producer receives SIGPIPE.
 MODULE=$(mktemp)
-curl --noproxy '*' -fsS --max-time 6 http://127.0.0.1:5174/src/App.tsx -o "$MODULE"
-if ! grep -Fq 'AI Analysis' "$MODULE"; then
-  rm -f "$MODULE"
-  echo '[FAIL] Old frontend still served'; exit 1
-fi
-rm -f "$MODULE"
-for component in "src/IncidentDetail.tsx:incident-chronology" \
+HEADERS=$(mktemp)
+for component in "src/App.tsx:operations-workspace" \
+                 "src/IncidentDetail.tsx:incident-chronology" \
                  "src/AiAnalysis.tsx:ai-telemetry-tools" \
-                 "src/PacketObservability.tsx:lab_route_events"; do
+                 "src/PacketObservability.tsx:TRAFFIC OBSERVED NOW"; do
   urlpath="${component%%:*}"
   marker="${component#*:}"
-  html=$(curl --noproxy '*' -fsS --max-time 6 "http://127.0.0.1:5174/$urlpath")
-  printf '%s' "$html" | grep -Fq "$marker" || {
-    echo "[FAIL] Browser is not serving new component: $urlpath"; exit 1;
-  }
+  curl --noproxy '*' -fsS --max-time 10 \
+    -H 'Cache-Control: no-cache' \
+    -D "$HEADERS" -o "$MODULE" \
+    "http://127.0.0.1:5174/$urlpath?mon_verify=${PIN:0:12}"
+  if ! grep -Fq "$marker" "$MODULE"; then
+    echo "[FAIL] Expected V2 JavaScript marker not served: $urlpath"
+    echo "[CHECK] HTTP response content type:"
+    grep -i '^content-type:' "$HEADERS" || true
+    echo "[CHECK] First bytes of served response:"
+    head -c 180 "$MODULE"; echo
+    rm -f "$MODULE" "$HEADERS"
+    exit 1
+  fi
+  echo "[PASS] Browser module verified: $urlpath"
 done
-echo '[PASS] Browser serves incident timeline, live telemetry pivot and route correlation'
+rm -f "$MODULE" "$HEADERS"
+# Also verify that the compiled production bundle includes new route metadata.
+if ! grep -lFq 'lab_route_events' "$V2"/dist/assets/*.js; then
+  echo '[FAIL] Compiled bundle does not include real route packet history'
+  exit 1
+fi
+echo '[PASS] Served V2 frontend and compiled route evidence verified'
 for url in http://127.0.0.1:8080/health http://127.0.0.1:8090/health http://100.75.116.62:5173/; do
   curl --noproxy '*' -fsS --max-time 6 "$url" >/dev/null
 done
