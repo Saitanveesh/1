@@ -32,7 +32,7 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByTestId("operator-context")).toContainText("soc-operator-a");
     await expect(page.getByTestId("operator-context")).toContainText("tenant_admin");
     await expect(page.getByText("ATTACK PRESSURE")).toBeVisible();
-    await expect(page.getByText("authenticated WebSocket transport")).toBeVisible();
+    await expect(page.getByTestId("overview-status-strip")).toBeVisible();
     await expect(page.locator(".connection.live")).toBeVisible();
     await expect(page.getByTestId("access-denied")).toHaveCount(0);
   });
@@ -80,6 +80,22 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(audit).toContainText("ROLLBACK");
     await expect(audit).toContainText("ROLLED_BACK");
     expect(await page.getByTestId("audit-row").count()).toBeGreaterThanOrEqual(2);
+  });
+
+  test("AI Analysis reconstructs the real incident timeline without requiring Ollama", async ({ page }) => {
+    await page.goto(scopeA);
+    await page.getByRole("button", { name: /^AI Analysis/ }).click();
+    const workspace = page.getByTestId("ai-analysis-workspace");
+    await expect(workspace).toBeVisible();
+    await expect(page.getByText("Incident Reconstruction")).toBeVisible();
+    await expect(page.getByTestId("ai-case-select")).toContainText(seed.incident_title);
+    await expect(page.getByTestId("ai-timeline-event").first()).toBeVisible();
+    await expect(page.getByTestId("ai-case-correlation")).toBeVisible();
+    await expect(page.getByTestId("ai-selected-evidence")).toBeVisible();
+    await expect(page.getByTestId("ai-model-investigation")).toBeVisible();
+    // AI is on demand; the seeded browser runner has no Ollama and must not
+    // call it merely because the analyst opened the visual investigation.
+    await expect(page.getByTestId("ai-generate-brief")).toBeVisible();
   });
 
   test("enforcement, response and audit views show the same recorded state", async ({ page }) => {
