@@ -1,0 +1,38 @@
+# Optional companion to monitoring/compose.yaml. Requires existing Docker Compose.
+# Loki is local-only; Grafana talks to it via 127.0.0.1:3100.
+services:
+  loki:
+    image: grafana/loki:3.5.1
+    network_mode: host
+    user: "0:0"
+    command:
+      - -config.file=/etc/loki/loki-config.yaml
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./logging/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - mon-loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.10.0
+    network_mode: host
+    user: "0:0"
+    restart: unless-stopped
+    depends_on: [loki]
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./logging/alloy.config:/etc/alloy/config.alloy:ro
+      - /home/pc-2/mon-three/suricata:/var/log/mon:ro
+      - mon-alloy-data:/var/lib/alloy/data
+
+volumes:
+  mon-loki-data:
+  mon-alloy-data:

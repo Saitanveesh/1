@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,6 +26,7 @@ from mon.linux_endpoint_collector import (
     async_main,
     build_arg_parser,
     build_collector_from_args,
+    parse_journal_entry,
     validate_poll_interval,
 )
 
@@ -268,6 +271,56 @@ def test_systemd_journal_reader_reports_unavailable_off_linux() -> None:
         pytest.skip("this asserts the non-Linux guard path")
     with pytest.raises(LinuxSourceUnavailable, match="requires Linux"):
         SystemdJournalReader()
+
+
+def test_systemd_reader_filters_by_syslog_identifier_and_normalizes_native_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if sys.platform != "linux":
+        pytest.skip("systemd journal adapter requires Linux")
+
+    class FakeReader:
+        def __init__(self) -> None:
+            self.match: dict[str, str] | None = None
+            self.read_index = 0
+
+        def add_match(self, **kwargs: str) -> None:
+            self.match = kwargs
+
+        def seek_head(self) -> None:
+            self.read_index = 0
+
+        def get_next(self) -> dict[str, object] | None:
+            if self.read_index:
+                return None
+            self.read_index += 1
+            return {
+                "__REALTIME_TIMESTAMP": dt.datetime(
+                    2026, 10, 10, 16, 38, 40, tzinfo=dt.UTC
+                ),
+                "SYSLOG_IDENTIFIER": "sshd-session",
+                "MESSAGE": "Invalid user mon-lab-probe from 10.77.0.60 port 45498",
+                "_HOSTNAME": "lab-pc5",
+                "_PID": 415965,
+            }
+
+        def get_cursor(self) -> str:
+            return "s=journal-test-cursor"
+
+    monkeypatch.setitem(
+        sys.modules,
+        "systemd",
+        SimpleNamespace(journal=SimpleNamespace(Reader=FakeReader)),
+    )
+    reader = SystemdJournalReader(unit="sshd-session")
+    assert reader._reader.match == {"SYSLOG_IDENTIFIER": "sshd-session"}
+
+    entries = reader.read_after(None, limit=10)
+    assert len(entries) == 1
+    assert entries[0]["__CURSOR"] == "s=journal-test-cursor"
+    record = parse_journal_entry(entries[0])
+    assert record.syslog_identifier == "sshd-session"
+    assert record.observed_at == dt.datetime(2026, 10, 10, 16, 38, 40, tzinfo=dt.UTC)
 
 
 def test_build_journal_source_degrades_to_static_failure_when_unavailable(tmp_path) -> None:

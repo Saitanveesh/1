@@ -18,7 +18,7 @@ async function signIn(context: BrowserContext, jwt: string): Promise<void> {
 test("1. an unauthenticated browser is refused and shows no data", async ({ page }) => {
   await page.goto(scopeA);
   await expect(page.getByTestId("unauthenticated")).toBeVisible();
-  await expect(page.getByTestId("operator-context")).toContainText("not authenticated");
+  await expect(page.getByTestId("operator-context")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText(seed.incident_title);
 });
 
@@ -29,10 +29,12 @@ test.describe("authenticated operator (tenant A)", () => {
 
   test("2. authenticated operator context and live overview", async ({ page }) => {
     await page.goto(scopeA);
-    await expect(page.getByTestId("operator-context")).toContainText("soc-operator-a");
-    await expect(page.getByTestId("operator-context")).toContainText("tenant_admin");
+    await expect(page.getByTestId("operator-context")).toHaveCount(0);
+    await expect(page.getByTestId("soc-gauges")).toBeVisible();
+    await expect(page.getByTestId("mon-single-console")).toBeVisible();
+    await expect(page.getByTestId("live-packet-history")).toHaveClass(/mon-traffic-compact/);
     await expect(page.getByText("ATTACK PRESSURE")).toBeVisible();
-    await expect(page.getByText("authenticated WebSocket transport")).toBeVisible();
+    await expect(page.getByTestId("overview-status-strip")).toBeVisible();
     await expect(page.locator(".connection.live")).toBeVisible();
     await expect(page.getByTestId("access-denied")).toHaveCount(0);
   });
@@ -50,6 +52,11 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByTestId("incident-detail-title")).toHaveText(seed.incident_title);
 
     // evidence
+    await expect(page.getByTestId("incident-chronology")).toBeVisible();
+    await expect(page.getByTestId("incident-event-chain")).toBeVisible();
+    await expect(page.getByTestId("incident-case-queue")).toBeVisible();
+    await expect(page.getByTestId("ai-timeline-event").first()).toBeVisible();
+    await page.getByRole("tab", { name: /EVIDENCE/ }).click();
     await expect(page.getByTestId("evidence-item").first()).toBeVisible();
     expect(await page.getByTestId("evidence-item").count()).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("evidence-list")).toContainText("IDENTITY");
@@ -62,6 +69,7 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByTestId("graph-edge").first()).toBeVisible();
 
     // containment capability
+    await page.getByRole("tab", { name: /RESPONSE/ }).click();
     const capability = page.getByTestId("containment-capability").first();
     await expect(capability).toContainText(seed.enforcement_point_id);
     await expect(capability).toContainText("BLOCK_IP");
@@ -82,19 +90,55 @@ test.describe("authenticated operator (tenant A)", () => {
     expect(await page.getByTestId("audit-row").count()).toBeGreaterThanOrEqual(2);
   });
 
+  test("AI Analysis reconstructs the real incident timeline without requiring Ollama", async ({ page }) => {
+    await page.goto(scopeA);
+    await page.getByRole("button", { name: /^AI Analysis/ }).click();
+    const workspace = page.getByTestId("ai-analysis-workspace");
+    await expect(workspace).toBeVisible();
+    await expect(page.getByText("Incident Reconstruction")).toBeVisible();
+    await expect(page.getByTestId("ai-case-select")).toContainText(seed.incident_title);
+    await expect(page.getByTestId("ai-telemetry-tools")).toBeVisible();
+    await expect(page.getByTestId("ai-case-correlation")).toBeVisible();
+    await expect(page.getByTestId("ai-model-investigation")).toBeVisible();
+    // AI is on demand; the seeded browser runner has no Ollama and must not
+    // call it merely because the analyst opened the visual investigation.
+    await expect(page.getByTestId("ai-generate-brief")).toBeVisible();
+  });
+
+  test("per-incident 3D reconstruction is navigable and does not invent packet paths", async ({ page }) => {
+    await page.goto(scopeA);
+    await page.getByRole("button", { name: /^Investigation/ }).click();
+    await expect(page.getByTestId("investigation-3d")).toBeVisible();
+    await expect(page.getByTestId("incident-3d-scene")).toBeVisible();
+    await expect(page.getByTestId("incident-3d-viewport")).toBeVisible();
+    await expect(page.getByTestId("mon3d-node-asset").first()).toBeVisible();
+    await page.getByRole("button", { name: "2D", exact: true }).click();
+    await expect(page.getByTestId("incident-2d-view")).toBeVisible();
+    await page.getByRole("button", { name: "3D", exact: true }).click();
+    await expect(page.getByTestId("scene-inspector")).toBeVisible();
+    await expect(page.getByText(/Recorded entities/)).toBeVisible();
+    await expect(page.getByTestId("incident-event-chain")).toBeVisible();
+  });
+
   test("enforcement, response and audit views show the same recorded state", async ({ page }) => {
     await page.goto(scopeA);
-    await page.getByRole("button", { name: /^Enforcement/ }).click();
+    await page.getByRole("button", { name: /^Operations/ }).click();
+    await expect(page.getByTestId("operations-workspace")).toBeVisible();
+    await page.getByRole("button", { name: "Enforcement", exact: true }).click();
     await expect(page.getByRole("cell", { name: seed.enforcement_point_id })).toBeVisible();
-    await page.getByRole("button", { name: /^Response/ }).click();
+    await page.getByRole("button", { name: "Response", exact: true }).click();
     await expect(page.getByRole("cell", { name: "ROLLED_BACK" })).toBeVisible();
-    await page.getByRole("button", { name: /^Audit/ }).click();
+    await page.getByRole("button", { name: "Audit", exact: true }).click();
     await expect(page.getByRole("cell", { name: "ROLLBACK" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Admin", exact: true }).click();
+    await expect(page.getByTestId("mon-admin-debug")).toContainText("soc-operator-a");
+    await expect(page.getByTestId("mon-admin-debug")).toContainText("tenant_admin");
   });
 
   test("fleet view reports honestly when no sensor is enrolled", async ({ page }) => {
     await page.goto(scopeA);
-    await page.getByRole("button", { name: /^Fleet/ }).click();
+    await page.getByRole("button", { name: /^Operations/ }).click();
+    await page.getByRole("button", { name: "Fleet", exact: true }).click();
     await expect(page.getByTestId("fleet-panel")).toBeVisible();
     await expect(page.getByText("No sensors enrolled for this site.")).toBeVisible();
   });

@@ -15,7 +15,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 1180px; min-height: 100vh; background: var(--bg); color: var(--text); }
+body { margin: 0; min-width: 360px; min-height: 100vh; background: var(--bg); color: var(--text); }
 button { font: inherit; }
 
 .shell { display: grid; grid-template-columns: 228px 1fr; min-height: 100vh; }
@@ -168,3 +168,367 @@ tr.selected { outline: 1px solid currentColor; }
 }
 .action-state.error { border: 1px solid #000; font-weight: 700; }
 
+
+
+/* MON 2.0 — white/black only, responsive operations interface */
+:root { --mon-white:#fff; --mon-black:#0b0b0b; --mon-gray:#f6f6f6; --mon-border:#d6d6d6; }
+.shell { grid-template-columns: 250px minmax(0, 1fr); }
+.sidebar { padding: 28px 16px 20px; z-index: 10; }
+.sidebar .mark { width: 40px; height: 40px; border: 2px solid #101010; font-size: 22px; }
+.sidebar .brand strong { font-size: 17px; letter-spacing: .18em; }
+.sidebar nav { gap: 5px; }
+.sidebar nav button { border-radius: 2px; padding: 13px 14px; font-size: 13px; }
+main { min-width: 0; }
+.panel, .metric { overflow: hidden; }
+.graph-edge { overflow-wrap: anywhere; min-width: 0; }
+.topbar h1 { font-size: clamp(24px, 2.7vw, 38px); font-weight: 600; letter-spacing: -.045em; }
+.topbar { padding: 24px 36px; min-height: 105px; }
+.metric-value { font-size: clamp(21px, 2.2vw, 32px); font-weight: 600; }
+.mon-logout {
+  width:100%; margin-bottom:17px; padding:12px 14px; cursor:pointer;
+  border:1px solid #000; color:#fff; background:#000; letter-spacing:.14em;
+  text-align:left; font-size:10px; font-weight:700;
+}
+.mon-logout:hover { background:#3d3d3d; }
+
+.mon-panel { background:#fff; margin:24px 28px; border:1px solid var(--mon-border); min-width:0; }
+.mon-panel-heading {
+  padding:24px 27px; display:flex; justify-content:space-between; align-items:flex-start;
+  gap:25px; border-bottom:1px solid #dedede;
+}
+.mon-panel-heading h2 { font-size:24px; letter-spacing:-.045em; font-weight:650; margin:6px 0; }
+.mon-panel-heading p { font-size:11px; color:#666; line-height:1.7; margin:4px 0 0; }
+.mon-eyebrow { display:block; color:#666; letter-spacing:.22em; font-size:10px; font-weight:750; }
+.mon-tag {
+  flex-shrink:0; display:inline-flex; align-items:center; gap:8px;
+  border:1px solid #bdbdbd; padding:9px 12px; font:700 10px ui-monospace,monospace;
+  letter-spacing:.075em; background:#fafafa;
+}
+.mon-tag-active { background:#090909; border-color:#090909; color:#fff; }
+.mon-dot { width:6px; height:6px; border-radius:100%; background:currentColor; }
+.mon-flow-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-bottom:1px solid #ddd; }
+.mon-flow-metrics>div { padding:22px 26px; min-width:0; border-right:1px solid #ddd; display:grid; gap:12px; }
+.mon-flow-metrics>div:last-child { border-right:0; }
+.mon-flow-metrics span { font:700 10px ui-monospace,monospace; color:#555; letter-spacing:.09em; }
+.mon-flow-metrics strong { font:600 35px ui-monospace,monospace; letter-spacing:-.07em; line-height:1.1; }
+.mon-flow-metrics strong.mon-smaller { font-size:15px; letter-spacing:-.02em; }
+.mon-chart-frame { padding:18px 25px 2px; }
+.mon-chart-frame svg { display:block; width:100%; height:auto; max-height:285px; }
+.mon-grid-line { stroke:#dedede; stroke-width:1; stroke-dasharray:3 5; }
+.mon-svg-label { font:10px ui-monospace,monospace; fill:#666; }
+.mon-chart-empty { font:13px ui-monospace,monospace; fill:#444; letter-spacing:.04em; }
+.mon-packet-area { fill:#efefef; }
+.mon-packet-line { stroke:#080808; stroke-width:2.7; fill:none; stroke-linejoin:round; stroke-linecap:round; }
+.mon-chart-footer {
+  display:flex; justify-content:space-between; gap:12px;
+  padding:15px 27px 20px; font:700 10px ui-monospace,monospace;
+  letter-spacing:.035em; color:#666;
+}
+.mon-topology-canvas { padding:10px 25px 0; overflow-x:auto; }
+.mon-topology-canvas svg { width:100%; height:auto; max-height:420px; display:block; min-width:700px; }
+.mon-route { stroke:#888; stroke-width:2.5; stroke-dasharray:7 6; fill:none; color:#090909; }
+.mon-route-active { stroke:#000; stroke-width:3; stroke-dasharray:none; }
+.mon-traffic-pulse { fill:#000; }
+.mon-node { fill:#fff; stroke:#090909; stroke-width:2; }
+.mon-node-attacker { fill:#0b0b0b; }
+.mon-node-label { font:700 10px ui-monospace,monospace; fill:#777; letter-spacing:.075em; }
+.mon-node-title { font:650 19px system-ui,sans-serif; fill:#111; }
+.mon-node-ip { font:14px ui-monospace,monospace; fill:#222; }
+.mon-node-info { font:10px system-ui,sans-serif; fill:#666; }
+.mon-inverse { fill:#fff; }
+.mon-link-label { font:700 9px ui-monospace,monospace; fill:#666; letter-spacing:.09em; }
+.mon-route-note { font:650 14px ui-monospace,monospace; fill:#111; }
+.mon-flow-section { border-top:1px solid #ddd; }
+.mon-panel-heading-small { padding:15px 25px; border-bottom:0; align-items:center; }
+.mon-panel-heading-small h3 { font-weight:650; font-size:15px; margin:0; }
+.mon-panel-heading-small h3 span { font:10px ui-monospace,monospace; margin-left:15px; color:#555; }
+.mon-panel-heading-small>span { font:11px ui-monospace,monospace; color:#666; }
+.mon-flow-table-wrapper { overflow:auto; margin:0 25px 25px; border:1px solid #ddd; }
+.mon-flow-table { width:100%; border-collapse:collapse; text-align:left; font:12px ui-monospace,monospace; }
+.mon-flow-table th { background:#f1f1f1; color:#555; padding:12px 14px; letter-spacing:.055em; font-size:10px; border-bottom:1px solid #ccc; }
+.mon-flow-table td { padding:12px 14px; border-bottom:1px solid #eee; }
+.mon-flow-table tbody tr:hover { background:#fafafa; }
+.mon-flow-empty { color:#666; padding:22px !important; }
+.mon-advanced-evidence { margin:0 28px 30px; border:1px solid #ddd; }
+.mon-advanced-evidence>summary { cursor:pointer; padding:18px 24px; font:700 12px ui-monospace,monospace; }
+.mon-advanced-evidence .graph-panel { border:0; }
+.mon-advanced-evidence .graph-edge { font-size:10px; white-space:normal; }
+.mon-raw-evidence { margin:14px 0; }
+.mon-raw-evidence summary { cursor:pointer; font-size:11px; color:#444; font-weight:700; padding:10px 0; }
+.mon-raw-evidence .graph-edge { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto; gap:10px; overflow-wrap:anywhere; }
+.mon-path-summary {
+  padding:16px; margin:13px 0; border:1px solid #ddd; background:#f9f9f9;
+  display:grid; gap:7px; font:12px ui-monospace,monospace;
+}
+.mon-path-summary b { font-size:14px; }
+
+/* First-party server-side operator sign-in */
+.mon-login-page { min-height:100vh; display:grid; grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr); background:#fff; }
+.mon-login-left {
+  background:#080808; color:#fff; padding:43px clamp(25px,4vw,70px);
+  display:flex; flex-direction:column; justify-content:space-between; min-height:100vh;
+}
+.mon-login-brand { display:flex; align-items:center; gap:16px; font-weight:700; font-size:25px; letter-spacing:.15em; }
+.mon-brand-mark { height:48px; width:48px; border:2px solid #fff; display:grid; place-items:center; font-size:27px; }
+.mon-login-brand small { color:#b0b0b0; font-size:9px; letter-spacing:.19em; vertical-align:middle; }
+.mon-light { color:#aaa; }
+.mon-login-statement { max-width:660px; margin:90px 0 70px; }
+.mon-login-statement h1 { font-size:clamp(57px,7vw,115px); font-weight:450; line-height:1.08; letter-spacing:-.075em; margin:26px 0 24px; }
+.mon-login-statement h1 strong { font-weight:790; }
+.mon-full-form { font-size:clamp(16px,2vw,24px); letter-spacing:-.02em; }
+.mon-login-rule { width:80px; height:2px; background:white; margin:40px 0; }
+.mon-login-statement>p:last-child { color:#aaa; font-size:15px; line-height:1.8; max-width:440px; }
+.mon-login-left-footer { display:grid; grid-template-columns:1fr 1fr; gap:12px; border-top:1px solid #444; padding-top:19px; font:10px ui-monospace,monospace; letter-spacing:.08em; color:#bbb; }
+.mon-login-right { display:flex; flex-direction:column; justify-content:space-between; padding:45px clamp(30px,7vw,120px) 33px; min-height:100vh; }
+.mon-login-topline,.mon-login-bottomline { display:flex; justify-content:space-between; gap:14px; font:10px ui-monospace,monospace; letter-spacing:.13em; color:#666; }
+.mon-login-form-wrap { max-width:470px; width:100%; align-self:center; margin:60px 0; }
+.mon-login-form-wrap h2 { font-size:clamp(31px,3vw,48px); font-weight:680; letter-spacing:-.065em; margin:16px 0; }
+.mon-login-form-wrap>p { color:#666; font-size:13px; line-height:1.8; max-width:390px; }
+.mon-login-form { display:grid; margin:40px 0 0; }
+.mon-login-form label { font:700 10px ui-monospace,monospace; letter-spacing:.13em; margin:0 0 10px; }
+.mon-login-form input {
+  border:1px solid #aaa; background:#fff; padding:17px 18px; color:#000; outline:0;
+  font:15px system-ui,sans-serif; margin-bottom:25px; min-height:54px;
+}
+.mon-login-form input:focus { border-color:#000; box-shadow:inset 0 0 0 1px #000; }
+.mon-login-form button {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:20px 22px; border:1px solid #000; color:#fff; background:#000;
+  font:750 11px ui-monospace,monospace; letter-spacing:.14em; cursor:pointer;
+}
+.mon-login-form button:hover:not(:disabled) { background:#323232; }
+.mon-login-form button:disabled { opacity:.55; cursor:wait; }
+.mon-login-form button span { font-size:20px; }
+.mon-login-error { font-size:13px !important; font-weight:650; color:#111 !important; border-left:3px solid #000; padding:12px; background:#efefef; }
+.mon-login-legal { border-top:1px solid #ddd; padding-top:20px; font-size:11px !important; }
+@media(max-width:1200px) {
+  .metric-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .mon-flow-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mon-flow-metrics>div:nth-child(2) { border-right:0; }
+  .mon-flow-metrics>div:nth-child(-n+2) { border-bottom:1px solid #ddd; }
+}
+@media(max-width:800px) {
+  .shell { grid-template-columns:190px minmax(0,1fr); }
+  .sidebar { padding:17px 8px; }
+  .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mon-panel { margin:16px; }
+  .mon-panel-heading { flex-direction:column; }
+  .mon-login-page { grid-template-columns:1fr; }
+  .mon-login-left { min-height:330px; padding:25px; }
+  .mon-login-statement { margin:35px 0; }
+  .mon-login-statement h1 { font-size:60px; }
+  .mon-login-left-footer { display:none; }
+  .mon-login-right { min-height:620px; padding:30px 25px; }
+}
+
+/* Lab packet-path motion is enabled ONLY for recently measured flows.
+   It illustrates observed activity, not exact packet transit timing. */
+.mon-traffic-pulse {
+  fill:#0b0b0b;
+  transform-box: view-box;
+  will-change: transform;
+}
+.mon-pulse-leg1 {
+  animation: mon-flight-leg-one 1.4s linear infinite;
+}
+.mon-pulse-leg2 {
+  animation: mon-flight-leg-two 1.4s linear infinite;
+  animation-delay: -0.7s;
+}
+@keyframes mon-flight-leg-one {
+  0% { transform: translateX(0); opacity:0; }
+  10%,85% {opacity:1}
+  100% { transform:translateX(143px);opacity:0; }
+}
+@keyframes mon-flight-leg-two {
+  0% { transform: translateX(0); opacity:0; }
+  10%,85% {opacity:1}
+  100% { transform:translateX(145px);opacity:0; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .mon-pulse-leg1,.mon-pulse-leg2 { animation:none; opacity:0; }
+}
+
+
+/* Read-only local AI investigation, high-density monochrome layout. */
+.mon-ai-panel {
+  margin: 22px 25px 4px; border: 1px solid #111;
+  background: #fff; min-width: 0;
+}
+.mon-ai-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 22px;
+  padding: 22px 24px; border-bottom: 1px solid #d3d3d3;
+}
+.mon-ai-heading h3 {
+  margin: 5px 0; font-weight: 700; font-size: 21px; letter-spacing: -.035em;
+}
+.mon-ai-heading p { color: #555; font-size: 12px; margin: 6px 0 0; }
+.mon-ai-heading button { flex-shrink: 0; }
+.mon-ai-status, .mon-ai-error {
+  padding: 18px 24px; background: #f2f2f2;
+  border-bottom: 1px solid #d3d3d3; font: 12px ui-monospace,monospace;
+}
+.mon-ai-error { background: #fff; border-left: 4px solid #111; }
+.mon-ai-metadata {
+  display: flex; flex-wrap: wrap; gap: 18px;
+  border-bottom: 1px solid #d3d3d3; padding: 14px 24px;
+  font: 10px ui-monospace,monospace; letter-spacing: .05em;
+}
+.mon-ai-analysis {
+  white-space: pre-wrap; overflow-wrap: anywhere; padding: 26px 24px;
+  font-size: 14px; line-height: 1.8; color: #151515;
+}
+.mon-ai-references { margin: 0 24px; border-top: 1px solid #ddd; }
+.mon-ai-references summary {
+  padding: 13px 0; cursor: pointer;
+  font: 11px ui-monospace,monospace;
+}
+.mon-ai-references li { padding: 5px 0; overflow-wrap: anywhere; }
+.mon-ai-disclaimer {
+  padding: 15px 24px; color: #444; border-top: 1px solid #ddd;
+  background: #f5f5f5; margin: 15px 0 0;
+  font-size: 12px; line-height: 1.6;
+}
+@media (max-width: 850px) {
+  .mon-ai-heading { align-items: stretch; flex-direction: column; }
+}
+
+
+/* MON compact operational status; no oversized overview tiles */
+.mon-overview-strip {
+  margin: 0; display: grid; grid-template-columns: repeat(6,minmax(0,1fr));
+  border-bottom: 1px solid #cfcfcf; background:#fff;
+}
+.mon-overview-strip>div {
+  min-width:0; padding:15px 18px; border-right:1px solid #ddd;
+  display:flex; flex-direction:column; gap:6px;
+}
+.mon-overview-strip>div:last-child {border-right:0}
+.mon-overview-strip small {
+  font:700 9px ui-monospace,monospace; letter-spacing:.1em; color:#555;
+}
+.mon-overview-strip strong {font:700 clamp(13px,1.6vw,20px) ui-monospace,monospace; overflow-wrap:anywhere}
+.mon-ai-compact {
+  margin:18px 24px 0; padding:12px 14px; display:flex;
+  align-items:center; gap:16px; border:1px solid #aaa; min-height:62px;
+}
+.mon-ai-compact-label {
+  background:#111;color:#fff;padding:8px 10px;flex-shrink:0;
+  font:700 10px ui-monospace,monospace;letter-spacing:.06em;
+}
+.mon-ai-compact-text {display:grid;flex:1;gap:4px;min-width:0}
+.mon-ai-compact-text strong {font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.mon-ai-compact-text span {font-size:11px;color:#555;line-height:1.45;overflow-wrap:anywhere}
+.mon-ai-compact .control-button {white-space:nowrap; flex-shrink:0}
+.mon-ai-compact-meta {font:9px ui-monospace,monospace; color:#666;white-space:nowrap}
+@media(max-width:1120px) {
+  .mon-overview-strip {grid-template-columns:repeat(3,minmax(0,1fr))}
+  .mon-ai-compact {flex-wrap:wrap}
+}
+@media(max-width:680px) {
+  .mon-overview-strip {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mon-ai-compact-meta {width:100%}
+}
+
+
+/* Readable SOC packet-rate graph: real 1s samples + derived 5s rate, never mock packets. */
+.mon-chart-control {
+  padding: 12px 20px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  border-top: 1px solid #ddd; border-bottom: 1px solid #ddd;
+  font: 10px ui-monospace,monospace; color: #444;
+}
+.mon-graph-switch { display: inline-flex; border: 1px solid #111; }
+.mon-graph-switch button {
+  background: #fff; border: 0; padding: 8px 12px; cursor: pointer;
+  color: #111; font: 700 10px ui-monospace,monospace;
+}
+.mon-graph-switch button + button { border-left: 1px solid #111; }
+.mon-graph-switch button[aria-pressed="true"] { background: #111; color: #fff; }
+.mon-packet-raw {
+  fill: none; stroke: #c0c0c0; stroke-width: 1;
+  stroke-linejoin: round; stroke-linecap: round; opacity: .9;
+}
+.mon-chart-frame .mon-packet-line {
+  fill: none; stroke: #111; stroke-width: 2.5;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.mon-packet-caveat {
+  color: #666; margin: 0; padding: 12px 18px 16px;
+  font-size: 11px; line-height: 1.6; border-top: 1px solid #e6e6e6;
+}
+.mon-flow-table-wrapper { overflow-x: auto; max-width: 100%; }
+.mon-flow-table td { overflow-wrap: anywhere; }
+
+
+/* Passive Suricata network IDS observations; measured data only */
+.mon-ids-panel { margin-top: 20px; }
+.mon-ids-summary {
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
+  background:#fafafa; border-block:1px solid #d4d4d4;
+}
+.mon-ids-summary>div { padding:15px 18px; border-right:1px solid #ddd; min-width:0; }
+.mon-ids-summary>div:last-child { border-right:0; }
+.mon-ids-summary small { display:block; font:700 9px ui-monospace,monospace; color:#777; }
+.mon-ids-summary strong {
+  display:block; margin-top:8px; font:700 15px ui-monospace,monospace;
+  overflow-wrap:anywhere;
+}
+.mon-ids-actions { display:flex; gap:0; padding:12px 18px; border-bottom:1px solid #ddd; }
+.mon-ids-actions button {
+  padding:8px 15px; cursor:pointer; font:700 10px ui-monospace,monospace;
+  border:1px solid #111; background:white; color:#111;
+}
+.mon-ids-actions button + button { border-left:0; }
+.mon-ids-actions button[aria-pressed="true"] { color:#fff; background:#111; }
+@media(max-width:820px) {.mon-ids-summary {grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* MON V5.1 / single-console density, 100% browser zoom */
+.shell{grid-template-columns:208px minmax(0,1fr)}
+.sidebar{padding:16px 10px 12px}
+.sidebar .brand{padding:0 7px 15px}
+.sidebar .mark{height:32px;width:32px;font-size:16px}
+.sidebar .brand strong{font-size:14px}
+.sidebar nav{padding-top:12px;gap:3px}
+.sidebar nav button{font-size:12px;padding:10px 12px;min-height:37px}
+.sidebar-foot{padding-top:12px}
+.topbar{padding:13px 20px;min-height:66px}
+.topbar h1{font-size:clamp(21px,2vw,29px)}
+.top-status{font-size:9px}
+.mon-command-desk{padding-bottom:16px}
+.mon-command-desk .mon-overview-strip>div{padding:9px 13px;gap:4px}
+.mon-command-desk .mon-overview-strip small{font-size:8px}
+.mon-command-desk .mon-overview-strip strong{font-size:clamp(12px,1.2vw,17px)}
+.mon-command-desk-grid{display:grid;grid-template-columns:minmax(0,1.34fr) minmax(320px,.9fr);gap:12px;padding:0 14px;min-width:0}
+.mon-desk-traffic,.mon-desk-incidents{min-width:0}
+.mon-desk-traffic .mon-panel{margin:0}
+.mon-desk-incidents{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.mon-desk-incidents .panel{min-height:0;border:1px solid #ddd;overflow:auto}
+.mon-desk-incidents .panel-head{min-height:49px;padding:10px 14px}
+.mon-desk-incidents .panel-head h2{font-size:14px}
+.mon-desk-incidents .table-wrap{max-height:245px}
+.mon-desk-incidents table{font-size:10px}
+.mon-desk-incidents th,.mon-desk-incidents td{padding:8px 9px}
+.mon-desk-incidents .empty{padding:20px}
+.mon-desk-action{border:1px solid #111;background:#fff;padding:8px 9px;font:700 9px ui-monospace,monospace;white-space:nowrap;cursor:pointer}
+.mon-desk-action:hover{background:#111;color:#fff}
+.mon-traffic-compact .mon-panel-heading{padding:12px 17px}
+.mon-traffic-compact .mon-panel-heading h2{font-size:19px}
+.mon-traffic-compact .mon-panel-heading p{font-size:10px}
+.mon-traffic-compact .mon-flow-metrics>div{padding:11px 14px;gap:7px}
+.mon-traffic-compact .mon-flow-metrics span{font-size:8px}
+.mon-traffic-compact .mon-flow-metrics strong{font-size:clamp(17px,2vw,26px)}
+.mon-traffic-compact .mon-chart-control{padding:7px 11px;font-size:9px}
+.mon-traffic-compact .mon-graph-switch button{padding:6px 8px;font-size:9px}
+.mon-traffic-compact .mon-chart-frame{padding:8px 10px 0}
+.mon-traffic-compact .mon-chart-frame svg{max-height:205px}
+.mon-traffic-compact .mon-chart-footer{padding:9px 13px 11px;font-size:8px;flex-wrap:wrap}
+.mon-traffic-compact .mon-packet-caveat{display:none}
+.mon-compact-network-hint{margin:0;padding:9px 13px;border-top:1px solid #e7e7e7;font:10px ui-monospace,monospace;color:#666}
+@media(max-width:1250px){
+ .mon-command-desk-grid{grid-template-columns:minmax(0,1fr)}
+ .mon-desk-incidents{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto}
+}
+@media(max-width:820px){.shell{grid-template-columns:160px minmax(0,1fr)}.sidebar{padding:11px 6px}.sidebar nav button{padding:8px;font-size:11px}}
+@media(max-width:650px){.shell{grid-template-columns:1fr}.sidebar{position:relative;width:100%;height:auto;border-right:0;border-bottom:1px solid #ddd;padding:10px}.sidebar .brand{padding-bottom:8px}.sidebar nav{display:flex;gap:5px;overflow-x:auto;padding-top:8px}.sidebar nav button{white-space:nowrap;flex-shrink:0}.sidebar-foot{display:none}.topbar{padding:11px 14px;min-height:55px}.mon-command-desk-grid{padding:0 9px}.mon-desk-incidents{grid-template-columns:1fr}.mon-command-desk .mon-overview-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}

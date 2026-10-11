@@ -49,9 +49,12 @@ describe("IncidentDetail", () => {
     render(
       <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
     );
+    await waitFor(() => expect(screen.getByTestId("incident-event-chain")).toBeTruthy());
+    fireEvent.click(screen.getByRole("tab", { name: /EVIDENCE/ }));
     await waitFor(() => expect(screen.getAllByTestId("evidence-item")).toHaveLength(1));
     expect(screen.getByTestId("affected-identity").textContent).toContain("8 failed logons for root");
     expect(screen.getByText("No resolved assets.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /RESPONSE/ }));
     expect(screen.getByText("No enforcement point is bound to the affected assets.")).toBeTruthy();
     expect(screen.getByText("No response recorded for this incident.")).toBeTruthy();
   });
@@ -111,6 +114,8 @@ describe("IncidentDetail", () => {
     render(
       <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
     );
+    await waitFor(() => expect(screen.getByRole("tab", { name: /RESPONSE/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("tab", { name: /RESPONSE/ }));
     await waitFor(() => expect(screen.getByDisplayValue("203.0.113.50")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "PLAN BLOCK" }));
     await waitFor(() => expect(screen.getByTestId("planned-response").textContent).toContain("REQUIRE_APPROVAL"));
@@ -154,7 +159,41 @@ describe("IncidentDetail", () => {
       <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
     );
 
+    await waitFor(() => expect(screen.getByRole("tab", { name: /RESPONSE/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("tab", { name: /RESPONSE/ }));
     await waitFor(() => expect(screen.getByDisplayValue("10.77.0.60")).toBeTruthy());
+  });
+
+  it("analyzes verified incident evidence locally without changing containment", async () => {
+    const ai = {
+      incident_id: "inc-1",
+      model: "qwen3:4b",
+      analysis: "Repeated SSH failures merit review.",
+      headline: "203.0.113.50 → web-01: 8 failed logins in 300s",
+      assessment: "Repeated SSH failures merit review.",
+      next_check: "Inspect SSH journal records.",
+      evidence_ids: ["e1"],
+      evidence_count: 1,
+      read_only: true,
+      advisory: "AI analysis is advisory, not an authorization to block."
+    };
+    const mockedFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => investigation })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ai });
+    vi.stubGlobal("fetch", mockedFetch);
+    render(
+      <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
+    );
+    await waitFor(() => expect(screen.getByTestId("ai-incident-panel")).toBeTruthy());
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("analyze-with-ai"));
+    await waitFor(() => expect(screen.getByText(/8 failed logins in 300s/)).toBeTruthy());
+    expect(screen.getByText(/Inspect SSH journal records/)).toBeTruthy();
+    expect(mockedFetch.mock.calls[1][0]).toBe("/portal/ai/investigate");
+    const sent = JSON.parse(mockedFetch.mock.calls[1][1].body as string);
+    expect(sent).toEqual({ incident_id: "inc-1", tenant_id: "t", site_id: "s" });
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("planned-response")).toBeNull();
   });
 
   it("surfaces an authorization failure instead of showing data", async () => {

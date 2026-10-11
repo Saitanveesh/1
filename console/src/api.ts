@@ -1,4 +1,4 @@
-import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView } from "./types";
+import type { AiIncidentAnalysis, IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView } from "./types";
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -104,3 +104,15 @@ export function rollbackResponse(
   );
 }
 
+
+export function analyzeIncidentWithLocalAi(
+  incidentId: string,
+  tenantId: string,
+  siteId: string
+): Promise<AiIncidentAnalysis> {
+  return postJson<AiIncidentAnalysis>("/portal/ai/investigate", {
+    incident_id: incidentId,
+    tenant_id: tenantId,
+    site_id: siteId
+  });
+}

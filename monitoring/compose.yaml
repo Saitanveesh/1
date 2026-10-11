@@ -1,0 +1,43 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    network_mode: host
+    user: "0:0"
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=127.0.0.1:9090
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./metrics-token:/etc/prometheus/metrics-token:ro
+      - mon-prometheus-data:/prometheus
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    env_file:
+      - ./grafana-admin.env
+    environment:
+      GF_SERVER_HTTP_ADDR: "100.75.116.62"
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_COOKIE_SAMESITE: "lax"
+      GF_SERVER_ROOT_URL: "http://100.75.116.62:3000/"
+    volumes:
+      - mon-grafana-data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  mon-prometheus-data:
+  mon-grafana-data:

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
-import { ApiError, executeResponse, fetchInvestigation, planResponse, rollbackResponse } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { buildCaseTimeline, TimelineStrip } from "./AiAnalysis";
+import IncidentEventFlow from "./IncidentEventFlow";
+import { ApiError, analyzeIncidentWithLocalAi, executeResponse, fetchInvestigation, planResponse, rollbackResponse } from "./api";
 import type {
+  AiIncidentAnalysis,
   AuditRecord,
   Incident,
   IncidentInvestigation,
@@ -15,10 +18,7 @@ interface Props {
   siteId: string;
   executions: ResponseExecution[];
   auditRecords: AuditRecord[];
-}
-
-function nodeLabel(id: string): string {
-  return id.replace(/^[A-Za-z]+:/, "");
+  onOpen3D?: (incident: Incident) => void;
 }
 
 export default function IncidentDetail({
@@ -26,7 +26,8 @@ export default function IncidentDetail({
   tenantId,
   siteId,
   executions,
-  auditRecords
+  auditRecords,
+  onOpen3D
 }: Props) {
   const [investigation, setInvestigation] = useState<IncidentInvestigation | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,11 +39,23 @@ export default function IncidentDetail({
   const [responseBusy, setResponseBusy] = useState(false);
   const [responseMessage, setResponseMessage] = useState<string | null>(null);
   const [responseError, setResponseError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiIncidentAnalysis | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [focusedMomentId, setFocusedMomentId] = useState<string | null>(null);
+  const [caseTab, setCaseTab] = useState<"events" | "evidence" | "response">("events");
+  const aiSequence = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     setInvestigation(null);
     setError(null);
+    setFocusedMomentId(null);
+    setCaseTab("events");
+    aiSequence.current += 1;
+    setAiResult(null);
+    setAiError(null);
+    setAiBusy(false);
     fetchInvestigation(incident.incident_id, tenantId, siteId)
       .then((value) => {
         if (cancelled) return;
@@ -87,10 +100,36 @@ export default function IncidentDetail({
   const identities = (investigation?.evidence ?? []).filter(
     (item) => item.evidence_class === "IDENTITY"
   );
+  const moments = investigation
+    ? buildCaseTimeline(investigation, executions, auditRecords)
+    : [];
+  const selectedMoment = moments.find(item => item.id === focusedMomentId) ?? moments[0] ?? null;
+
+  async function handleAiAnalysis(): Promise<void> {
+    const key = ++aiSequence.current;
+    setAiBusy(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const result = await analyzeIncidentWithLocalAi(incident.incident_id, tenantId, siteId);
+      if (key === aiSequence.current) setAiResult(result);
+    } catch (reason: unknown) {
+      if (key === aiSequence.current) {
+        setAiError(
+          reason instanceof ApiError
+            ? `Local incident analysis unavailable (HTTP ${reason.status})`
+            : "Local incident analysis failed"
+        );
+      }
+    } finally {
+      if (key === aiSequence.current) setAiBusy(false);
+    }
+  }
 
   function buildRequest(): ResponseRequestPayload {
     const ip = targetIp.trim();
     if (!ip) throw new Error("target source IP is required");
+    if (ip === "10.77.0.1") throw new Error("Refusing to block PC2 MON management / WireGuard hub");
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 30 || ttlSeconds > 604800) {
       throw new Error("TTL must be an integer between 30 and 604800 seconds");
     }
@@ -183,14 +222,71 @@ export default function IncidentDetail({
           <span className="eyebrow">INCIDENT INVESTIGATION</span>
           <h2 data-testid="incident-detail-title">{incident.title}</h2>
         </div>
-        <span className="mono">
-          {incident.severity} / {incident.status} / {Math.round(incident.confidence * 100)}%
-        </span>
+        <div className="mon-incident-actions">
+          <span className="mono">
+            {incident.severity} / {incident.status} / {Math.round(incident.confidence * 100)}%
+          </span>
+          {onOpen3D && <button type="button" className="control-button"
+            data-testid="open-3d-investigation" onClick={() => onOpen3D(incident)}>
+            RECONSTRUCT IN 3D ↗
+          </button>}
+        </div>
       </div>
       {error && <div className="empty" role="alert">{error}</div>}
       {!error && !investigation && <div className="empty">Loading investigation…</div>}
       {investigation && (
-        <div className="detail-grid">
+        <section className="mon-ai-compact" data-testid="ai-incident-panel">
+          <span className="mon-ai-compact-label">LOCAL AI</span>
+          <div className="mon-ai-compact-text">
+            <strong>{aiResult?.headline ?? "What happened? Analyze this incident using verified evidence."}</strong>
+            {aiResult && <span>{aiResult.assessment} · Check: {aiResult.next_check}</span>}
+            {aiError && <span role="alert">{aiError}</span>}
+            {aiBusy && <span role="status">Analyzing MON evidence locally…</span>}
+          </div>
+          <button type="button" className="control-button" data-testid="analyze-with-ai"
+            disabled={aiBusy} onClick={() => void handleAiAnalysis()}>
+            {aiBusy ? "ANALYZING…" : aiResult ? "REANALYZE" : "ANALYZE"}
+          </button>
+          {aiResult && <span className="mon-ai-compact-meta">{aiResult.evidence_count} MON records · {aiResult.model}</span>}
+        </section>
+      )}
+      {investigation && <>
+        <IncidentEventFlow investigation={investigation} responses={related} compact />
+        <div className="mon-case-tabs" role="tablist" aria-label="Incident case sections">
+          <button type="button" role="tab" aria-selected={caseTab === "events"}
+            onClick={() => setCaseTab("events")}>TIMELINE <span>{moments.length}</span></button>
+          <button type="button" role="tab" aria-selected={caseTab === "evidence"}
+            onClick={() => setCaseTab("evidence")}>EVIDENCE <span>{investigation.evidence.length}</span></button>
+          <button type="button" role="tab" aria-selected={caseTab === "response"}
+            onClick={() => setCaseTab("response")}>RESPONSE <span>{related.length}</span></button>
+        </div>
+      </>}
+      {investigation && caseTab === "events" && (
+        <div className="mon-case-chronology" data-testid="incident-chronology">
+          <TimelineStrip
+            moments={moments}
+            currentId={selectedMoment?.id ?? null}
+            onPick={setFocusedMomentId}
+          />
+          <div className="mon-case-inspector">
+            <div className="aiwb-section-top"><div>
+              <span className="aiwb-kicker">CASE FILE / EVIDENCE</span>
+              <h3>Selected event</h3>
+            </div></div>
+            {selectedMoment ? (
+              <div className="aiwb-selected-detail" data-testid="incident-selected-event">
+                <span className="aiwb-detail-kind">{selectedMoment.kind}</span>
+                <h4>{selectedMoment.headline}</h4>
+                <div className="aiwb-detail-pair"><span>TIMESTAMP</span><strong>{selectedMoment.timestamp ?? "Not recorded"}</strong></div>
+                <div className="aiwb-detail-pair"><span>RECORD ID</span><code>{selectedMoment.reference}</code></div>
+                <div className="aiwb-detail-pair"><span>ORIGIN</span><strong>{selectedMoment.description}</strong></div>
+              </div>
+            ) : <p className="empty">No timestamped evidence returned.</p>}
+          </div>
+        </div>
+      )}
+      {investigation && caseTab === "evidence" && (
+        <div className="detail-grid mon-incident-evidence-grid">
           <article>
             <h3>Evidence ({investigation.evidence.length})</h3>
             <ul data-testid="evidence-list">
@@ -225,19 +321,27 @@ export default function IncidentDetail({
             </ul>
           </article>
           <article>
-            <h3>Investigation graph</h3>
+            <h3>Evidence relationships</h3>
+            <p className="subtle">Grouped by observed relationship. Raw pseudonymous identifiers are available below.</p>
             <div data-testid="investigation-graph">
-              {investigation.graph.edges.map((edge) => (
-                <div className="graph-edge" key={edge.edge_id} data-testid="graph-edge">
-                  <span>{nodeLabel(edge.src_node_id)}</span>
-                  <i>→ {edge.relation} →</i>
-                  <span>{nodeLabel(edge.dst_node_id)}</span>
-                  <b>{edge.event_count} evt</b>
+              {Array.from(investigation.graph.edges.reduce((grouped, edge) => {
+                const label = edge.relation.replaceAll("_", " ");
+                grouped.set(label, (grouped.get(label) ?? 0) + edge.event_count);
+                return grouped;
+              }, new Map<string, number>())).slice(0, 8).map(([relation, count]) => (
+                <div className="mon-path-summary" key={relation} data-testid="graph-edge">
+                  <b>{relation}</b>
+                  <span>Associated with {investigation.affected_assets.map(a => a.display_name).join(", ") || "an observed endpoint"}</span>
+                  <span>{count} correlated event(s) · raw evidence retained</span>
                 </div>
               ))}
               {!investigation.graph.edges.length && <div className="empty">No observed path edges.</div>}
             </div>
+
           </article>
+        </div>
+      )}
+      {investigation && caseTab === "response" && <div className="detail-grid mon-incident-response-grid">
           <article>
             <h3>Containment capability</h3>
             <ul data-testid="containment-capabilities">
@@ -343,9 +447,6 @@ export default function IncidentDetail({
               {responseError && <div className="action-state error" role="alert">{responseError}</div>}
             </div>
           </article>
-        </div>
-      )}
-      <div className="detail-grid">
         <article>
           <h3>Response, policy and recovery</h3>
           <ul data-testid="response-list">
@@ -391,7 +492,7 @@ export default function IncidentDetail({
             {!audit.length && <li className="empty">No audit records for this incident's responses.</li>}
           </ul>
         </article>
-      </div>
+      </div>}
     </section>
   );
 }

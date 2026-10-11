@@ -1,0 +1,446 @@
+{
+  "id": null,
+  "uid": "mon-network",
+  "title": "MON | Measured Network and SOC Sensors",
+  "schemaVersion": 39,
+  "version": 2,
+  "timezone": "browser",
+  "refresh": "5s",
+  "tags": [
+    "MON",
+    "SOC",
+    "Observed",
+    "No simulated metrics"
+  ],
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "editable": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Observed IP packets / second — by interface direction",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(mon_capture_packets_total{direction=\"inbound\"}[1m])",
+          "legendFormat": "Inbound packets/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mon_capture_packets_total{direction=\"outbound\"}[1m])",
+          "legendFormat": "Outbound packets/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outbound packets/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#888888"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Observed IP bytes / second — by direction",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(mon_capture_bytes_total{direction=\"inbound\"}[1m])",
+          "legendFormat": "Inbound B/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mon_capture_bytes_total{direction=\"outbound\"}[1m])",
+          "legendFormat": "Outbound B/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outbound B/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#888888"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Capture running",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "mon_capture_up",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Raw interface frames (cumulative)",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "mon_capture_raw_frames_total",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Seconds since last decoded IP packet",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "time() - mon_capture_last_packet_timestamp_seconds",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "gauge",
+      "title": "Packet capture readiness (1 = healthy)",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 6,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "mon_capture_up",
+          "refId": "A",
+          "legendFormat": "Inbound"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          },
+          "min": 0,
+          "max": 1,
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#dddddd",
+                "value": null
+              },
+              {
+                "color": "#101010",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "gauge",
+      "title": "Packet rate vs reference (100 pps)",
+      "gridPos": {
+        "x": 6,
+        "y": 22,
+        "w": 6,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(mon_capture_packets_total[1m]))",
+          "refId": "A",
+          "legendFormat": "Inbound"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "pps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "gauge",
+      "title": "Observed bandwidth vs reference (50 kB/s)",
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 6,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(mon_capture_bytes_total[1m]))",
+          "refId": "A",
+          "legendFormat": "Inbound"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          },
+          "min": 0,
+          "max": 50000,
+          "unit": "Bps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "bargauge",
+      "title": "Directional packet rate",
+      "gridPos": {
+        "x": 18,
+        "y": 22,
+        "w": 6,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(mon_capture_packets_total{direction=\"inbound\"}[1m])",
+          "refId": "A",
+          "legendFormat": "Inbound"
+        },
+        {
+          "expr": "rate(mon_capture_packets_total{direction=\"outbound\"}[1m])",
+          "refId": "B",
+          "legendFormat": "Outbound"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          },
+          "unit": "pps",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outbound"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#888888"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Capture availability over time",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "mon_capture_up",
+          "refId": "A",
+          "legendFormat": "Inbound"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          },
+          "unit": "none",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Raw interface frames per second",
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mon-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(mon_capture_raw_frames_total[1m])",
+          "refId": "A",
+          "legendFormat": "Inbound"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#101010"
+          },
+          "unit": "pps",
+          "min": 0
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

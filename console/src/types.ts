@@ -238,3 +238,96 @@ export interface SensorFleetView {
   version?: string;
   last_error?: string;
 }
+
+export interface PacketFlow {
+  src_ip: string;
+  dst_ip: string;
+  protocol: string;
+  dst_port: number | null;
+  packets: number;
+  bytes: number;
+}
+
+export interface PacketSample {
+  second: number;
+  packets: number;
+  bytes: number;
+}
+
+export interface PacketEvent {
+  timestamp: string;
+  interface: string;
+  direction: "inbound" | "outbound";
+  src_ip: string;
+  dst_ip: string;
+  protocol: string;
+  dst_port: number | null;
+  ip_bytes: number;
+}
+
+export interface PacketCaptureSnapshot {
+  source: "linux-af_packet";
+  interface: string;
+  capture_scope?: string;
+  observed_interfaces?: Record<string, number>;
+  events?: PacketEvent[];
+  lab_route_events?: PacketEvent[];
+  raw_frames?: number;
+  decoded_packets?: number;
+  last_packet_at?: number;
+  status: "STARTING" | "CAPTURING" | "UNAVAILABLE";
+  error: string | null;
+  observed_at: string;
+  sample_interval_seconds: number;
+  capture_window_seconds: number;
+  direction: string;
+  packet_layer: string;
+  samples: PacketSample[];
+  flows: PacketFlow[];
+}
+
+export interface SuricataRecord {
+  event_type: "alert" | "flow" | "dns" | "tls" | "http";
+  timestamp: string;
+  src_ip: string;
+  src_port: number | null;
+  dst_ip: string;
+  dst_port: number | null;
+  protocol: string;
+  application: string;
+  community_id: string;
+  signature?: string;
+  signature_id?: number;
+  severity?: number;
+  category?: string;
+  pkts_toserver?: number;
+  pkts_toclient?: number;
+  bytes_toserver?: number;
+  bytes_toclient?: number;
+  flow_state?: string;
+}
+
+export interface SuricataSnapshot {
+  source: "suricata-eve";
+  status: "NOT_INSTALLED" | "CONFIGURED_NO_EVE" | "NO_RECENT_EVENTS" | "RECENT_EVE";
+  observed_events: number;
+  alerts: number;
+  last_seen: string | null;
+  records: SuricataRecord[];
+  capture_interface?: string;
+  scope?: string;
+}
+
+export interface AiIncidentAnalysis {
+  incident_id: string;
+  model: string;
+  analysis: string;
+  headline: string;
+  assessment: string;
+  next_check: string;
+  evidence_ids: string[];
+  evidence_count: number;
+  tool_results?: Array<{ tool: string; status: string; records?: number; matched_events?: number; scope?: string }>;
+  read_only: boolean;
+  advisory: string;
+}

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
+import IncidentQueue from "./IncidentQueue";
+import AiAnalysis from "./AiAnalysis";
+import Investigation3D from "./Incident3D";
+import SocGauges from "./SocGauges";
+import SuricataPanel from "./SuricataPanel";
+import LoginPage from "./LoginPage";
+import { NetworkPath, PacketHistory, usePacketCapture } from "./PacketObservability";
 import { LiveClient, type LiveState } from "./live";
 import type {
   Asset,
@@ -16,27 +23,12 @@ import type {
 } from "./types";
 import "./styles.css";
 
-type View =
-  | "Overview"
-  | "Incidents"
-  | "Attack Graph"
-  | "Telemetry"
-  | "Assets"
-  | "Enforcement"
-  | "Response"
-  | "Audit"
-  | "Fleet";
+type View = "Overview" | "Incidents" | "Investigation" | "Network" | "AI Analysis" | "Operations";
+type OperationsArea = "Assets" | "Enforcement" | "Response" | "Audit" | "Fleet" | "Telemetry" | "Admin";
 
-const views: View[] = [
-  "Overview",
-  "Incidents",
-  "Attack Graph",
-  "Telemetry",
-  "Assets",
-  "Enforcement",
-  "Response",
-  "Audit",
-  "Fleet"
+const views: View[] = ["Overview", "Incidents", "Investigation", "Network", "AI Analysis", "Operations"];
+const operationsAreas: OperationsArea[] = [
+  "Assets", "Enforcement", "Response", "Audit", "Fleet", "Telemetry", "Admin"
 ];
 
 const rank: Record<Severity, number> = {
@@ -368,6 +360,7 @@ export default function App() {
   const tenantId = params.get("tenant") || "default";
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
+  const [operationsArea, setOperationsArea] = useState<OperationsArea>("Assets");
   const [operator, setOperator] = useState<OperatorPrincipal | null>(null);
   const [authState, setAuthState] = useState<"CHECKING" | "OK" | "UNAUTHENTICATED" | "DENIED">("CHECKING");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
@@ -399,6 +392,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    if (authState !== "OK") return;
     const client = new LiveClient(tenantId, siteId);
     const unsubscribe = client.subscribe(setState);
     void client.start();
@@ -406,7 +400,7 @@ export default function App() {
       unsubscribe();
       client.stop();
     };
-  }, [tenantId, siteId]);
+  }, [tenantId, siteId, authState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -435,6 +429,8 @@ export default function App() {
     };
   }, [tenantId, siteId]);
 
+  const packetCapture = usePacketCapture(authState === "OK");
+
   const metrics = useMemo(() => {
     const active = state.incidents.filter((item) => item.status !== "CLOSED");
     const highest = active.reduce<Severity>(
@@ -448,6 +444,14 @@ export default function App() {
     const critical = active.filter((item) => item.severity === "CRITICAL").length;
     return { active, highest, attackPressure, critical };
   }, [state.incidents]);
+
+  const displayedIncident = state.incidents.find(item =>
+    item.incident_id === selectedIncident?.incident_id
+  ) ?? state.incidents[0] ?? null;
+
+  if (authState === "UNAUTHENTICATED") {
+    return <LoginPage loading={false} onAuthenticated={() => window.location.reload()} />;
+  }
 
   return (
     <div className="shell">
@@ -464,12 +468,17 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
+          {authState === "OK" && (
+            <button className="mon-logout" onClick={async () => {
+              try {
+                await fetch("/portal/logout", { method: "POST", credentials: "same-origin" });
+              } finally {
+                window.location.reload();
+              }
+            }}>SIGN OUT ↗</button>
+          )}
           <div className={`connection ${state.connection.toLowerCase()}`}><span />{state.connection}</div>
-          <small data-testid="operator-context">
-            {operator ? `${operator.subject} · ${operator.roles.join(", ")}` : "not authenticated"}
-          </small>
-          <small>{tenantId} / {siteId}</small>
-          <small>SEQ {state.sequence}</small>
+
         </div>
       </aside>
 
@@ -488,56 +497,140 @@ export default function App() {
             <p>Your credentials do not grant access to tenant {tenantId} / site {siteId}. No data is shown.</p>
           </section>
         )}
-        {authState === "UNAUTHENTICATED" && (
-          <section className="panel full" role="alert" data-testid="unauthenticated">
-            <h2>AUTHENTICATION REQUIRED</h2>
-            <p>No valid operator session was found. Sign in through your identity provider and reload.</p>
-          </section>
-        )}
         {view === "Overview" && (
-          <>
-            <section className="metric-grid">
-              <Metric label="CONTROL PLANE LINK" value={state.connection === "LIVE" ? "ONLINE" : state.connection} note="authenticated WebSocket transport" progress={state.connection === "LIVE" ? 100 : 25} />
-              <Metric label="ATTACK PRESSURE" value={String(Math.round(metrics.attackPressure))} note="derived from active incident severity × confidence" progress={metrics.attackPressure} />
-              <Metric label="HIGHEST SEVERITY" value={metrics.highest} note={`${metrics.active.length} active incidents`} />
-              <Metric label="CRITICAL INCIDENTS" value={String(metrics.critical)} note="requires operator attention" />
-              <Metric label="ASSETS OBSERVED" value={String(state.assets.length)} note="evidence-backed identities in current site" />
-              <Metric label="DROPPED LIVE MSG" value={String(state.droppedMessages)} note="slow-client backpressure counter" />
+          <div className="mon-command-desk" data-testid="mon-single-console">
+            <section className="mon-overview-strip" data-testid="overview-status-strip">
+              <div><small>MON STATUS</small><strong>{state.connection === "LIVE" ? "ONLINE" : state.connection}</strong></div>
+              <div><small>OPEN INCIDENTS</small><strong>{metrics.active.length}</strong></div>
+              <div><small>HIGHEST SEVERITY</small><strong>{metrics.highest}</strong></div>
+              <div><small>ASSETS</small><strong>{state.assets.length}</strong></div>
+              <div><small>ATTACK PRESSURE</small><strong>{Math.round(metrics.attackPressure)}</strong></div>
+              <div><small>PACKET CAPTURE</small><strong>{packetCapture?.status ?? "CONNECTING"}</strong></div>
             </section>
-            <section className="split">
-              <article className="panel">
-                <div className="panel-head"><div><span className="eyebrow">ACTIVE</span><h2>Incidents</h2></div></div>
-                <IncidentTable incidents={metrics.active.slice(0, 8)} />
-              </article>
-              <article className="panel">
-                <div className="panel-head"><div><span className="eyebrow">DETECTION</span><h2>Latest findings</h2></div></div>
-                <FindingTable findings={state.findings} />
-              </article>
-            </section>
-          </>
+            <SocGauges state={state} capture={packetCapture} />
+            <div className="mon-command-desk-grid">
+              <div className="mon-desk-traffic">
+                <PacketHistory capture={packetCapture} compact />
+              </div>
+              <div className="mon-desk-incidents">
+                <section className="panel">
+                  <div className="panel-head">
+                    <div><span className="eyebrow">PRIORITY QUEUE</span><h2>Active incidents</h2></div>
+                    <button type="button" className="mon-desk-action" onClick={() => setView("Incidents")}>VIEW ALL ↗</button>
+                  </div>
+                  <IncidentTable incidents={metrics.active.slice(0, 6)} />
+                </section>
+                <section className="panel">
+                  <div className="panel-head">
+                    <div><span className="eyebrow">LATEST DETECTION</span><h2>Recent findings</h2></div>
+                    <button type="button" className="mon-desk-action" onClick={() => setView("Investigation")}>INVESTIGATE ↗</button>
+                  </div>
+                  <FindingTable findings={state.findings.slice(0, 5)} />
+                </section>
+              </div>
+            </div>
+          </div>
         )}
 
         {view === "Incidents" && (
-          <>
-            <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CASE QUEUE</span><h2>Incident lifecycle</h2></div></div><IncidentTable incidents={state.incidents} selectedId={selectedIncident?.incident_id} onSelect={setSelectedIncident} /></section>
-            {selectedIncident && (
-              <IncidentDetail
-                incident={selectedIncident}
-                tenantId={tenantId}
-                siteId={siteId}
-                executions={state.response_executions}
-                auditRecords={state.audit_records}
-              />
-            )}
-          </>
+          <div className="mon-incidents-workspace" data-testid="incident-workspace">
+            <IncidentQueue incidents={state.incidents}
+              selectedId={displayedIncident?.incident_id ?? null}
+              onSelect={setSelectedIncident} />
+            <div className="mon-incidents-main">
+              {displayedIncident ? (
+                <IncidentDetail
+                  incident={displayedIncident}
+                  tenantId={tenantId}
+                  siteId={siteId}
+                  executions={state.response_executions}
+                  auditRecords={state.audit_records}
+                  onOpen3D={(incident) => {
+                    setSelectedIncident(incident);
+                    setView("Investigation");
+                  }}
+                />
+              ) : (
+                <section className="mon-case-waiting">
+                  <h2>No incidents recorded</h2>
+                  <p>When MON detects an incident, its evidence will appear here.</p>
+                </section>
+              )}
+            </div>
+          </div>
         )}
-        {view === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
-        {view === "Attack Graph" && <AttackGraph state={state} />}
-        {view === "Telemetry" && <TelemetryPanel state={state} />}
-        {view === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
-        {view === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
-        {view === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
-        {view === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
+        {view === "Investigation" && (
+          <Investigation3D
+            incidents={state.incidents}
+            executions={state.response_executions}
+            audits={state.audit_records}
+            capture={packetCapture}
+            tenantId={tenantId}
+            siteId={siteId}
+            initialIncidentId={selectedIncident?.incident_id}
+            onOpen={(incident) => {
+              setSelectedIncident(incident);
+              setView("Incidents");
+            }}
+          />
+        )}
+        {view === "AI Analysis" && (
+          <AiAnalysis
+            incidents={state.incidents}
+            tenantId={tenantId}
+            siteId={siteId}
+            executions={state.response_executions}
+            auditRecords={state.audit_records}
+            capture={packetCapture}
+            onOpenIncident={(incident) => {
+              setSelectedIncident(incident);
+              setView("Incidents");
+            }}
+          />
+        )}
+        {view === "Network" && <>
+          <NetworkPath capture={packetCapture}
+            attackerIps={state.findings.map(f => f.src_ip).filter((ip): ip is string => !!ip)} />
+          <PacketHistory capture={packetCapture} />
+          <SuricataPanel />
+
+        </>}
+        {view === "Operations" && (
+          <div className="mon-operations" data-testid="operations-workspace">
+            <div className="mon-operations-nav" role="group" aria-label="Operations tools">
+              {operationsAreas.map(area => (
+                <button key={area} type="button"
+                  aria-pressed={operationsArea === area}
+                  onClick={() => setOperationsArea(area)}>{area}</button>
+              ))}
+            </div>
+            {operationsArea === "Telemetry" && <>
+              <TelemetryPanel state={state} />
+              <SocGauges state={state} capture={packetCapture} />
+            </>}
+            {operationsArea === "Admin" && (
+              <section className="panel full mon-admin-details" data-testid="mon-admin-debug">
+                <div className="panel-head"><div><span className="eyebrow">ADVANCED / OPERATOR ONLY</span>
+                  <h2>System diagnostics</h2></div></div>
+                <dl>
+                  <dt>Operator</dt><dd>{operator?.subject ?? "Not authenticated"}</dd>
+                  <dt>Scope</dt><dd>{tenantId} / {siteId}</dd>
+                  <dt>Snapshot sequence</dt><dd>{state.sequence}</dd>
+                  <dt>Live transport</dt><dd>{state.connection}</dd>
+                  <dt>Capture scope</dt><dd>{packetCapture?.capture_scope ?? "Unavailable"}</dd>
+                </dl>
+                <details className="mon-advanced-evidence"><summary>Raw graph identifiers (diagnostics)</summary>
+                  <AttackGraph state={state} />
+                </details>
+              </section>
+            )}
+            {operationsArea === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
+            {operationsArea === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
+            {operationsArea === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
+            {operationsArea === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
+            {operationsArea === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
+          </div>
+        )}
       </main>
     </div>
   );
