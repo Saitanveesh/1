@@ -41,6 +41,15 @@ describe("Real packet visualization", () => {
     expect(within(panel).getByText("RAW 1S")).toBeTruthy();
   });
 
+  it("renders compact command-desk traffic without overwhelming the first screen", () => {
+    render(<PacketHistory capture={capture} compact />);
+    const panel = screen.getByTestId("live-packet-history");
+    expect(panel.className).toContain("mon-traffic-compact");
+    expect(screen.queryByTestId("real-network-event-log")).toBeNull();
+    expect(screen.getByText(/Full packet log and protocol analysis/)).toBeTruthy();
+    expect(within(panel).getByText("252")).toBeTruthy();
+  });
+
   it("animates only while matching RECENT packet-header evidence exists", () => {
     const recent: PacketCaptureSnapshot = {
       ...capture,
