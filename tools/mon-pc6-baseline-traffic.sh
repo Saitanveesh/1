@@ -15,6 +15,14 @@ route=$(ip -4 route get "$DST") || { echo '[FAIL] No route to PC5'; exit 1; }
   echo "[FAIL] PC6 should use source $SRC to reach PC5; actual route is: $route"
   exit 1
 }
+# A routing entry does not prove PC5 accepts ICMP. Do not report
+# "healthy baseline" when ping is blocked on the lab path.
+if ! ping -n -c 1 -W 2 -I "$SRC" "$DST" >/dev/null 2>&1; then
+  echo "[FAIL] PC5 did not answer one benign ICMP probe from $SRC"
+  echo "[CHECK] Verify ICMP policy on PC5/PC2 before enabling the persistent baseline"
+  exit 1
+fi
+echo "[PASS] Real PC6 to PC5 ICMP reachability verified"
 if systemctl is-active --quiet "$UNIT"; then
   echo "[PASS] $UNIT already active, no duplicate generator started"
   echo "Stop: sudo systemctl disable --now $UNIT"
