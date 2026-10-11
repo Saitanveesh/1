@@ -41,21 +41,29 @@ describe("Real packet visualization", () => {
     expect(within(panel).getByText("RAW 1S")).toBeTruthy();
   });
 
-  it("animates only while a corresponding observed flow exists", () => {
+  it("animates only while matching RECENT packet-header evidence exists", () => {
+    const recent: PacketCaptureSnapshot = {
+      ...capture,
+      events: [{
+        timestamp: "2026-10-10T23:59:58Z", interface: "wg0",
+        direction: "inbound", src_ip: "10.77.0.60",
+        dst_ip: "10.77.0.50", protocol: "ICMP", dst_port: null, ip_bytes: 84
+      }]
+    };
     const { container, rerender } = render(
-      <NetworkPath capture={capture} attackerIps={["10.77.0.60"]} />
+      <NetworkPath capture={recent} attackerIps={["10.77.0.60"]} />
     );
     expect(container.querySelectorAll(".mon-traffic-pulse")).toHaveLength(2);
-    expect(screen.getByText("PACKETS OBSERVED")).toBeTruthy();
-    rerender(<NetworkPath capture={{ ...capture, flows: [] }} attackerIps={["10.77.0.60"]} />);
+    expect(screen.getByText("TRAFFIC OBSERVED NOW")).toBeTruthy();
+    rerender(<NetworkPath capture={{ ...recent, events: [] }} attackerIps={["10.77.0.60"]} />);
     expect(container.querySelectorAll(".mon-traffic-pulse")).toHaveLength(0);
-    expect(screen.getByText("NO CURRENT PACKETS")).toBeTruthy();
+    expect(screen.getByText("NO MATCHING RECENT PACKETS")).toBeTruthy();
   });
 
   it("describes ICMP from the lab source as expected baseline, not attack", () => {
     render(<NetworkPath capture={capture} attackerIps={["10.77.0.60"]} />);
     expect(screen.getByText(/EXPECTED-BASELINE/)).toBeTruthy();
-    expect(screen.getByText(/Animation indicates RECENT OBSERVED activity/)).toBeTruthy();
+    expect(screen.getByText(/Configured topology is not proof/)).toBeTruthy();
   });
 });
 
