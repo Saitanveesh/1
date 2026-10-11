@@ -37,8 +37,20 @@ def sample_investigation():
                 "confidence": 0.75,
             }
         ],
-        "findings": [{"finding_id": "finding1", "detector_id": "endpoint-auth-failure-pressure", "src_ip": "10.77.0.60"}],
-        "affected_assets": [{"asset_id": "linux-host:lab-pc5", "display_name": "lab-pc5", "ip_addresses": ["10.77.0.50"]}],
+        "findings": [
+            {
+                "finding_id": "finding1",
+                "detector_id": "endpoint-auth-failure-pressure",
+                "src_ip": "10.77.0.60",
+            }
+        ],
+        "affected_assets": [
+            {
+                "asset_id": "linux-host:lab-pc5",
+                "display_name": "lab-pc5",
+                "ip_addresses": ["10.77.0.50"],
+            }
+        ],
     }
 
 
@@ -61,7 +73,10 @@ def test_analysis_is_local_and_never_calls_response_endpoints(monkeypatch):
 
     def fake_fetch(req, timeout):
         calls.append((req.full_url, timeout, json.loads(req.data)))
-        return {"model": "qwen3:4b", "message": {"content": "Observed facts: 8 failures [mon-auth-ref-1]."}}
+        return {
+            "model": "qwen3:4b",
+            "message": {"content": "Observed facts: 8 failures [mon-auth-ref-1]."},
+        }
 
     monkeypatch.setattr(module, "_fetch_json", fake_fetch)
     result = module.analyze_incident(
