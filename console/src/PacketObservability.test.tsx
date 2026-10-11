@@ -63,7 +63,7 @@ describe("Real packet visualization", () => {
   it("describes ICMP from the lab source as expected baseline, not attack", () => {
     render(<NetworkPath capture={capture} attackerIps={["10.77.0.60"]} />);
     expect(screen.getByText(/EXPECTED-BASELINE/)).toBeTruthy();
-    expect(screen.getByText(/Configured topology is not proof/)).toBeTruthy();
+    expect(screen.getByText(/Animation is enabled only by recent matching IP headers/)).toBeTruthy();
   });
 });
 
