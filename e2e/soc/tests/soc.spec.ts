@@ -50,6 +50,8 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByTestId("incident-detail-title")).toHaveText(seed.incident_title);
 
     // evidence
+    await expect(page.getByTestId("incident-chronology")).toBeVisible();
+    await expect(page.getByTestId("ai-timeline-event").first()).toBeVisible();
     await expect(page.getByTestId("evidence-item").first()).toBeVisible();
     expect(await page.getByTestId("evidence-item").count()).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("evidence-list")).toContainText("IDENTITY");
@@ -89,9 +91,8 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(workspace).toBeVisible();
     await expect(page.getByText("Incident Reconstruction")).toBeVisible();
     await expect(page.getByTestId("ai-case-select")).toContainText(seed.incident_title);
-    await expect(page.getByTestId("ai-timeline-event").first()).toBeVisible();
+    await expect(page.getByTestId("ai-telemetry-tools")).toBeVisible();
     await expect(page.getByTestId("ai-case-correlation")).toBeVisible();
-    await expect(page.getByTestId("ai-selected-evidence")).toBeVisible();
     await expect(page.getByTestId("ai-model-investigation")).toBeVisible();
     // AI is on demand; the seeded browser runner has no Ollama and must not
     // call it merely because the analyst opened the visual investigation.
@@ -100,17 +101,20 @@ test.describe("authenticated operator (tenant A)", () => {
 
   test("enforcement, response and audit views show the same recorded state", async ({ page }) => {
     await page.goto(scopeA);
-    await page.getByRole("button", { name: /^Enforcement/ }).click();
+    await page.getByRole("button", { name: /^Operations/ }).click();
+    await expect(page.getByTestId("operations-workspace")).toBeVisible();
+    await page.getByRole("button", { name: "Enforcement", exact: true }).click();
     await expect(page.getByRole("cell", { name: seed.enforcement_point_id })).toBeVisible();
-    await page.getByRole("button", { name: /^Response/ }).click();
+    await page.getByRole("button", { name: "Response", exact: true }).click();
     await expect(page.getByRole("cell", { name: "ROLLED_BACK" })).toBeVisible();
-    await page.getByRole("button", { name: /^Audit/ }).click();
+    await page.getByRole("button", { name: "Audit", exact: true }).click();
     await expect(page.getByRole("cell", { name: "ROLLBACK" }).first()).toBeVisible();
   });
 
   test("fleet view reports honestly when no sensor is enrolled", async ({ page }) => {
     await page.goto(scopeA);
-    await page.getByRole("button", { name: /^Fleet/ }).click();
+    await page.getByRole("button", { name: /^Operations/ }).click();
+    await page.getByRole("button", { name: "Fleet", exact: true }).click();
     await expect(page.getByTestId("fleet-panel")).toBeVisible();
     await expect(page.getByText("No sensors enrolled for this site.")).toBeVisible();
   });
