@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AiAnalysis, { buildCaseTimeline } from "./AiAnalysis";
 import type { AuditRecord, Incident, IncidentInvestigation, ResponseExecution } from "./types";
@@ -134,8 +134,8 @@ describe("AI Analysis / real incident reconstruction", () => {
       onOpenIncident={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("ai-timeline")).toBeTruthy());
     expect(screen.getAllByTestId("ai-timeline-event").length).toBeGreaterThanOrEqual(5);
-    expect(screen.getByText("10.77.0.60")).toBeTruthy();
-    expect(screen.getByText("lab-pc5")).toBeTruthy();
+    expect(within(screen.getByTestId("ai-case-correlation")).getByText("10.77.0.60")).toBeTruthy();
+    expect(within(screen.getByTestId("ai-case-correlation")).getByText("lab-pc5")).toBeTruthy();
     expect(screen.getByText(/NOT A PACKET HOP TRACE/)).toBeTruthy();
     expect(mockedFetch).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("ai-generate-brief"));
