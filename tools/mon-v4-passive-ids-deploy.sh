@@ -7,7 +7,7 @@ ROOT=/home/pc-2/mon-three
 REPO=/home/pc-2/mon-three-code
 APP=$ROOT/console-v2
 PORTAL=$ROOT/tools
-PIN=3606e49491091df6d5d9e7156981df8522531e33
+PIN=99cb703c400405855903f8206294522f9445b95e
 FILES=(src/App.tsx src/PacketObservability.tsx src/SuricataPanel.tsx src/types.ts src/styles.css)
 STAGE="" BACKUP="" ALTERED=0 UI_READY=0
 BRIDGE_EXISTED=0
