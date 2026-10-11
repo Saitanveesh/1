@@ -48,32 +48,58 @@ function graphPath(values: number[], maximum: number): string {
   ).join(" ");
 }
 
+/**
+ * A trailing arithmetic mean of REAL recorded one-second packet counts.
+ * Never interpolates missing traffic or modifies the captured measurements.
+ */
+export function trailingPacketRate(samples: number[], seconds = 5): number[] {
+  return samples.map((_, index) => {
+    let sum = 0;
+    const from = Math.max(0, index - seconds + 1);
+    for (let i = from; i <= index; i += 1) sum += samples[i];
+    return sum / (index - from + 1);
+  });
+}
+
 export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | null }) {
-  const { packets, ceiling, total } = useMemo(() => {
-    const source = capture?.samples ?? [];
-    const bySecond = new Map(source.map(s => [s.second, s.packets]));
-    const end = source.at(-1)?.second ?? 0;
-    const values = Array.from({ length: COUNT }, (_, index) =>
+  const [display, setDisplay] = useState<"average" | "raw">("average");
+  const { raw, smoothed, ceiling, total } = useMemo(() => {
+    const samples = capture?.samples ?? [];
+    const bySecond = new Map(samples.map(row => [row.second, row.packets]));
+    const end = samples.at(-1)?.second ?? 0;
+    const raw = Array.from({ length: COUNT }, (_, index) =>
       bySecond.get(end - (COUNT - index - 1)) ?? 0
     );
+    const smoothed = trailingPacketRate(raw, 5);
     return {
-      packets: values,
-      ceiling: Math.max(4, ...values),
-      total: values.reduce((a, b) => a + b, 0)
+      raw,
+      smoothed,
+      ceiling: Math.max(1, ...raw, ...smoothed),
+      total: raw.reduce((sum, current) => sum + current, 0)
     };
   }, [capture]);
   const capturing = capture?.status === "CAPTURING";
-  const recentFive = capture?.samples.slice(-5) ?? [];
-  const recentPackets = recentFive.reduce((sum, row) => sum + row.packets, 0);
-  const recentBytes = recentFive.reduce((sum, row) => sum + row.bytes, 0);
-  const path = graphPath(packets, ceiling);
+  const lastFive = capture?.samples.slice(-5) ?? [];
+  const recentPackets = lastFive.reduce((sum, row) => sum + row.packets, 0);
+  const recentBytes = lastFive.reduce((sum, row) => sum + row.bytes, 0);
+  const pps = recentPackets / Math.max(1, lastFive.length);
+  const series = display === "average" ? smoothed : raw;
+  const displayPath = graphPath(series, ceiling);
+  const rawPath = graphPath(raw, ceiling);
+  const interfaces = Object.entries(capture?.observed_interfaces ?? {})
+    .sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  const scope = capture?.capture_scope ?? "wg0";
+  const events = capture?.events ?? [];
+  const lastPacket = capture?.last_packet_at
+    ? new Date(capture.last_packet_at * 1000).toLocaleTimeString()
+    : "none recorded";
   return (
     <section className="mon-panel mon-traffic-panel" data-testid="live-packet-history">
       <div className="mon-panel-heading">
         <div>
-          <span className="mon-eyebrow">NETWORK / WIREGUARD INGEST</span>
-          <h2>Live packet flow</h2>
-          <p>Real IP headers · {capture?.capture_scope ?? "wg0"} · inbound + outbound · 90 seconds</p>
+          <span className="mon-eyebrow">NETWORK / MEASURED IP HEADERS</span>
+          <h2>Live network traffic</h2>
+          <p>Scope: {scope === "any" ? "PC2 host interfaces" : scope} · one-second measurements · 90-second window</p>
         </div>
         <span className={"mon-tag " + (capturing ? "mon-tag-active" : "")}>
           <span className="mon-dot" />{capture?.status ?? "CONNECTING"}
@@ -81,25 +107,32 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
       </div>
       <div className="mon-flow-metrics">
         <div><span>PACKETS / LAST 5S</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
+        <div><span>MEASURED PACKETS / S (5S AVG)</span><strong>{capturing ? pps.toFixed(2) : "—"}</strong></div>
         <div><span>BYTES / LAST 5S</span><strong>{capturing ? human(recentBytes) : "—"}</strong></div>
         <div><span>90-SECOND PACKETS</span><strong>{capturing ? human(total) : "—"}</strong></div>
-        <div><span>SOURCE</span><strong className="mon-smaller">{capturing ? "AF_PACKET · wg0" : "NOT CONNECTED"}</strong></div>
+      </div>
+      <div className="mon-chart-control">
+        <span>{display === "average" ? "BLACK: 5-second trailing average · GRAY: raw 1-second counts" : "BLACK: raw captured packets per second"}</span>
+        <div className="mon-graph-switch" aria-label="Packet chart calculation">
+          <button type="button" aria-pressed={display === "average"} onClick={() => setDisplay("average")}>5S RATE</button>
+          <button type="button" aria-pressed={display === "raw"} onClick={() => setDisplay("raw")}>RAW 1S</button>
+        </div>
       </div>
       <div className="mon-chart-frame">
         <svg viewBox={"0 0 " + WIDTH + " " + HEIGHT} preserveAspectRatio="xMidYMid meet"
-          role="img" aria-label="Measured packets per second for the last 90 seconds">
+          role="img" aria-label="Measured packet rate, with a selectable five-second trailing average or raw one-second data">
           {Array.from({ length: 5 }, (_, i) => {
             const y = 22 + i * ((HEIGHT - 62) / 4);
             return <g key={i}>
               <line className="mon-grid-line" x1="45" x2={WIDTH - 20} y1={y} y2={y} />
               <text className="mon-svg-label" x="37" y={y + 4} textAnchor="end">
-                {human(Math.round(ceiling * (1 - i / 4)))}
+                {(ceiling * (1 - i / 4)).toFixed(1)}
               </text>
             </g>;
           })}
           {capturing && <>
-            <path className="mon-packet-area" d={path + " L 980 220 L 45 220 Z"} />
-            <path className="mon-packet-line" d={path} />
+            {display === "average" && <path className="mon-packet-raw" d={rawPath} />}
+            <path className="mon-packet-line" d={displayPath} data-testid="measured-rate-path" />
           </>}
           {[0, 30, 60, 89].map(index => <text key={index}
             className="mon-svg-label" textAnchor="middle"
@@ -107,15 +140,41 @@ export function PacketHistory({ capture }: { capture: PacketCaptureSnapshot | nu
             {index === 89 ? "NOW" : "-" + (89 - index) + "s"}
           </text>)}
           {!capturing && <text x={WIDTH / 2} y="125" textAnchor="middle"
-            className="mon-chart-empty">{capture?.error ?? "AWAITING MEASURED PACKET DATA"}</text>}
+            className="mon-chart-empty">{capture?.error ?? "NO MEASURED PACKETS"}</text>}
         </svg>
       </div>
       <div className="mon-chart-footer">
-        <span>BLACK TRACE = OBSERVED IP INTERFACE PACKETS / SECOND</span>
-        <span>{capturing
-          ? `RAW ${capture.raw_frames ?? "—"} · DECODED ${capture.decoded_packets ?? "—"} · ${new Date(capture.observed_at).toLocaleTimeString()}`
-          : "NO GENERATED OR ESTIMATED PACKETS"}</span>
+        <span>RAW FRAMES {capture?.raw_frames ?? "—"} · DECODED IP {capture?.decoded_packets ?? "—"} · LAST PACKET {lastPacket}</span>
+        <span>Observed interfaces: {interfaces.join(", ") || scope}</span>
       </div>
+      <div className="mon-flow-section" data-testid="real-network-event-log">
+        <div className="mon-panel-heading mon-panel-heading-small">
+          <h3>Recent network observations <span>REAL IP METADATA · NOT SIMULATED</span></h3>
+          <span>{events.length} recent records · volatile buffer</span>
+        </div>
+        <div className="mon-flow-table-wrapper">
+          <table className="mon-flow-table">
+            <thead>
+              <tr><th>TIME</th><th>INTERFACE</th><th>DIRECTION</th><th>SOURCE</th><th>DESTINATION</th><th>PROTO / PORT</th><th>IP BYTES</th></tr>
+            </thead>
+            <tbody>
+              {events.slice(0, 24).map((event, index) => <tr key={event.timestamp + ":" + index}>
+                <td>{new Date(event.timestamp).toLocaleTimeString()}</td>
+                <td>{event.interface}</td>
+                <td>{event.direction}</td>
+                <td>{event.src_ip}</td>
+                <td>{event.dst_ip}</td>
+                <td>{event.protocol}{event.dst_port == null ? "" : ":" + event.dst_port}</td>
+                <td>{event.ip_bytes}</td>
+              </tr>)}
+              {!events.length && <tr><td colSpan={7} className="mon-flow-empty">
+                No IP header observations recorded yet. Check capture scope, capabilities and actual interface traffic.
+              </td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="mon-packet-caveat">5S RATE is a calculated average of measured one-second samples, never a packet generator. PC2 cannot observe traffic that bypasses PC2. Forwarded packets seen on multiple interfaces may appear more than once.</p>
     </section>
   );
 }
