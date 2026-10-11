@@ -285,7 +285,7 @@ export default function AiAnalysis({
   const correlated = investigation ? graphLabels(investigation) : null;
   const caseResponses = chosenId
     ? executions.filter(row => row.plan?.request?.incident_id === chosenId) : [];
-  const relatedPackets = (capture?.events ?? []).filter(event =>
+  const relatedPackets = (capture?.lab_route_events ?? capture?.events ?? []).filter(event =>
     correlated && (
       (event.src_ip === correlated.source && event.dst_ip === correlated.targetIp) ||
       (event.src_ip === correlated.targetIp && event.dst_ip === correlated.source)
