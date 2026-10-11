@@ -18,7 +18,7 @@ async function signIn(context: BrowserContext, jwt: string): Promise<void> {
 test("1. an unauthenticated browser is refused and shows no data", async ({ page }) => {
   await page.goto(scopeA);
   await expect(page.getByTestId("unauthenticated")).toBeVisible();
-  await expect(page.getByTestId("operator-context")).toContainText("not authenticated");
+  await expect(page.getByTestId("operator-context")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText(seed.incident_title);
 });
 
@@ -29,8 +29,8 @@ test.describe("authenticated operator (tenant A)", () => {
 
   test("2. authenticated operator context and live overview", async ({ page }) => {
     await page.goto(scopeA);
-    await expect(page.getByTestId("operator-context")).toContainText("soc-operator-a");
-    await expect(page.getByTestId("operator-context")).toContainText("tenant_admin");
+    await expect(page.getByTestId("operator-context")).toHaveCount(0);
+    await expect(page.getByTestId("soc-gauges")).toBeVisible();
     await expect(page.getByText("ATTACK PRESSURE")).toBeVisible();
     await expect(page.getByTestId("overview-status-strip")).toBeVisible();
     await expect(page.locator(".connection.live")).toBeVisible();
@@ -99,6 +99,20 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByTestId("ai-generate-brief")).toBeVisible();
   });
 
+  test("per-incident 3D reconstruction is navigable and does not invent packet paths", async ({ page }) => {
+    await page.goto(scopeA);
+    await page.getByRole("button", { name: /^Investigation/ }).click();
+    await expect(page.getByTestId("investigation-3d")).toBeVisible();
+    await expect(page.getByTestId("incident-3d-scene")).toBeVisible();
+    await expect(page.getByTestId("incident-3d-viewport")).toBeVisible();
+    await expect(page.getByTestId("mon3d-node-asset").first()).toBeVisible();
+    await page.getByRole("button", { name: "2D", exact: true }).click();
+    await expect(page.getByTestId("incident-2d-view")).toBeVisible();
+    await page.getByRole("button", { name: "3D", exact: true }).click();
+    await expect(page.getByTestId("scene-inspector")).toBeVisible();
+    await expect(page.getByText(/Spatial distance is a layout aid/)).toBeVisible();
+  });
+
   test("enforcement, response and audit views show the same recorded state", async ({ page }) => {
     await page.goto(scopeA);
     await page.getByRole("button", { name: /^Operations/ }).click();
@@ -109,6 +123,9 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByRole("cell", { name: "ROLLED_BACK" })).toBeVisible();
     await page.getByRole("button", { name: "Audit", exact: true }).click();
     await expect(page.getByRole("cell", { name: "ROLLBACK" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Admin", exact: true }).click();
+    await expect(page.getByTestId("mon-admin-debug")).toContainText("soc-operator-a");
+    await expect(page.getByTestId("mon-admin-debug")).toContainText("tenant_admin");
   });
 
   test("fleet view reports honestly when no sensor is enrolled", async ({ page }) => {
