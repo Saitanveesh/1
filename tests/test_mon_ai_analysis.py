@@ -114,3 +114,49 @@ def test_portal_keeps_ai_readonly_authenticated_and_origin_checked():
     assert "AI_BUSY.acquire(blocking=False)" in source
     assert "result = analyze_incident(" in source
     assert "/api/v1/responses" not in source
+
+
+def test_compact_ai_result_never_exposes_model_instruction_echo(monkeypatch):
+    module = load_analyst()
+    monkeypatch.setattr(module, "get_evidence", lambda *_args: sample_investigation())
+
+    def response_with_old_verbose_thoughts(_req, _timeout):
+        return {
+            "model": "qwen3:4b",
+            "message": {
+                "content": "We are given a JSON evidence. Steps: read the JSON and explain instructions."
+            },
+        }
+
+    monkeypatch.setattr(module, "_fetch_json", response_with_old_verbose_thoughts)
+    outcome = module.analyze_incident(
+        "9398913b-3fb4-4f01-874f-87f6d71ed646", "mon-lab", "site-a", "jwt"
+    )
+    assert outcome["headline"].startswith("10.77.0.60")
+    assert "8 authentication failures observed in 300s" in outcome["headline"]
+    assert outcome["assessment"] == "Cause not established from current evidence."
+    assert "We are given" not in outcome["analysis"]
+
+
+def test_compact_ai_result_accepts_only_short_structured_advice(monkeypatch):
+    module = load_analyst()
+    monkeypatch.setattr(module, "get_evidence", lambda *_args: sample_investigation())
+
+    def good_json(_req, _timeout):
+        return {
+            "model": "qwen3:4b",
+            "message": {
+                "content": json.dumps({
+                    "assessment": "Repeated SSH failures may indicate credential guessing.",
+                    "next_check": "Compare source IP with approved maintenance activity.",
+                })
+            },
+        }
+
+    monkeypatch.setattr(module, "_fetch_json", good_json)
+    answer = module.analyze_incident(
+        "9398913b-3fb4-4f01-874f-87f6d71ed646", "mon-lab", "site-a", "jwt"
+    )
+    assert answer["assessment"].startswith("Repeated SSH")
+    assert answer["next_check"].startswith("Compare source IP")
+    assert "steps" not in answer["analysis"].lower()
