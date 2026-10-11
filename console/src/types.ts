@@ -257,6 +257,10 @@ export interface PacketSample {
 export interface PacketCaptureSnapshot {
   source: "linux-af_packet";
   interface: string;
+  capture_scope?: string;
+  raw_frames?: number;
+  decoded_packets?: number;
+  last_packet_at?: number;
   status: "STARTING" | "CAPTURING" | "UNAVAILABLE";
   error: string | null;
   observed_at: string;
