@@ -129,10 +129,6 @@ function percent(value: number): string {
   return Number.isFinite(value) ? Math.round(value * 100) + "%" : "—";
 }
 
-function compactRef(value: string): string {
-  return value.length > 39 ? value.slice(0, 20) + "…" + value.slice(-12) : value;
-}
-
 function graphLabels(investigation: IncidentInvestigation) {
   const findingWithSource = investigation.findings.find(row => row.src_ip);
   const incidentIp = investigation.incident.entities.find(value =>
@@ -147,7 +143,7 @@ function graphLabels(investigation: IncidentInvestigation) {
   return { source, target, targetIp };
 }
 
-function TimelineStrip({
+export function TimelineStrip({
   moments,
   currentId,
   onPick
@@ -238,8 +234,7 @@ export default function AiAnalysis({
   const [ai, setAi] = useState<AiIncidentAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [activeMoment, setActiveMoment] = useState<string | null>(null);
-  const [refreshCount, setRefreshCount] = useState(0);
+    const [refreshCount, setRefreshCount] = useState(0);
   const requestId = useRef(0);
 
   const ordered = useMemo(
@@ -261,7 +256,6 @@ export default function AiAnalysis({
     setAi(null);
     setAiError(null);
     setAiLoading(false);
-    setActiveMoment(null);
     setLoading(true);
     setLoadError(null);
     fetchInvestigation(chosenId, tenantId, siteId)
@@ -285,11 +279,6 @@ export default function AiAnalysis({
     return () => { requestId.current += 1; };
   }, [chosenId, tenantId, siteId, refreshCount]);
 
-  const moments = useMemo(
-    () => investigation ? buildCaseTimeline(investigation, executions, auditRecords) : [],
-    [investigation, executions, auditRecords]
-  );
-  const selectedMoment = moments.find(row => row.id === activeMoment) ?? moments[0] ?? null;
   const correlated = investigation ? graphLabels(investigation) : null;
   const caseResponses = chosenId
     ? executions.filter(row => row.plan?.request?.incident_id === chosenId) : [];
@@ -389,27 +378,19 @@ export default function AiAnalysis({
             <p className="aiwb-honesty">This diagram shows MON's correlated source, evidence and affected asset. It does not assert intermediate routers, packet timing, or actions without records.</p>
           </section>
 
-          <div className="aiwb-columns">
-            <TimelineStrip moments={moments} currentId={selectedMoment?.id ?? null}
-              onPick={setActiveMoment} />
+          <div className="aiwb-columns aiwb-analysis-columns">
             <div className="aiwb-inspector">
-              <section className="aiwb-panel">
-                <div className="aiwb-section-top">
-                  <div><span className="aiwb-kicker">02 / EVIDENCE INSPECTOR</span><h3>Selected observation</h3></div>
+              <section className="aiwb-panel aiwb-tooling">
+                <div className="aiwb-section-top"><div>
+                  <span className="aiwb-kicker">01 / INVESTIGATION SIGNALS</span><h3>Evidence collection</h3>
+                </div></div>
+                <div className="aiwb-tool-list">
+                  <div><strong>ENDPOINT IDENTITY</strong><span>{investigation.evidence.filter(e => e.evidence_class === "IDENTITY").length} attached records</span></div>
+                  <div><strong>DETECTION</strong><span>{investigation.findings.length} findings</span></div>
+                  <div><strong>NETWORK ATTRIBUTION</strong><span>Live packet metadata below; historical PCAP not installed</span></div>
+                  <div><strong>RESPONSE AUDIT</strong><span>{caseResponses.length} linked execution(s)</span></div>
                 </div>
-                {selectedMoment ? (
-                  <div className="aiwb-selected-detail" data-testid="ai-selected-evidence">
-                    <span className="aiwb-detail-kind">{selectedMoment.kind}</span>
-                    <h4>{selectedMoment.headline}</h4>
-                    <div className="aiwb-detail-pair"><span>TIME (UTC)</span><strong>{isoLabel(selectedMoment.timestamp)}</strong></div>
-                    <div className="aiwb-detail-pair"><span>SOURCE / NOTE</span><strong>{selectedMoment.description}</strong></div>
-                    <div className="aiwb-detail-pair"><span>RECORD ID</span><code title={selectedMoment.reference}>{compactRef(selectedMoment.reference)}</code></div>
-                    {selectedMoment.confidence !== undefined &&
-                      <div className="aiwb-detail-pair"><span>CONFIDENCE</span><strong>{percent(selectedMoment.confidence)}</strong></div>}
-                  </div>
-                ) : <p className="aiwb-placeholder">No evidence selected.</p>}
               </section>
-
               <section className="aiwb-panel aiwb-ai-box" data-testid="ai-model-investigation">
                 <div className="aiwb-section-top">
                   <div><span className="aiwb-kicker">03 / LOCAL QWEN3 4B</span><h3>AI Analyst Brief</h3></div>
