@@ -7,7 +7,7 @@ ROOT=/home/pc-2/mon-three
 REPO=/home/pc-2/mon-three-code
 APP=$ROOT/console-v2
 PORTAL=$ROOT/tools
-PIN=@PIN@
+PIN=3606e49491091df6d5d9e7156981df8522531e33
 FILES=(src/App.tsx src/PacketObservability.tsx src/SuricataPanel.tsx src/types.ts src/styles.css)
 STAGE="" BACKUP="" ALTERED=0 UI_READY=0
 BRIDGE_EXISTED=0
@@ -109,6 +109,7 @@ elif sudo systemctl is-active --quiet mon-suricata-passive.service; then
   echo '[PASS] Existing MON passive Suricata service active'
 elif sudo test -f /etc/systemd/system/mon-suricata-passive.service; then
   echo '[CHECK] Previous MON Suricata service exists but is inactive; not overwriting'
+  exit 2
 else
   echo '[INSTALL] Ubuntu packages: suricata and tcpdump (passive tools)'
   WAS_INSTALLED=1
