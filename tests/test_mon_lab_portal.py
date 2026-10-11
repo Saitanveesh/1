@@ -68,3 +68,27 @@ def test_packet_counters_and_grafana_metrics_expose_real_observations_only() -> 
     assert snapshot["flows"][0]["direction"] == "outbound"
     assert snapshot["samples"][-1]["packets"] == 1
     assert 'mon_capture_packets_total{direction="outbound"} 1' in capture.metrics()
+
+
+def test_real_capture_event_metadata_is_present_and_bounded() -> None:
+    module = load()
+    capture = module.FlowCapture()
+    with capture.lock:
+        capture.recent_events.append({
+            "timestamp": "2026-10-11T08:00:00.000Z",
+            "interface": "wg0",
+            "direction": "inbound",
+            "src_ip": "10.77.0.60",
+            "dst_ip": "10.77.0.50",
+            "protocol": "ICMP",
+            "dst_port": None,
+            "ip_bytes": 84,
+        })
+        capture.interface_packets["wg0"] += 1
+        capture.raw_frames += 1
+    result = capture.snapshot()
+    assert result["observed_interfaces"] == {"wg0": 1}
+    assert len(result["events"]) == 1
+    assert result["events"][0]["src_ip"] == "10.77.0.60"
+    assert "payload" not in result["events"][0]
+    assert capture.recent_events.maxlen == 250
