@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+scrape_configs:
+  - job_name: mon_pc2_capture
+    metrics_path: /portal/metrics
+    static_configs:
+      - targets: ["127.0.0.1:8088"]
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics-token
