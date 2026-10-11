@@ -31,6 +31,8 @@ test.describe("authenticated operator (tenant A)", () => {
     await page.goto(scopeA);
     await expect(page.getByTestId("operator-context")).toHaveCount(0);
     await expect(page.getByTestId("soc-gauges")).toBeVisible();
+    await expect(page.getByTestId("mon-single-console")).toBeVisible();
+    await expect(page.getByTestId("live-packet-history")).toHaveClass(/mon-traffic-compact/);
     await expect(page.getByText("ATTACK PRESSURE")).toBeVisible();
     await expect(page.getByTestId("overview-status-strip")).toBeVisible();
     await expect(page.locator(".connection.live")).toBeVisible();
@@ -110,6 +112,7 @@ test.describe("authenticated operator (tenant A)", () => {
     await expect(page.getByTestId("incident-2d-view")).toBeVisible();
     await page.getByRole("button", { name: "3D", exact: true }).click();
     await expect(page.getByTestId("scene-inspector")).toBeVisible();
+    await expect(page.getByText(/Recorded entities/)).toBeVisible();
     await expect(page.getByText(/Spatial distance is a layout aid/)).toBeVisible();
   });
 
