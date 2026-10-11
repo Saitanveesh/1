@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -41,7 +40,7 @@ def _fetch_json(request: urllib.request.Request, timeout: int) -> dict[str, Any]
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             parsed = json.load(response)
-    except (OSError, ValueError, urllib.error.HTTPError) as exc:
+    except (OSError, ValueError) as exc:
         raise AnalystUnavailable("Local MON or Ollama service did not return valid JSON") from exc
     if not isinstance(parsed, dict):
         raise AnalystUnavailable("Local service returned an unexpected response type")
@@ -78,7 +77,11 @@ def evidence_bundle(investigation: dict[str, Any]) -> dict[str, Any]:
     evidence = investigation.get("evidence", [])
     findings = investigation.get("findings", [])
     assets = investigation.get("affected_assets", [])
-    if not isinstance(evidence, list) or not isinstance(findings, list) or not isinstance(assets, list):
+    if (
+        not isinstance(evidence, list)
+        or not isinstance(findings, list)
+        or not isinstance(assets, list)
+    ):
         raise AnalystUnavailable("Malformed incident evidence")
 
     refs: list[dict[str, object]] = []
