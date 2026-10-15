@@ -12,7 +12,6 @@ import http.client
 import ipaddress
 import json
 import os
-import socket
 import stat
 import sys
 import time
@@ -179,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
             "evidence_sha256": result["sha256"], "output_file": str(args.out),
         }))
         return 0
-    except (OSError, ValueError, socket.error, http.client.HTTPException) as exc:
+    except (OSError, ValueError, http.client.HTTPException) as exc:
         # Do not claim that an attempted exercise ran to completion on errors.
         print(f"exercise aborted: {type(exc).__name__}", file=sys.stderr)
         return 1
