@@ -207,11 +207,74 @@ principals, strong PostgreSQL password, and optional sensor enrollment**;
 these are not available just because the software was cloned.
 Do not guess a JWT, hard-code sample credentials or disable RBAC.
 
-When authorized credentials are provisioned, the project documents
-`docker compose -f deploy/four-pc/compose.soc.yml config -q` and
-`docker compose ... up -d --build`. PostgreSQL migrations run via the
-control-plane image entrypoint. No artificial student or attack records
-are inserted into MON's live database.
+For a disposable **local-only** SOC demo on the chosen MON Ubuntu host,
+the repo can generate signed, 8-hour lab credentials without weakening RBAC:
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip openssl \
+  docker.io docker-compose-v2
+git clone https://github.com/Saitanveesh/1.git MON
+cd MON
+git fetch origin design/dynamic-multilab-cyber-range
+git checkout design/dynamic-multilab-cyber-range
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+MON_LOCAL_SOC_CONFIRMED=YES bash tools/lab_soc_init.sh
+cd deploy/four-pc
+sudo docker compose -f compose.soc.yml config -q
+sudo docker compose -f compose.soc.yml up -d --build
+sudo docker compose -f compose.soc.yml ps
+curl -fsS http://127.0.0.1:8080/health
+```
+
+The script places secrets at
+`~/.local/share/mon-soc-lab-identity/`, creates a randomly generated
+PostgreSQL password in an ignored mode-0600 deployment `.env`, and
+mounts only the *public* JWT verification key into MON. **No sample
+administrator bypass or fake attack events are enabled.** These
+credentials are disposable lab credentials, not an institution-approved
+production identity provider; do not deploy this local issuer on a
+public interface.
+
+For the browser, return to the MON checkout root:
+
+```bash
+cd ~/MON
+.venv/bin/python tools/lab_soc_session.py \
+  --token-file "$HOME/.local/share/mon-soc-lab-identity/operator.jwt" \
+  --public-key-file deploy/four-pc/auth/public.pem
+```
+
+The command prints a **one-time loopback-only URL**. Open it in the
+selected operator's browser within three minutes. It validates the signed
+token and sets an HttpOnly cookie, then redirects to the actual MON
+React console at `http://127.0.0.1:8088/?tenant=mon-lab&site=isolated-range`.
+The browser session expires within an hour; repeat the helper if needed
+while the JWT is valid. It does not publish secrets on the shared LAN.
+
+For an operator browser on a **different authorized Ubuntu PC**, first
+establish an SSH tunnel with **both** loopback ports from that PC:
+
+```bash
+ssh -N -L 8088:127.0.0.1:8088 \
+  -L 9876:127.0.0.1:9876 USER_ON_MON_HOST@MON_HOST_MANAGEMENT_IP
+```
+
+Only then launch the one-time session helper on the MON host. Open its
+printed `127.0.0.1:9876` URL in the tunneled browser; the signed token
+never needs copying to the blue-team computer.
+
+If the Ubuntu repositories do not contain `docker-compose-v2`, use the
+institution-approved Docker Compose v2 installation method; confirm
+`sudo docker compose version` before proceeding. Initial Docker image
+pulls require network access **only on the SOC management host**, not
+the attack VM. PostgreSQL and time-series metrics are persistent Docker
+volumes; use `down` without `-v` for routine shutdown.
+
+No synthetic students or attack records are inserted into MON's
+live security database. The disconnected exercise can be inspected locally
+and transferred later to the authenticated MON ingestion endpoint.
 
 The first isolated MITM/pressure exercise will **run without MON login**.
 Later, the administrator can transfer validated real observations to the
