@@ -30,11 +30,13 @@ mon-windows-endpoint-collector = "mon.windows_endpoint_collector:main"
 mon-linux-endpoint-collector = "mon.linux_endpoint_collector:main"
 mon-connector-secret = "mon.connector_secrets:main"
 mon-topology-collect = "mon.topology_inventory_cli:main"
+mon-switch-snmpv3 = "mon.topology_snmpv3_cli:main"
 mon-release-manifest = "mon.release_manifest:main"
 mon-release-candidate-gate = "mon.release_candidate:main"
 mon-release-verify = "mon.release_candidate:main"
 
 [project.optional-dependencies]
+switch = ["pysnmp>=7.1.20,<8"]
 dev = [
   "pytest>=8.4,<9",
   "pytest-asyncio>=1.1,<2",
