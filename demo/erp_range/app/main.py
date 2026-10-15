@@ -12,7 +12,7 @@ import psycopg
 import psutil
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 SERVICE = "MON SYNTHETIC ERP — NO REAL STUDENT DATA"
 DATABASE_URL = os.getenv("ERP_DATABASE_URL", "")
@@ -32,6 +32,10 @@ db_probes = Counter(
     "Database probe results, observed rather than simulated", ["result"],
 )
 _process = psutil.Process()
+process_rss_bytes = Gauge("mon_erp_process_rss_bytes", "Measured ERP process RSS")
+process_cpu_seconds = Gauge(
+    "mon_erp_process_cpu_seconds", "Measured ERP process CPU seconds"
+)
 
 
 def database_query(query: str, params: tuple[object, ...] = ()) -> list[tuple]:
@@ -131,18 +135,7 @@ def metrics() -> Response:
     with _process.oneshot():
         rss = _process.memory_info().rss
         cpu = _process.cpu_times()
-    # These gauges are process-local; they do not pretend to be PC4 host metrics.
-    from prometheus_client import Gauge, REGISTRY
-
-    def gauge(name: str, description: str, value: float) -> None:
-        collector = REGISTRY._names_to_collectors.get(name)
-        if collector is None:
-            collector = Gauge(name, description)
-        collector.set(value)
-
-    gauge("mon_erp_process_rss_bytes", "Observed ERP process RSS", float(rss))
-    gauge(
-        "mon_erp_process_cpu_seconds",
-        "Observed ERP process user plus system CPU time", cpu.user + cpu.system,
-    )
+    # Process-local data only; PC4 host CPU/RAM requires independent host exporter.
+    process_rss_bytes.set(float(rss))
+    process_cpu_seconds.set(cpu.user + cpu.system)
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
