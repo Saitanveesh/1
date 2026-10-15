@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import ipaddress
+import re
 from collections import deque
 from enum import StrEnum
 
@@ -58,6 +59,9 @@ class TopologyObservation(BaseModel):
     node_type: str = Field(default="UNKNOWN", min_length=1, max_length=64)
     display_name: str | None = Field(default=None, max_length=256)
     ip_address: str | None = Field(default=None, max_length=45)
+    mac_address: str | None = Field(default=None, max_length=17)
+    interface_name: str | None = Field(default=None, max_length=128)
+    vlan_id: int | None = Field(default=None, ge=1, le=4094)
     peer_node_id: str | None = Field(default=None, max_length=256)
     relationship: TopologyRelationship | None = None
     layer: TopologyLayer | None = None
@@ -71,6 +75,10 @@ class TopologyObservation(BaseModel):
                 ipaddress.ip_address(self.ip_address)
             except ValueError as exc:
                 raise ValueError("ip_address must be valid IPv4/IPv6") from exc
+        if self.mac_address is not None and re.fullmatch(
+            r"[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}", self.mac_address
+        ) is None:
+            raise ValueError("mac_address must be a six-octet MAC address")
         if self.kind is TopologyKind.NODE:
             if self.peer_node_id is not None or self.relationship or self.layer:
                 raise ValueError("NODE must not declare link properties")
@@ -106,6 +114,7 @@ class TopologyNode(BaseModel):
     node_type: str
     label: str
     ip_addresses: list[str]
+    mac_addresses: list[str]
     last_seen: dt.datetime
     status: str
     evidence_ids: list[str]
@@ -173,6 +182,7 @@ def build_topology_snapshot(
                 node_type=o.node_type,
                 label=o.display_name or o.node_id,
                 ip_addresses=[o.ip_address] if o.ip_address else [],
+                mac_addresses=[o.mac_address.lower()] if o.mac_address else [],
                 last_seen=o.observed_at,
                 status=status,
                 evidence_ids=[o.evidence_id],
@@ -184,6 +194,8 @@ def build_topology_snapshot(
                 n.label = o.display_name or o.node_id
             if o.ip_address and o.ip_address not in n.ip_addresses:
                 n.ip_addresses.append(o.ip_address)
+            if o.mac_address and o.mac_address.lower() not in n.mac_addresses:
+                n.mac_addresses.append(o.mac_address.lower())
             n.last_seen = max(n.last_seen, o.observed_at)
             n.status = "OBSERVED" if n.status == "OBSERVED" or status == "OBSERVED" else "STALE"
             if o.evidence_id not in n.evidence_ids:
@@ -198,6 +210,7 @@ def build_topology_snapshot(
                     node_type="UNRESOLVED",
                     label=o.peer_node_id,
                     ip_addresses=[],
+                    mac_addresses=[],
                     last_seen=o.observed_at,
                     status=status,
                     evidence_ids=[o.evidence_id],
