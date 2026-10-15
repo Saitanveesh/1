@@ -115,6 +115,9 @@ class TopologyNode(BaseModel):
     label: str
     ip_addresses: list[str]
     mac_addresses: list[str]
+    # Fresh observations only: historical addresses must not become live identities.
+    active_ip_addresses: list[str] = Field(default_factory=list)
+    active_mac_addresses: list[str] = Field(default_factory=list)
     last_seen: dt.datetime
     status: str
     evidence_ids: list[str]
@@ -132,6 +135,21 @@ class TopologyLink(BaseModel):
     sensor_id: str
 
 
+class TopologyCoverage(BaseModel):
+    """Observed sensor freshness, never a claim of complete network visibility."""
+
+    sensors_seen: int = 0
+    active_sensors: int = 0
+    stale_sensors: int = 0
+    observed_nodes: int = 0
+    stale_nodes: int = 0
+    observed_links: int = 0
+    stale_links: int = 0
+    unresolved_nodes: int = 0
+    last_observation_at: dt.datetime | None = None
+    complete_network_visibility: bool | None = None
+
+
 class TopologySnapshot(BaseModel):
     tenant_id: str
     site_id: str
@@ -139,6 +157,7 @@ class TopologySnapshot(BaseModel):
     root_node_id: str | None
     distance_basis: str
     coverage: str = "UNKNOWN"
+    coverage_details: TopologyCoverage = Field(default_factory=TopologyCoverage)
     observations_considered: int
     truncated: bool
     nodes: list[TopologyNode]
@@ -183,6 +202,10 @@ def build_topology_snapshot(
                 label=o.display_name or o.node_id,
                 ip_addresses=[o.ip_address] if o.ip_address else [],
                 mac_addresses=[o.mac_address.lower()] if o.mac_address else [],
+                active_ip_addresses=[o.ip_address] if o.ip_address and status == "OBSERVED" else [],
+                active_mac_addresses=(
+                    [o.mac_address.lower()] if o.mac_address and status == "OBSERVED" else []
+                ),
                 last_seen=o.observed_at,
                 status=status,
                 evidence_ids=[o.evidence_id],
@@ -196,6 +219,11 @@ def build_topology_snapshot(
                 n.ip_addresses.append(o.ip_address)
             if o.mac_address and o.mac_address.lower() not in n.mac_addresses:
                 n.mac_addresses.append(o.mac_address.lower())
+            if status == "OBSERVED":
+                if o.ip_address and o.ip_address not in n.active_ip_addresses:
+                    n.active_ip_addresses.append(o.ip_address)
+                if o.mac_address and o.mac_address.lower() not in n.active_mac_addresses:
+                    n.active_mac_addresses.append(o.mac_address.lower())
             n.last_seen = max(n.last_seen, o.observed_at)
             n.status = "OBSERVED" if n.status == "OBSERVED" or status == "OBSERVED" else "STALE"
             if o.evidence_id not in n.evidence_ids:
@@ -249,6 +277,27 @@ def build_topology_snapshot(
             for neighbor in sorted(adjacency.get(node_id, set()) - visited):
                 queue.append((neighbor, hops + 1))
 
+    sensor_last: dict[str, dt.datetime] = {}
+    sensor_active: set[str] = set()
+    for o in scope:
+        prior = sensor_last.get(o.sensor_id)
+        if prior is None or o.observed_at > prior:
+            sensor_last[o.sensor_id] = o.observed_at
+        if o.expires_at > when:
+            sensor_active.add(o.sensor_id)
+
+    coverage_details = TopologyCoverage(
+        sensors_seen=len(sensor_last),
+        active_sensors=len(sensor_active),
+        stale_sensors=len(sensor_last) - len(sensor_active),
+        observed_nodes=sum(n.status == "OBSERVED" for n in nodes.values()),
+        stale_nodes=sum(n.status == "STALE" for n in nodes.values()),
+        observed_links=sum(link.status == "OBSERVED" for link in links.values()),
+        stale_links=sum(link.status == "STALE" for link in links.values()),
+        unresolved_nodes=sum(n.node_type == "UNRESOLVED" for n in nodes.values()),
+        last_observation_at=max((o.observed_at for o in scope), default=None),
+        complete_network_visibility=None,
+    )
     return TopologySnapshot(
         tenant_id=tenant_id,
         site_id=site_id,
@@ -256,6 +305,7 @@ def build_topology_snapshot(
         root_node_id=root_node_id,
         distance_basis="OBSERVED_LLDP_HOPS" if root_node_id else "NO_ROOT_SELECTED",
         observations_considered=len(scope),
+        coverage_details=coverage_details,
         truncated=truncated,
         nodes=sorted(nodes.values(), key=lambda n: n.node_id),
         links=sorted(
