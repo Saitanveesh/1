@@ -51,6 +51,7 @@ from mon.fabric_ingress import (
 from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import PipelineStateError, SecurityPipeline
+from mon.range_evidence import ExerciseReceipt
 from mon.range_health import VictimHealthView, collect_victim_health
 from mon.response import ResponseOrchestrator, ResponseStateError
 from mon.response_dispatch import ResponseDispatcher
@@ -392,6 +393,37 @@ async def get_topology(
         root_node_id=root_node_id,
         at=at,
         truncated=truncated,
+    )
+
+
+@app.post("/api/v1/range/exercises", status_code=201)
+async def ingest_range_exercise(
+    receipt: ExerciseReceipt,
+    principal: CurrentPrincipal,
+) -> dict[str, object]:
+    """Operator-submitted, hashed observations; never confirmed attack telemetry."""
+    require_scope(principal, receipt.tenant_id, receipt.site_id, Permission.INGEST)
+    try:
+        stored = await run_in_threadpool(store.add_exercise_receipt, receipt)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "stored": stored,
+        "exercise_id": receipt.exercise_id,
+        "provenance": "SELF_REPORTED_EXERCISE",
+    }
+
+
+@app.get("/api/v1/range/exercises", response_model=list[ExerciseReceipt])
+async def list_range_exercises(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> list[ExerciseReceipt]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return await run_in_threadpool(
+        store.list_exercise_receipts, tenant_id, site_id, limit=limit,
     )
 
 
