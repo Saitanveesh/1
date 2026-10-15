@@ -264,6 +264,13 @@ def build_topology_snapshot(
         for link in links.values():
             if link.status != "OBSERVED" or link.relationship != TopologyRelationship.LLDP_NEIGHBOR:
                 continue
+            # An LLDP sysName asserted by an unverified neighbor is not proof
+            # of the named switch or of an attributable physical hop.
+            if (
+                link.source_id.startswith("lldp-unverified:")
+                or link.target_id.startswith("lldp-unverified:")
+            ):
+                continue
             adjacency.setdefault(link.source_id, set()).add(link.target_id)
             adjacency.setdefault(link.target_id, set()).add(link.source_id)
         queue = deque([(root_node_id, 0)])
