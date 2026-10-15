@@ -91,7 +91,11 @@ def collect_victim_health(
     """Read fixed, tenant/site-labelled range metrics; never guess missing values."""
     now = at or utcnow()
     view = VictimHealthView(tenant_id=tenant_id, site_id=site_id, collected_at=now)
-    configured = prometheus_url if prometheus_url is not None else os.getenv("MON_PROMETHEUS_URL", "")
+    configured = (
+        prometheus_url
+        if prometheus_url is not None
+        else os.getenv("MON_PROMETHEUS_URL", "")
+    )
     if not configured:
         return view
     try:
