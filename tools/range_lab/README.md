@@ -128,6 +128,47 @@ exercise observations; do not edit them or represent fixed unit-test
 fixtures as live traffic. Review capture redaction/retention before
 publishing or using a projector.
 
+## Optional live delivery into the MON SOC
+
+The scenario itself produces actual `arp-captured-frames.txt` and/or
+`victim.jsonl` on the VM. To review the source events before importing:
+
+```bash
+.venv/bin/python -m tools.range_lab.ingest \
+  --evidence-dir /tmp/mon-isolated-range.YOUR_RUN \
+  --target 10.253.42.20 \
+  --tenant-id YOUR_AUTHORIZED_TENANT --site-id YOUR_AUTHORIZED_SITE
+```
+
+Choose `10.253.42.21` if the scenario selected `--victim beta`.
+The command hashes the actual capture files and builds time-scoped MON
+events. It refuses absent captures instead of inventing security events.
+
+After provisioning a real, narrowly scoped MON INGEST bearer token on
+the **authorized management side**, upload over HTTPS:
+
+```bash
+.venv/bin/python -m tools.range_lab.ingest \
+  --evidence-dir /tmp/mon-isolated-range.YOUR_RUN \
+  --target 10.253.42.20 \
+  --tenant-id YOUR_AUTHORIZED_TENANT --site-id YOUR_AUTHORIZED_SITE \
+  --api-url https://YOUR_MON_SOC_API \
+  --token-file /etc/mon/ingest.token
+```
+
+Upload is opt-in and does not automatically grant a red-team VM access
+to MON's control-plane management network. Transfer only approved,
+redacted evidence into a management-side ingest station; leave campus
+LAN isolation intact. The uploader disables proxies and redirects and
+checks acknowledgements for the exact event IDs sent.
+
+These events can produce ARP binding conflict and multi-source request
+pressure findings in MON's normal detection pipeline. Their source
+identity is a **virtual namespace address**, not the physical laptop.
+Do not confuse them with discovered campus machines or treat a
+detector match alone as verified containment/recovery. Preserve and
+audit the raw PCAP/log evidence separately.
+
 ## Relation to MON's actual campus-network deployment
 
 This sandbox is **the immediate executable safety-first starting point**.
