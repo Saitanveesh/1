@@ -42,6 +42,10 @@ if [ "${MON_DISPOSABLE_VM_CONFIRMED:-}" != "YES" ]; then
   exit 2
 fi
 
+# Independent fail-closed VM+interface check before creating bridge/namespaces.
+# Merely setting MON_DISPOSABLE_VM_CONFIRMED=YES is no longer sufficient.
+bash "$HERE/preflight.sh"
+
 TAG="$(printf '%04x' "$(( BASHPID % 65535 ))")"
 BRIDGE="mbr${TAG}"
 BASE="monrange${TAG}"
