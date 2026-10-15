@@ -132,14 +132,22 @@ def switch_inventory_observations(
             if key in mac_seen:
                 continue
             mac_seen.add(key)
-            node = f"mac:{item.mac}"
+            # A MAC/VLAN association is an observed L2 identifier, not
+            # proof of a unique physical host or an LLDP cable hop.
+            node = f"mac:{item.mac}:vlan:{item.vlan if item.vlan is not None else 'unknown'}"
+            add(
+                TopologyKind.NODE, node,
+                discriminator=f"fdb-node:{port.name}:{item.mac}:{item.vlan}",
+                node_type="UNVERIFIED_LEARNED_MAC",
+                display_name=item.mac, mac_address=item.mac, vlan_id=item.vlan,
+            )
             add(
                 TopologyKind.LINK, inventory.switch_id,
                 discriminator=f"fdb:{port.name}:{item.mac}:{item.vlan}",
                 node_type="SWITCH", interface_name=port.name,
                 vlan_id=item.vlan, peer_node_id=node,
                 relationship=TopologyRelationship.FDB_LEARNED,
-                layer=TopologyLayer.L2, mac_address=item.mac,
+                layer=TopologyLayer.L2,
             )
     neighbors_seen: set[tuple[str, str]] = set()
     for neighbor in inventory.lldp_neighbors:
