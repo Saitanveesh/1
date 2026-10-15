@@ -238,3 +238,41 @@ export interface SensorFleetView {
   version?: string;
   last_error?: string;
 }
+
+export type TopologyLayer = "L2" | "L3" | "COMMUNICATION";
+
+export interface TopologyNode {
+  node_id: string;
+  node_type: string;
+  label: string;
+  ip_addresses: string[];
+  mac_addresses: string[];
+  last_seen: string;
+  status: "OBSERVED" | "STALE";
+  evidence_ids: string[];
+  distance_hops: number | null;
+}
+
+export interface TopologyLink {
+  source_id: string;
+  target_id: string;
+  layer: TopologyLayer;
+  relationship: string;
+  observed_at: string;
+  status: "OBSERVED" | "STALE";
+  evidence_id: string;
+  sensor_id: string;
+}
+
+export interface TopologySnapshot {
+  tenant_id: string;
+  site_id: string;
+  captured_at: string;
+  root_node_id: string | null;
+  distance_basis: string;
+  coverage: string;
+  observations_considered: number;
+  truncated: boolean;
+  nodes: TopologyNode[];
+  links: TopologyLink[];
+}
