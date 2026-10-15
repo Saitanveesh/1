@@ -58,6 +58,8 @@ export default function NetworkMap({
 }) {
   const [snapshot, setSnapshot] = useState<TopologySnapshot | null>(null);
   const [root, setRoot] = useState("");
+  const [historicalAt, setHistoricalAt] = useState("");
+  const historicalInstant = historicalAt ? new Date(historicalAt).toISOString() : undefined;
   const [layer, setLayer] = useState<TopologyLayer>("L2");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
@@ -68,7 +70,7 @@ export default function NetworkMap({
     let cancelled = false;
     const load = async () => {
       try {
-        const graph = await fetchTopology(tenantId, siteId, root || undefined);
+        const graph = await fetchTopology(tenantId, siteId, root || undefined, historicalInstant);
         if (cancelled) return;
         setSnapshot(graph);
         setLastLoad(new Date().toISOString());
@@ -83,7 +85,7 @@ export default function NetworkMap({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [tenantId, siteId, root, sequence]);
+  }, [tenantId, siteId, root, historicalInstant, sequence]);
 
   const visibleNodes = useMemo(() => {
     if (!snapshot) return [];
@@ -97,7 +99,10 @@ export default function NetworkMap({
   }, [snapshot, search]);
   const coords = useMemo(() => positionsFor(visibleNodes, root), [visibleNodes, root]);
   const selectedNode = snapshot?.nodes.find((n) => n.node_id === selected);
-  const highlights = useMemo(() => matchTopologyFindings(snapshot, findings), [snapshot, findings]);
+  const highlights = useMemo(
+    () => matchTopologyFindings(snapshot, historicalAt ? [] : findings),
+    [snapshot, findings, historicalAt]
+  );
   const ids = new Set(visibleNodes.map((n) => n.node_id));
   const visibleLinks = (snapshot?.links ?? []).filter(
     (link) => link.layer === layer &&
@@ -117,6 +122,7 @@ export default function NetworkMap({
           <h2>Discovered network graph</h2>
         </div>
         <div className="mono">
+          {historicalAt ? "HISTORICAL RECONSTRUCTION" : "LIVE OBSERVATIONS"} · {" "}
           {snapshot ? `${snapshot.nodes.length} observed IDs / ${snapshot.links.length} links` : "No snapshot"}
         </div>
       </div>
@@ -144,7 +150,38 @@ export default function NetworkMap({
           </select>
         </label>
       </div>
+      <div className="network-toolbar" data-testid="topology-time-controls">
+        <label>
+          Reconstruct at local date/time
+          <input type="datetime-local" value={historicalAt}
+            max={(() => {
+              const now = new Date();
+              return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+                .toISOString().slice(0, 16);
+            })()}
+            onChange={(event) => setHistoricalAt(event.target.value)} />
+        </label>
+        <button type="button" onClick={() => setHistoricalAt("")}
+          disabled={!historicalAt}>Return to live</button>
+        <span className="network-footnote">
+          {historicalAt ? "Read-only past topology; current incident markers disabled." :
+            "Current stream; history is recorded separately."}
+        </span>
+      </div>
       {error && <p className="network-warning" role="alert">Topology cannot refresh: {error}. Last result may be stale.</p>}
+      {snapshot && (
+        <p className="network-footnote" data-testid="topology-coverage">
+          Coverage: {snapshot.coverage} (complete network census not established).
+          {" "}Sensors observed: {snapshot.coverage_details.sensors_seen};
+          {" "}fresh: {snapshot.coverage_details.active_sensors};
+          {" "}stale: {snapshot.coverage_details.stale_sensors}.
+          {" "}Nodes stale: {snapshot.coverage_details.stale_nodes};
+          {" "}links stale: {snapshot.coverage_details.stale_links};
+          {" "}unresolved device identities: {snapshot.coverage_details.unresolved_nodes}.
+          {" "}Last evidence: {snapshot.coverage_details.last_observation_at ?
+            new Date(snapshot.coverage_details.last_observation_at).toLocaleString() : "None"}.
+        </p>
+      )}
       {snapshot?.truncated && (
         <p className="network-warning">History query reached its 10,000-observation limit. Graph may be incomplete.</p>
       )}
@@ -221,8 +258,14 @@ export default function NetworkMap({
                   <dt>ID</dt><dd>{selectedNode.node_id}</dd>
                   <dt>Type</dt><dd>{selectedNode.node_type}</dd>
                   <dt>Status</dt><dd>{selectedNode.status}</dd>
-                  <dt>IP</dt><dd>{selectedNode.ip_addresses.join(", ") || "Not observed"}</dd>
-                  <dt>MAC</dt><dd>{selectedNode.mac_addresses.join(", ") || "Not observed"}</dd>
+                  <dt>Current-at-snapshot IP</dt>
+                  <dd>{selectedNode.active_ip_addresses.join(", ") || "Not observed"}</dd>
+                  <dt>Historical IP</dt>
+                  <dd>{selectedNode.ip_addresses.join(", ") || "Not observed"}</dd>
+                  <dt>Current-at-snapshot MAC</dt>
+                  <dd>{selectedNode.active_mac_addresses.join(", ") || "Not observed"}</dd>
+                  <dt>Historical MAC</dt>
+                  <dd>{selectedNode.mac_addresses.join(", ") || "Not observed"}</dd>
                   <dt>Observed hops</dt>
                   <dd>{root && selectedNode.distance_hops !== null
                     ? selectedNode.distance_hops : "Unknown"}</dd>
