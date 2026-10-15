@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import ipaddress
 import json
 from pathlib import Path
@@ -12,7 +13,9 @@ from mon.domain import EvidenceClass, EvidenceRef, SecurityEvent
 
 
 def events_from_service_log(
-    data: str, *, target: str
+    data: str, *, target: str,
+    tenant_id: str = "isolated-range",
+    site_id: str = "local-veth-lab",
 ) -> list[SecurityEvent]:
     if target not in {"10.253.42.20", "10.253.42.21"}:
         raise ValueError("victim must be one of the disposable namespaces")
@@ -44,10 +47,13 @@ def events_from_service_log(
             observed_at=instant,
             raw_reference=f"victim.jsonl:line-{line_number}",
         )
+        stable_id = hashlib.sha256(
+            f"range-http:{line_number}:{raw}".encode("utf-8")
+        ).hexdigest()
         events.append(SecurityEvent(
-            event_id=f"range-http-{line_number:08d}",
-            tenant_id="isolated-range",
-            site_id="local-veth-lab",
+            event_id=stable_id,
+            tenant_id=tenant_id,
+            site_id=site_id,
             sensor_id="victim-http-service",
             observed_at=instant,
             category="app.http-request",
