@@ -83,6 +83,45 @@ def test_actual_prometheus_readings_have_scoped_labels(monkeypatch):
     assert result.host_ram_percent.value == 1024
 
 
+def test_dynamic_asset_selection_constrains_every_prometheus_series(monkeypatch):
+    expressions = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, endpoint, params):
+            expressions.append(params["query"])
+            return httpx.Response(
+                200, request=httpx.Request("GET", endpoint),
+                json={
+                    "status": "success",
+                    "data": {
+                        "resultType": "vector",
+                        "result": [{"value": [NOW.timestamp(), "1"]}],
+                    },
+                },
+            )
+
+    monkeypatch.setattr("mon.range_health.httpx.Client", Client)
+    result = collect_victim_health(
+        "tenant-a", "site-a", asset_id="selected-victim-38",
+        prometheus_url="http://prometheus:9090", at=NOW,
+    )
+    assert result.asset_id == "selected-victim-38"
+    assert len(expressions) == 6
+    assert all('asset_id="selected-victim-38"' in q for q in expressions)
+    assert all('tenant_id="tenant-a"' in q for q in expressions)
+    assert all('site_id="site-a"' in q for q in expressions)
+    assert result.service_reachable.status == "FRESH"
+
+
 def test_network_failure_is_visible_as_degraded(monkeypatch):
     class FailingClient:
         def __init__(self, **kwargs):
