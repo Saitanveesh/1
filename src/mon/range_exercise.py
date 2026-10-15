@@ -17,7 +17,6 @@ import stat
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
