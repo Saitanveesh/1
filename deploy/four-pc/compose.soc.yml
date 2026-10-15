@@ -28,6 +28,7 @@ services:
       MON_AUTH_ISSUER: ${MON_AUTH_ISSUER:?Set expected JWT issuer}
       MON_AUTH_AUDIENCE: ${MON_AUTH_AUDIENCE:?Set expected JWT audience}
       MON_AUTH_PUBLIC_KEY_FILE: /run/mon/auth/public.pem
+      MON_PROMETHEUS_URL: http://prometheus:9090
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
