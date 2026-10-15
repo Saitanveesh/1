@@ -106,12 +106,13 @@ export function rollbackResponse(
 
 
 export function fetchTopology(
-  tenantId: string, siteId: string, rootNodeId?: string
+  tenantId: string, siteId: string, rootNodeId?: string, at?: string
 ): Promise<TopologySnapshot> {
   const params = new URLSearchParams({
     tenant_id: tenantId,
     site_id: siteId,
-    ...(rootNodeId ? { root_node_id: rootNodeId } : {})
+    ...(rootNodeId ? { root_node_id: rootNodeId } : {}),
+    ...(at ? { at } : {})
   });
   return getJson<TopologySnapshot>(`/api/v1/topology?${params.toString()}`);
 }
