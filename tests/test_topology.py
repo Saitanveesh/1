@@ -1,8 +1,8 @@
 import datetime as dt
 
-import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+import pytest
 
 from mon.api import app, store
 from mon.database import Base, DatabaseStore
