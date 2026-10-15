@@ -168,7 +168,8 @@ class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
     def add_topology_observations(self, batch: TopologyBatch) -> int: ...
 
     def list_topology_observations(
-        self, tenant_id: str, site_id: str, *, limit: int = 10000
+        self, tenant_id: str, site_id: str, *,
+        limit: int = 10000, before: dt.datetime | None = None,
     ) -> tuple[list[TopologyObservation], bool]: ...
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
@@ -478,14 +479,18 @@ class InMemoryStore:
         return inserted
 
     def list_topology_observations(
-        self, tenant_id: str, site_id: str, *, limit: int = 10000
+        self, tenant_id: str, site_id: str, *,
+        limit: int = 10000, before: dt.datetime | None = None,
     ) -> tuple[list[TopologyObservation], bool]:
         if not 1 <= limit <= 10000:
             raise ValueError("topology observation limit out of range")
+        if before is not None and before.utcoffset() is None:
+            raise ValueError("topology history time must be timezone-aware")
         with self._identity_lock:
             observations = [
                 o for (t, s, _), o in self.topology_observations.items()
                 if t == tenant_id and s == site_id
+                and (before is None or o.observed_at <= before)
             ]
         observations.sort(key=lambda o: (o.observed_at, o.observation_id))
         return observations[-limit:], len(observations) > limit
