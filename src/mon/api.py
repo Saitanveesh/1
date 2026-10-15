@@ -51,6 +51,7 @@ from mon.fabric_ingress import (
 from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import PipelineStateError, SecurityPipeline
+from mon.range_health import VictimHealthView, collect_victim_health
 from mon.response import ResponseOrchestrator, ResponseStateError
 from mon.response_dispatch import ResponseDispatcher
 from mon.sensor_fleet import (
@@ -392,6 +393,17 @@ async def get_topology(
         at=at,
         truncated=truncated,
     )
+
+
+@app.get("/api/v1/range/erp-health", response_model=VictimHealthView)
+async def get_synthetic_erp_health(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+) -> VictimHealthView:
+    """Real probe/process readings only; absent host telemetry remains UNKNOWN."""
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return await run_in_threadpool(collect_victim_health, tenant_id, site_id)
 
 
 @app.get("/api/v1/findings", response_model=list[Finding])
