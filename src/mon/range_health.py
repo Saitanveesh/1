@@ -37,7 +37,7 @@ class VictimHealthView(BaseModel):
     erp_process_cpu_seconds: MetricReading = Field(default_factory=MetricReading)
     host_cpu_percent: MetricReading = Field(default_factory=MetricReading)
     host_ram_percent: MetricReading = Field(default_factory=MetricReading)
-    note: str = "No verified ERP metrics"
+    note: str = "No verified asset-specific victim metrics"
 
 
 _QUERIES = {
@@ -55,7 +55,7 @@ _QUERIES = {
         '100 * (1 - node_memory_MemAvailable_bytes{'
         'job="erp-victim-host",tenant_id=TENANT,site_id=SITE,asset_id=ASSET}'
         ' / node_memory_MemTotal_bytes{'
-        'job="erp-victim-host",tenant_id=TENANT,site_id=SITE})',
+        'job="erp-victim-host",tenant_id=TENANT,site_id=SITE,asset_id=ASSET})',
         None,
     ),
 }
@@ -168,13 +168,13 @@ def collect_victim_health(
         view.host_cpu_percent, view.host_ram_percent,
     ]
     if all(item.status == "UNKNOWN" for item in readings):
-        view.note = "No instrumented ERP target configured or observed"
+        view.note = "No instrumented target configured or observed for selected asset"
     elif any(item.status in {"STALE", "AMBIGUOUS"} for item in readings):
         view.note = "Partial, stale or multiply matched telemetry"
     elif view.service_reachable.status == "FRESH" and view.service_reachable.value == 0:
         view.note = "Independent probe recorded ERP service unavailable"
     else:
         view.note = "Measurements from configured Prometheus collectors"
-    # Host metrics remain UNKNOWN unless a real PC4 exporter is configured
+    # Host metrics remain UNKNOWN unless a real enrolled exporter is configured
     # and returns one fresh tenant/site-scoped time-series per measurement.
     return view
