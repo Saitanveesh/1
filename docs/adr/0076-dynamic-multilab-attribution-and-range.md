@@ -5,7 +5,7 @@ Date: 2026-10-15
 
 ## Context
 
-MON's existing seven-PC runbook is a **bounded demonstration topology**, not the target discovery model. The intended environment may contain five laboratories with approximately 25 computers each, and any enrolled/visible computer may become an observed source or target. Operators must not need to assign a fixed attacker IP, victim IP, or physical location before monitoring begins.
+MON's existing seven-PC runbook is a **bounded demonstration topology**, not the target discovery model. The intended environment has an unknown and changing number of endpoints and infrastructure devices. An approximate number of college laboratory computers is context, not a discovery limit, location assumption, or grouping rule. Any suitably observed computer may be a source or target. Operators must not need to assign a fixed attacker IP, victim IP, or physical location before monitoring begins.
 
 A separate, professor-facing cyber-range demonstration must show a real action from an operator-selected eligible station or disposable VM, network/endpoint evidence, actual victim impact where applicable, a defensible source-to-port attribution, safe containment, independent verification, and recovery. A campus LAN is not an unrestricted attack sandbox.
 
@@ -20,7 +20,10 @@ A separate, professor-facing cyber-range demonstration must show a real action f
 7. Every disruptive action requires evidence, confidence, explicit affected asset(s), policy decision/approval, enforcement binding, risk and blast-radius estimate, TTL, operator/actor, independent verification, audit and deterministic rollback. Default campus policy is alert/investigate/approval-only; lab automation is limited to preauthorized disposable scope.
 8. Add separate views for (A) visitor-readable *What happened / From where / To whom / By which observed path / What MON did / Did it work?*, and (B) independent victim health (service availability, latency, CPU, memory, traffic). Add an analyst drill-down for raw evidence, provenance, timestamps and confidence. Display all views from operational data, never synthetic narration in the live mode.
 9. Retain millisecond-resolution timestamps when source data actually provides them; do not promise millisecond end-to-end detection or rendering. Track p50/p95/p99 ingest-to-display and decision-to-enforcement latencies, data loss, clock skew, and status freshness. Set realistic objectives only after on-site measurements.
-10. Keep the MON Security Fabric repo and lifecycle coherent during this transition. The original seven-system runbook remains an isolated regression scenario, not a claim that the 125-PC distributed deployment exists.
+10. The **primary network map must be a discovered, evidence-backed graph** with no hard-coded labs, static node counts or assumed physical locations. For verified layer-specific network distance, calculate hop counts from a selected real network root (not from virtual MON telemetry edges). Show unknown when path evidence is insufficient. Separate physical/L2, routed/L3, observed traffic, service dependencies and enforcement coverage. ADR 0078 defines the detailed contract.
+11. Keep the MON Security Fabric repo and lifecycle coherent during this transition. The original seven-system runbook remains an isolated regression scenario, not a claim that the 125-PC distributed deployment exists.
+
+Canonical detailed discovery graph/coverage/hop semantics: [ADR 0078](0078-evidence-backed-topology-and-network-distance.md).
 
 ## Minimal typed observation contracts (direction, not implemented)
 
