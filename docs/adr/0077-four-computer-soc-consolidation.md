@@ -1,4 +1,4 @@
-# ADR 0077: Four-computer consolidated MON SOC and dynamic target selection
+# ADR 0077: Consolidated MON SOC with runtime-selected attacker and victim
 
 Status: Accepted as target architecture; implementation not yet demonstrated
 Date: 2026-10-15
@@ -11,18 +11,37 @@ Use **at most four dedicated physical lab computers** to operate the MON cyber-r
 
 The primary device graph must be derived from observed network adjacency, independent of lab labels, and have layer-specific verified hop counts and an honest distance-unknown state, per [ADR 0078](0078-evidence-backed-topology-and-network-distance.md). No attacker or victim identity is preselected in MON's detection/attribution schema. For initial acceptance, a red-team exercise launcher and disposable victim workload can live on two named computers, but their addresses must be runtime-discovered. Authorized alternatives among monitored network hosts or VMs may assume those roles during later exercises without code changes.
 
-## Physical profile (four PCs total for initial live demonstration)
+## Resource footprint: roles are NOT assigned to physical PC numbers
 
-| Physical computer | Consolidated services | Presentation function |
+**The previous PC3=attacker and PC4=victim mappings are withdrawn.** A
+workload may run on **any explicitly authorized, enrolled and instrumented**
+host/VM in the isolated exercise network. Attacker and victim selections are
+runtime roles, not source-code constants, physical labels or known IP addresses.
+This also applies if a visitor chooses a different enrolled workload before a
+scenario. The SOC's source/target claims still require observed flow/host
+evidence, not the exercise plan's assertion.
+
+A minimal demonstration may use **one consolidated MON server** and an
+arbitrary number of enrolled disposable workloads, colocated in VMs or
+spread across machines. A blue-team console is any authenticated browser,
+not a mandatory dedicated PC. Four physical computers are an optional
+**capacity ceiling for the initial demonstration**, not a requirement and
+not a topology model.
+
+| Runtime role | Can run where? | Safety boundary |
 | --- | --- | --- |
-| SOC host (PC-A) | Containerized MON control plane, local Site Controller, evidence/event ingestion, detection/correlation, topology/asset resolution, PostgreSQL, bounded evidence archive, health-metric backend, optional Zeek/Suricata sensor only if its NIC actually receives mirrored traffic | Drives the large screen/network story/recovery timeline with a browser; one HDMI/decoder may duplicate tiles |
-| Blue-team console (PC-B) | Operator browser, incident investigation, policy approval, target selection and response verification; no essential single-point backend | Live defender actions |
-| Red-team exercise station (PC-C) | Authorized red-team scenario controller and bounded generators; may run multiple isolated disposable generator VMs for a genuine multi-origin lab overload experiment | Exercise status and abort control |
-| Disposable application/victim host (PC-D) | Isolated virtual Windows/Linux victim(s), synthetic ERP-like application and database, local endpoint telemetry, health metrics and independent service probes | Victim/application impact |
+| MON controller / evidence store | Prefer one controlled workstation/VM with PostgreSQL and sensors | Traffic from other switches requires real SPAN/flow/agent feeds |
+| Blue-team console | Any authenticated workstation/browser | Identity, RBAC, audit |
+| Exercise source(s) | Any authorized participant namespace/VM; multiple separate sources for bounded multi-origin testing | Hardware-enforced isolated test fabric |
+| Instrumented victim(s) | Any enrolled disposable PC/VM running synthetic workload and health agent | No ordinary campus devices or production ERP |
+| Optional sensors / enforcers | Hosts/ports that actually observe/control the tested path | Confirm the control lies on the real forwarding path |
 
-The four physical PCs are the initial operational footprint. Switches and ordinary 125-ish campus endpoints do **not** require MON server instances. To obtain OS process/CPU/memory counters from arbitrary endpoints, an approved endpoint collector/monitor agent or equivalent authorized OS management channel is required. Without one, show network and service-level observations only.
+The `deploy/four-pc/` directory is retained for compatibility but its
+name is **historical**. Its ERP Compose manifest is now **host-agnostic**.
+Unknown and uninstrumented campus devices remain graph nodes when observed,
+not automatically eligible destructive exercise targets. Enrolling a station
+requires proof of physical isolation and the planned service/monitor route.
 
-If PC-A cannot hold DB + sensors + metrics + console at the observed ingest rate, keep four physical PCs by moving a sensor/metric worker to spare VM capacity **only if traffic visibility and isolation remain valid**; otherwise document the hardware shortfall rather than weakening detection or claiming blanket coverage.
 
 ## Dynamic network inventory and live map
 
@@ -91,4 +110,4 @@ Use confirmed path-appropriate controls: approved switch/NAC for same-L2 where a
 
 ## Migration
 
-The seven-PC runbook and existing nftables routed-path CI remain historical/regression fixtures, **not** the target required physical topology. New deployment work belongs under a four-PC compose/VM manifest after this ADR with certified switch/collector integrations and observability acceptance. Maintain the one MON codebase and stable main branch through PR review.
+The seven-PC and fixed four-PC diagrams are historical regression/deployment layouts, **not assignments of attacker or victim roles**. Deploy host-agnostic workload/sensor adapters on enrolled isolated PCs or VMs and choose participants at scenario runtime. Maintain one MON codebase and a stable main branch through PR review.
