@@ -203,6 +203,91 @@ management credentials before expanding to other devices. Record actual
 firmware/OID/port mapping mismatches and blind spots. The four-PC Compose
 profile does not itself deploy this SNMP poller automatically.
 
+## PC3 isolated, bounded red-team exercise and evidence ingestion
+
+The `mon-range-exercise` command is a **single-source, low-rate HTTP
+test**, not a denial-of-service, MITM, credential attack or exploit tool.
+It makes at most 3 requests/second for 45 seconds to the verified synthetic
+ERP on TCP/8081, using only `GET /api/students?limit=1`. A
+preflight request must identify the unique `isolated-range` application
+marker. A local permit file is an operator record, not a cryptographic
+institutional authorization mechanism. **Independent switch/VM isolation
+and approval are mandatory**, especially on the shared campus LAN.
+
+On PC3 in the authorized disposable VM, create `~/permit.json` with
+permissions 0600. The values below are a format illustration; replace the
+IP and expiry with your actual approved exercise identity and a future
+time within two hours:
+
+```json
+{
+  "exercise_id": "range-session-001",
+  "target_ip": "192.168.50.20",
+  "target_port": 8081,
+  "tenant_id": "YOUR_TENANT",
+  "site_id": "YOUR_SITE",
+  "approved_by": "AUTHORIZED_OPERATOR",
+  "expires_at": "2026-10-15T18:00:00+05:30",
+  "rps": 2,
+  "duration_seconds": 15
+}
+```
+
+```bash
+chmod 600 ~/permit.json
+mon-range-exercise \
+  --permit-file ~/permit.json \
+  --out ~/mon-range-session-001.json \
+  --confirm-isolated-range
+```
+
+The tool writes an immutable-by-default, SHA-256 checked JSON receipt
+containing actual request timestamps, HTTP statuses, measured durations and
+failure counts. It never claims that a service was compromised or blocked.
+If the target is not the synthetic ERP, its permit expires, or the request
+scope is invalid, the exercise stops before sending the workload. It also
+refuses to overwrite an existing receipt.
+
+After review, a specifically authorized `INGEST` principal uploads the
+receipt to the authenticated MON API. For example, from a secure management
+station **not from the attack VLAN**, with `MON_TOKEN_FILE` pointing to an
+already-provisioned operator-scoped token:
+
+```bash
+curl --fail --show-error \
+  -H "Authorization: Bearer $(cat "$MON_TOKEN_FILE")" \
+  -H "Content-Type: application/json" \
+  --data-binary @~/mon-range-session-001.json \
+  https://YOUR_APPROVED_MON_API/api/v1/range/exercises
+```
+
+**Note:** embedding a token in a shell-expanded argument is visible to
+local process inspection on some OSes. For production, use an authorized
+mTLS-backed collector or a dedicated secret-aware uploader instead.
+Do not use the example command on shared operator workstations.
+The upload enforces a matching SHA-256 receipt, tenant/site RBAC,
+immutable exercise ID and database RLS. It is still **self-reported
+client telemetry**, not network-packet evidence or a response audit.
+The SOC's **Exercise Timeline** view shows these records distinctly from
+confirmed incidents and operator containment history.
+
+## What the four-PC code still cannot assert
+
+- SNMPv3 polling is implemented but requires model/firmware-specific
+  certification and actual authorized read-only access; VLAN and LLDP
+  physical identity remain unknown unless independently proven.
+- A single source's bounded HTTP GETs do **not** constitute DDoS.
+  MITM and volumetric load remain out of scope for this low-risk runner;
+  future approved exercises need dedicated isolated topology and sensor
+  instrumentation, not assumptions about an entire campus.
+- Neither local permit claims nor a content hash proves the physical
+  origin of a packet; correlate actual packet/flow and trusted endpoint
+  evidence before deciding containment.
+- Dynamic physical enforcement and safe rollback still require adapter
+  capability testing against the exact path and equipment.
+- A successful CI integration test is not certification of real PC1–PC4
+  resources, campus visibility, switches, live attack impact or recovery.
+
 ## Rollback and release gates
 
 - Stop demo PC4 services using
