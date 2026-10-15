@@ -12,6 +12,18 @@ This is two related but distinct deployments:
 - **Campus observation**: permissioned, passive, privacy-aware detection and attribution across instruments we actually control. Default alert-only or human-approved actions; no unbounded test traffic.
 - **Controlled exercise**: dedicated disposable VMs/services or isolated test VLANs in different physical labs, with explicit runtime allowlists, protective controls, and no bridge/route to nonparticipants. Only here may red-team traffic intentionally degrade a test service.
 
+## Superseding physical deployment: exactly four dedicated computers
+
+**ADR 0077 supersedes the earlier seven-dedicated-PC presentation layout.** Use PC1 as the consolidated MON backend/database/metrics/evidence/UI and possible sensor only where mirrored traffic is actually delivered; PC2 for blue-team operators; PC3 for the red-team exercise launcher and isolated generators; PC4 for disposable service/victim VMs. The red/blue team roles are initial operator workstations: MON must discover source and victim dynamically from observed data, including other **authorized** exercise hosts. The HDMI matrix can render six live views from these computers; do not allocate one computer per panel.
+
+The five-lab network may contain any number of endpoints; do not assume 125 as a configured constant. Auto-discovery combines approved DHCP/DNS records, SNMPv3 switch FDB/port/VLAN and LLDP observations, ARP/neighbor evidence, network sensors and optional endpoint agents, with source timestamps, confidence, freshness, deduplication and gaps. "All devices" is a **coverage objective**, not a guarantee of absolute visibility: report observed, expected-but-unobserved and unknown endpoints. A single gateway sensor does not see arbitrary same-VLAN traffic. Resource sizing and per-switch capture/export feasibility require a hardware survey.
+
+**Backend and retention:** the repository already has PostgreSQL state, migrations, durable audit and response receipts. Add explicit historical asset/link/incident indexes, bounded raw evidence archive with hashes, Prometheus-compatible time-series health, independent HTTP/TCP probes, encryption/retention/backup-restore and disk quotas; introduce ClickHouse/OpenSearch only if testing requires it. OS CPU/RAM/process health for an arbitrary victim requires an agent or authorized OS management source; without it show only evidenced network or service availability, never imagined measurements.
+
+**First flagship service:** an isolated synthetic college ERP composed of an engineer/student workstation, application/API and PostgreSQL database populated **only with fabricated student records**. Model observed dependencies and show real service latency/error and host metrics during a bounded attack against that disposable system. Do not target or copy the college production ERP, credentials or real student database. For L2 MITM tests use a dedicated isolated L2 segment; for multi-origin availability tests use rate-limited isolated generators with automatic abort. For the demo, source and authorized victim can change without changing code or hard-coded detection targets.
+
+Detailed acceptance gates, storage tiers, health collection levels and rollback policy: [ADR 0077](adr/0077-four-computer-soc-consolidation.md).
+
 ## Proposed physical/logical layout (subject to hardware survey)
 
 ```text
