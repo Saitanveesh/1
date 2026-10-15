@@ -303,6 +303,7 @@ export interface VictimMetric {
 export interface VictimHealthView {
   tenant_id: string;
   site_id: string;
+  asset_id: string | null;
   collected_at: string;
   telemetry_state: "AVAILABLE" | "DEGRADED" | "UNCONFIGURED";
   service_reachable: VictimMetric;
