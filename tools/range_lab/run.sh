@@ -190,6 +190,10 @@ if [ "$SCENARIO" = "multi-origin" ] || [ "$SCENARIO" = "all" ]; then
   for pid in "${LOAD_PIDS[@]}"; do
     wait "$pid"
   done
+  python3 "$HERE/analyze_http.py" \
+    --log "$OUT/victim.jsonl" --target "$VICTIM_IP" \
+    --out "$OUT/multi-source-mon-findings.json" \
+    >"$OUT/multi-source-analysis.log"
   # Quantification comes from real server and source logs, not synthetic
   # graphics, a fabricated pps value, or a claimed upstream DDoS.
   ip netns exec "$CLIENT" curl -fsS --max-time 4 \
