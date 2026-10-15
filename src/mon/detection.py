@@ -754,6 +754,54 @@ class DetectionEngine:
                         )
                     )
 
+        # Several source IPs contacting one service quickly form an observable
+        # multi-origin pressure indicator. A victim's own HTTP access log
+        # measures completed requests; it does NOT establish source identity,
+        # upstream saturation, or confirmed distributed denial of service.
+        if (
+            event.category.casefold() == "app.http-request"
+            and event.src_ip and event.dst_ip
+        ):
+            pressure = self._record(
+                "http-multi-source-pressure", event, event.dst_ip, 15,
+                value=event.src_ip,
+            )
+            source_ips = sorted({
+                item.value for item in pressure if item.value
+            })
+            if (
+                len(pressure) >= 24
+                and len(source_ips) >= 3
+                and self._may_emit(
+                    "http-multi-source-pressure", event, event.dst_ip, 15
+                )
+            ):
+                finding = self._finding(
+                    event,
+                    "http-multi-source-pressure",
+                    "Multi-source HTTP request pressure observed",
+                    Severity.MEDIUM,
+                    0.77,
+                    (
+                        f"Victim recorded {len(pressure)} HTTP requests from "
+                        f"{len(source_ips)} source IPs within 15 seconds"
+                    ),
+                    {
+                        "source_ips": source_ips,
+                        "request_count": len(pressure),
+                        "window_seconds": 15,
+                        "claim": (
+                            "Multiple sources observed at application layer; "
+                            "not proof of volumetric DDoS or service outage"
+                        ),
+                    },
+                    evidence_class=EvidenceClass.ENDPOINT,
+                )
+                # A multi-source finding must not identify its last observed
+                # address as the single malicious origin.
+                finding.src_ip = None
+                findings.append(finding)
+
         arp_opcode = str(event.attributes.get("arp_opcode") or "").casefold()
         # Conflicting ARP *claims* are evidence of an IP/MAC inconsistency,
         # not proof of a successful MITM. Only process directly observed
