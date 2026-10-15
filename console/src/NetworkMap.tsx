@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchTopology } from "./api";
-import type { TopologyLayer, TopologyNode, TopologySnapshot } from "./types";
+import type { Finding, TopologyLayer, TopologyNode, TopologySnapshot } from "./types";
+import { matchTopologyFindings } from "./topology-highlights";
 import "./network-map.css";
 
 const MAX_DRAWN_NODES = 160;
@@ -47,11 +48,13 @@ function positionsFor(nodes: TopologyNode[], rootId: string): Map<string, Coordi
 export default function NetworkMap({
   tenantId,
   siteId,
-  sequence
+  sequence,
+  findings
 }: {
   tenantId: string;
   siteId: string;
   sequence: number;
+  findings: Finding[];
 }) {
   const [snapshot, setSnapshot] = useState<TopologySnapshot | null>(null);
   const [root, setRoot] = useState("");
@@ -94,6 +97,7 @@ export default function NetworkMap({
   }, [snapshot, search]);
   const coords = useMemo(() => positionsFor(visibleNodes, root), [visibleNodes, root]);
   const selectedNode = snapshot?.nodes.find((n) => n.node_id === selected);
+  const highlights = useMemo(() => matchTopologyFindings(snapshot, findings), [snapshot, findings]);
   const ids = new Set(visibleNodes.map((n) => n.node_id));
   const visibleLinks = (snapshot?.links ?? []).filter(
     (link) => link.layer === layer &&
@@ -146,6 +150,7 @@ export default function NetworkMap({
       )}
       <p className="network-explain">
         Nodes are observations from authenticated ingest, not a complete census. Visual spacing is schematic.
+        {" "}Recent finding markers use unique IP matches, not proven computer ownership or physical location.
         {root
           ? " Hop depth uses only current LLDP neighbor observations. Missing hops stay unknown."
           : " Select a verified network device as root to calculate observed LLDP hop depth."}
@@ -178,15 +183,19 @@ export default function NetworkMap({
                 const position = coords.get(node.node_id);
                 if (!position) return null;
                 const active = selected === node.node_id;
+                const roles = highlights.roles.get(node.node_id);
+                const findingSource = roles?.has("SOURCE") ?? false;
+                const findingTarget = roles?.has("TARGET") ?? false;
                 return (
                   <g key={node.node_id} className="network-node"
                     onClick={() => setSelected(node.node_id)}
                     role="button" tabIndex={0}
                     onKeyDown={(event) => { if (event.key === "Enter") setSelected(node.node_id); }}
-                    aria-label={`Inspect ${node.label}`}>
+                    aria-label={`Inspect ${node.label}${findingSource ? " (recent finding source IP)" : ""}${findingTarget ? " (recent finding target IP)" : ""}`}>
                     <circle cx={position.x} cy={position.y} r={active ? 13 : 9}
                       fill={node.status === "STALE" ? "#fff" : "#333"}
-                      stroke={active ? "#000" : "#777"} strokeWidth={active ? 3 : 1.5} />
+                      stroke={findingSource ? "#b33" : findingTarget ? "#b87120" : active ? "#000" : "#777"}
+                      strokeWidth={findingSource || findingTarget || active ? 3 : 1.5} />
                     <text x={position.x} y={position.y + 22} textAnchor="middle" fontSize="10" fill="#333">
                       {node.label.length > 18 ? node.label.slice(0, 16) + "…" : node.label}
                     </text>
@@ -194,6 +203,10 @@ export default function NetworkMap({
                 );
               })}
             </svg>
+            <p className="network-footnote">
+              Recent findings (5 min): {highlights.recentFindings}; unique-IP endpoint matches: {highlights.matchedEndpoints}; unresolved/ambiguous endpoints: {highlights.unresolvedEndpoints}.
+              {" "}Markers are observed address matches, not confirmed identities or attack paths.
+            </p>
             <p className="network-footnote">
               Displaying {visibleNodes.length} of {matchingCount} matching nodes.
               {" "}A partial view is not full network visibility.
@@ -213,6 +226,7 @@ export default function NetworkMap({
                   <dt>Observed hops</dt>
                   <dd>{root && selectedNode.distance_hops !== null
                     ? selectedNode.distance_hops : "Unknown"}</dd>
+                  <dt>Recent finding</dt><dd>{[...(highlights.roles.get(selectedNode.node_id) ?? [])].join(" + ") || "No unique-IP match"}</dd>
                   <dt>Last seen</dt><dd>{new Date(selectedNode.last_seen).toLocaleString()}</dd>
                   <dt>Evidence IDs</dt><dd>{selectedNode.evidence_ids.join(", ")}</dd>
                   <dt>Physical location</dt><dd>Unknown / not independently verified</dd>
