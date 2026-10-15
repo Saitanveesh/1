@@ -118,10 +118,15 @@ export function fetchTopology(
 }
 
 export function fetchVictimHealth(
-  tenantId: string, siteId: string
+  tenantId: string, siteId: string, assetId?: string
 ): Promise<VictimHealthView> {
+  const params = new URLSearchParams({
+    tenant_id: tenantId,
+    site_id: siteId,
+    ...(assetId ? { asset_id: assetId } : {})
+  });
   return getJson<VictimHealthView>(
-    `/api/v1/range/erp-health?${query({ tenantId, siteId })}`
+    `/api/v1/range/erp-health?${params.toString()}`
   );
 }
 
