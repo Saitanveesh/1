@@ -28,6 +28,7 @@ class MetricReading(BaseModel):
 class VictimHealthView(BaseModel):
     tenant_id: str
     site_id: str
+    asset_id: str | None = None
     collected_at: dt.datetime = Field(default_factory=utcnow)
     telemetry_state: Literal["AVAILABLE", "DEGRADED", "UNCONFIGURED"] = "UNCONFIGURED"
     service_reachable: MetricReading = Field(default_factory=MetricReading)
@@ -45,14 +46,14 @@ _QUERIES = {
     "erp_process_rss_bytes": ('mon_erp_process_rss_bytes', 'erp-process'),
     "erp_process_cpu_seconds": ('mon_erp_process_cpu_seconds', 'erp-process'),
     "host_cpu_percent": (
-        '100 * (1 - avg by (tenant_id,site_id) (rate('
+        '100 * (1 - avg by (tenant_id,site_id,asset_id) (rate('
         'node_cpu_seconds_total{mode="idle",job="erp-victim-host",'
-        'tenant_id=TENANT,site_id=SITE}[1m])))',
+        'tenant_id=TENANT,site_id=SITE,asset_id=ASSET}[1m])))',
         None,
     ),
     "host_ram_percent": (
         '100 * (1 - node_memory_MemAvailable_bytes{'
-        'job="erp-victim-host",tenant_id=TENANT,site_id=SITE}'
+        'job="erp-victim-host",tenant_id=TENANT,site_id=SITE,asset_id=ASSET}'
         ' / node_memory_MemTotal_bytes{'
         'job="erp-victim-host",tenant_id=TENANT,site_id=SITE})',
         None,
@@ -98,12 +99,18 @@ def collect_victim_health(
     tenant_id: str,
     site_id: str,
     *,
+    asset_id: str | None = None,
     prometheus_url: str | None = None,
     at: dt.datetime | None = None,
 ) -> VictimHealthView:
     """Read fixed, tenant/site-labelled range metrics; never guess missing values."""
     now = at or utcnow()
-    view = VictimHealthView(tenant_id=tenant_id, site_id=site_id, collected_at=now)
+    if asset_id is not None and not (1 <= len(asset_id) <= 256):
+        raise ValueError("asset_id must be an observed asset identifier")
+    view = VictimHealthView(
+        tenant_id=tenant_id, site_id=site_id, asset_id=asset_id,
+        collected_at=now,
+    )
     configured = (
         prometheus_url
         if prometheus_url is not None
@@ -121,9 +128,9 @@ def collect_victim_health(
     view.telemetry_state = "AVAILABLE"
     # json.dumps produces escaped quoted-string PromQL selectors, avoiding
     # unescaped user-supplied expressions. Only fixed query names are allowed.
-    labels = (
-        f'tenant_id={json.dumps(tenant_id)},site_id={json.dumps(site_id)}'
-    )
+    labels = f'tenant_id={json.dumps(tenant_id)},site_id={json.dumps(site_id)}'
+    if asset_id is not None:
+        labels += f',asset_id={json.dumps(asset_id)}'
     try:
         with httpx.Client(timeout=3.0, trust_env=False) as client:
             for field, (name, job) in _QUERIES.items():
@@ -131,6 +138,10 @@ def collect_victim_health(
                     expression = name.replace("TENANT", json.dumps(tenant_id)).replace(
                         "SITE", json.dumps(site_id)
                     )
+                    if asset_id is not None:
+                        expression = expression.replace("ASSET", json.dumps(asset_id))
+                    else:
+                        expression = expression.replace(",asset_id=ASSET", "")
                 else:
                     expression = f'{name}{{job={json.dumps(job)},{labels}}}'
                 response = client.get(endpoint, params={"query": expression})
