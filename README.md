@@ -45,28 +45,39 @@ visibility into an entire switched network. The collector performs no active
 scans or switch configuration changes. Lab attack exercises require a separate,
 approved isolated range with real verification and rollback.
 
-## Four-computer deployment and isolated synthetic ERP range (development branch)
+## Runtime-selected endpoints and executable isolated cyber range (development branch)
 
-The active development branch includes a real, **read-only SNMPv3** managed-switch
-collector for selected BRIDGE-MIB/FDB and LLDP observations, with SHA-256 USM
-authentication, AES privacy, a bounded poller and secrets stored in a
-mode-0600 local file. Switch identities, VLAN coverage and packet paths
-remain unverified until the actual model, firmware, OIDs and SPAN placement
-are tested on approved equipment.
+**No PC is hard-coded as the attacker or victim.** MON's authorized,
+evidence-backed sensor topology discovers an unknown number of devices.
+A selected physical workstation can run a disposable ERP victim or an
+exercise source **only after isolation and enrollment**, regardless of
+its lab/seat number. Health is selected by observed `asset_id`; missing
+metrics remain UNKNOWN.
 
-The new [four-PC deployment runbook](deploy/four-pc/README.md) contains
-two independent Compose stacks: **PC1 MON SOC** (PostgreSQL, API, React
-console, Prometheus, Blackbox probes) and **PC4 isolated synthetic ERP**
-(FastAPI application + a real PostgreSQL database seeded entirely from
-fictional records). PC2 uses an SSH-forwarded authenticated operator console.
-PC3 is the authorized exercise station, **not a hard-coded attacker ID**.
+[Start here: executable isolated MITM + multi-origin laboratory kit](tools/range_lab/README.md).
+The kit starts virtual participants inside a new Linux bridge with **no
+campus uplink or default route** and verifies real ARP redirection, actual
+captured HTTP packet path, victim logs, source-aware pressure detection,
+temporary nftables enforcement and rollback. It supports selecting either
+of two disposable test victims at runtime. A successful CI acceptance run
+does **not** mean MITM or DDoS is safe to test against connected college
+workstations.
 
-The ERP service records measured request timing, process RSS/CPU and real
-database readiness; the external probe separately measures HTTP availability.
-The deployment defaults to **no configured telemetry targets**, avoiding
-fabricated healthy data. PC4 host-level metrics, real switch coverage,
-physical isolation and attack→contain→rollback remain integration gates,
-not release claims.
+The [optional consolidated SOC deployment runbook](deploy/four-pc/README.md)
+contains MON/PostgreSQL/React/Prometheus on a controlled server and a
+synthetic ERP/DB workload **deployable to any approved isolated PC/VM**,
+not PC4. The legacy directory name is not a hardware assignment. A
+read-only SNMPv3 switch collector integrates approved FDB/LLDP evidence;
+actual switch VLAN coverage, physical path and port attribution still
+require institution-specific verification.
+
+The first-stage isolated demonstration shows **a real MITM packet-path
+exercise** and **bounded multi-origin application-pressure behavior**.
+It is not an ISP-scale volumetric DDoS test. Full managed-switch/NAC
+enforcement, independently established whole-campus visibility and
+physical exercise-VLAN isolation remain hardware-dependent release gates.
+Do not seed virtual exercise telemetry as if it were campus devices.
+
 
 ## Narrated architecture walkthrough
 
