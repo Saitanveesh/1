@@ -34,6 +34,7 @@ from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.taxii import TaxiiFeedRecord, TaxiiFeedState
 from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
 from mon.topology import TopologyBatch, TopologyObservation
+from mon.range_evidence import ExerciseReceipt
 
 
 class PipelineStore(Protocol):
@@ -165,6 +166,12 @@ class ResponseStateStore(Protocol):
 
 
 class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
+    def add_exercise_receipt(self, receipt: ExerciseReceipt) -> bool: ...
+
+    def list_exercise_receipts(
+        self, tenant_id: str, site_id: str, *, limit: int = 100,
+    ) -> list[ExerciseReceipt]: ...
+
     def add_topology_observations(self, batch: TopologyBatch) -> int: ...
 
     def list_topology_observations(
@@ -371,6 +378,7 @@ class InMemoryStore:
         self.identities: dict[tuple[str, str, str], IdentityRecord] = {}
         self.processes: dict[tuple[str, str, str], ProcessRecord] = {}
         self.topology_observations: dict[tuple[str, str, str], TopologyObservation] = {}
+        self.exercise_receipts: dict[tuple[str, str, str], ExerciseReceipt] = {}
         self._identity_lock = threading.RLock()
         self._scope_locks: defaultdict[tuple[str, str], threading.Lock] = defaultdict(
             threading.Lock
@@ -460,6 +468,31 @@ class InMemoryStore:
             for (asset_tenant, asset_site, _), value in self.assets.items()
             if asset_tenant == tenant_id and asset_site == site_id
         ]
+
+    def add_exercise_receipt(self, receipt: ExerciseReceipt) -> bool:
+        key = (receipt.tenant_id, receipt.site_id, receipt.exercise_id)
+        with self._identity_lock:
+            existing = self.exercise_receipts.get(key)
+            if existing is not None:
+                if existing != receipt:
+                    raise ValueError("exercise_id exists with different evidence")
+                return False
+            self.exercise_receipts[key] = receipt
+            return True
+
+    def list_exercise_receipts(
+        self, tenant_id: str, site_id: str, *, limit: int = 100,
+    ) -> list[ExerciseReceipt]:
+        if not 1 <= limit <= 100:
+            raise ValueError("exercise receipt limit out of range")
+        with self._identity_lock:
+            items = [
+                item for (t, s, _), item in self.exercise_receipts.items()
+                if t == tenant_id and s == site_id
+            ]
+        return sorted(
+            items, key=lambda item: (item.finished_at, item.exercise_id), reverse=True
+        )[:limit]
 
     def add_topology_observations(self, batch: TopologyBatch) -> int:
         # All-or-nothing collision checks, then append immutable observations.
