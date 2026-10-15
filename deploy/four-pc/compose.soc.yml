@@ -25,11 +25,27 @@ services:
     environment:
       MON_ENV: production
       MON_DATABASE_URL: ${MON_DATABASE_URL:?Provide tenant-safe PostgreSQL connection URL}
+      MON_AUTH_ISSUER: ${MON_AUTH_ISSUER:?Set expected JWT issuer}
+      MON_AUTH_AUDIENCE: ${MON_AUTH_AUDIENCE:?Set expected JWT audience}
+      MON_AUTH_PUBLIC_KEY_FILE: /run/mon/auth/public.pem
     ports:
       - "127.0.0.1:8080:8080"
+    volumes:
+      - ./auth:/run/mon/auth:ro
     depends_on:
       postgres:
         condition: service_healthy
+    networks: [soc-internal]
+
+  mon-console:
+    build:
+      context: ../..
+      dockerfile: deploy/four-pc/console/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:8088"
+    depends_on:
+      - mon-api
     networks: [soc-internal]
 
   prometheus:
