@@ -63,6 +63,22 @@ def test_snmp_normalizer_produces_real_fdb_and_lldp_evidence_only() -> None:
     assert len({o.observation_id for o in records}) == len(records)
 
 
+def test_unverified_lldp_sysname_does_not_become_verified_hop() -> None:
+    from mon.topology import build_topology_snapshot
+
+    observed = switch_inventory_observations(
+        normalize_switch_mib("managed-example", sample_tables(), at=TIME),
+        tenant_id="tenant", site_id="site", sensor_id="approved-switch",
+    )
+    topology = build_topology_snapshot(
+        observed, "tenant", "site", root_node_id="managed-example",
+        at=TIME + dt.timedelta(seconds=1),
+    )
+    nodes = {node.node_id: node for node in topology.nodes}
+    assert nodes["managed-example"].distance_hops == 0
+    assert nodes["lldp-unverified:switch-upstream"].distance_hops is None
+
+
 def test_no_fake_port_or_neighbor_when_switch_tables_are_incomplete() -> None:
     tables = sample_tables()
     tables[BRIDGE_PORT_IFINDEX] = []
