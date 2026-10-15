@@ -191,7 +191,11 @@ def linux_neighbors_observations(
     for row in data:
         if not isinstance(row, dict):
             continue
-        if str(row.get("state", "")).upper() != "REACHABLE":
+        state = row.get("state", "")
+        # iproute2 JSON can encode NUD state as a string or an array.
+        if isinstance(state, list):
+            state = ",".join(str(part) for part in state)
+        if str(state).upper() != "REACHABLE":
             continue
         addr, device, mac = row.get("dst"), row.get("dev"), row.get("lladdr")
         if not all(isinstance(x, str) for x in (addr, device, mac)):
