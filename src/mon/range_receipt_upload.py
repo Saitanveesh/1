@@ -20,13 +20,12 @@ def _api_endpoint(origin: str, *, allow_local_http: bool) -> str:
         or parts.path not in {"", "/"} or not parts.hostname
     ):
         raise ValueError("MON API origin must not contain credentials, path or query")
-    if parts.scheme != "https":
-        if not (
-            allow_local_http
-            and parts.scheme == "http"
-            and parts.hostname in {"127.0.0.1", "localhost", "::1"}
-        ):
-            raise ValueError("MON exercise evidence upload requires HTTPS")
+    if parts.scheme != "https" and not (
+        allow_local_http
+        and parts.scheme == "http"
+        and parts.hostname in {"127.0.0.1", "localhost", "::1"}
+    ):
+        raise ValueError("MON exercise evidence upload requires HTTPS")
     return origin.rstrip("/") + "/api/v1/range/exercises"
 
 
