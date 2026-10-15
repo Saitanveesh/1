@@ -292,3 +292,24 @@ export interface TopologySnapshot {
   nodes: TopologyNode[];
   links: TopologyLink[];
 }
+
+export interface VictimMetric {
+  status: "FRESH" | "STALE" | "UNKNOWN" | "AMBIGUOUS";
+  value: number | null;
+  observed_at: string | null;
+  source: string;
+}
+
+export interface VictimHealthView {
+  tenant_id: string;
+  site_id: string;
+  collected_at: string;
+  telemetry_state: "AVAILABLE" | "DEGRADED" | "UNCONFIGURED";
+  service_reachable: VictimMetric;
+  probe_duration_seconds: VictimMetric;
+  erp_process_rss_bytes: VictimMetric;
+  erp_process_cpu_seconds: VictimMetric;
+  host_cpu_percent: VictimMetric;
+  host_ram_percent: VictimMetric;
+  note: string;
+}
