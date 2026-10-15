@@ -16,3 +16,5 @@ e2e/soc/test-results/
 e2e/soc/playwright-report/
 soc-browser-acceptance-report.json
 soc-run/
+# Disposable lab authentication trust material and staging secrets
+deploy/four-pc/auth/
