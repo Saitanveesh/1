@@ -755,6 +755,66 @@ class DetectionEngine:
                     )
 
         arp_opcode = str(event.attributes.get("arp_opcode") or "").casefold()
+        # Conflicting ARP *claims* are evidence of an IP/MAC inconsistency,
+        # not proof of a successful MITM. Only process directly observed
+        # reply mappings; absent MACs and multicast MACs cannot establish
+        # an identity conflict.
+        if event.category.casefold() == "arp.reply" or (
+            protocol == "arp" and arp_opcode in {"2", "reply"}
+        ):
+            claimed_ip = self._text(
+                event.attributes.get("arp_sender_ip") or event.src_ip, 64
+            )
+            claimed_mac = self._text(
+                event.attributes.get("arp_sender_mac"), 32
+            ).lower()
+            octets = claimed_mac.split(":")
+            if (
+                claimed_ip
+                and len(octets) == 6
+                and all(len(part) == 2 for part in octets)
+                and all(all(char in "0123456789abcdef" for char in part)
+                        for part in octets)
+                and int(octets[0], 16) & 1 == 0
+                and claimed_mac != "00:00:00:00:00:00"
+            ):
+                recent = self._record(
+                    "arp-binding-conflict", event, claimed_ip,
+                    45, value=claimed_mac,
+                )
+                observed_macs = sorted({
+                    item.value for item in recent if item.value is not None
+                })
+                if (
+                    len(observed_macs) >= 2
+                    and self._may_emit(
+                        "arp-binding-conflict", event, claimed_ip, 45
+                    )
+                ):
+                    findings.append(self._finding(
+                        event,
+                        "arp-binding-conflict",
+                        "Conflicting ARP MAC mappings for an IP",
+                        Severity.HIGH,
+                        0.83,
+                        (
+                            f"Observed {len(observed_macs)} different MAC "
+                            f"claims for {claimed_ip} within 45 seconds"
+                        ),
+                        {
+                            "claimed_ip": claimed_ip,
+                            "observed_macs": observed_macs,
+                            "observation_count": len(recent),
+                            "window_seconds": 45,
+                            "claim": (
+                                "ARP binding inconsistency only; may indicate "
+                                "spoofing, failover or mobility, not confirmed MITM"
+                            ),
+                        },
+                        evidence_class=EvidenceClass.NETWORK_PACKET,
+                    ))
+
+
         if (
             event.category.casefold() == "arp.request"
             or protocol == "arp" and arp_opcode in {"1", "request"}
