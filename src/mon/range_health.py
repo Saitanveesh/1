@@ -44,6 +44,19 @@ _QUERIES = {
     "probe_duration_seconds": ('probe_duration_seconds', 'erp-independent-availability'),
     "erp_process_rss_bytes": ('mon_erp_process_rss_bytes', 'erp-process'),
     "erp_process_cpu_seconds": ('mon_erp_process_cpu_seconds', 'erp-process'),
+    "host_cpu_percent": (
+        '100 * (1 - avg by (tenant_id,site_id) (rate('
+        'node_cpu_seconds_total{mode="idle",job="erp-victim-host",'
+        'tenant_id=TENANT,site_id=SITE}[1m])))',
+        None,
+    ),
+    "host_ram_percent": (
+        '100 * (1 - node_memory_MemAvailable_bytes{'
+        'job="erp-victim-host",tenant_id=TENANT,site_id=SITE}'
+        ' / node_memory_MemTotal_bytes{'
+        'job="erp-victim-host",tenant_id=TENANT,site_id=SITE})',
+        None,
+    ),
 }
 
 
@@ -114,7 +127,12 @@ def collect_victim_health(
     try:
         with httpx.Client(timeout=3.0, trust_env=False) as client:
             for field, (name, job) in _QUERIES.items():
-                expression = f'{name}{{job={json.dumps(job)},{labels}}}'
+                if job is None:
+                    expression = name.replace("TENANT", json.dumps(tenant_id)).replace(
+                        "SITE", json.dumps(site_id)
+                    )
+                else:
+                    expression = f'{name}{{job={json.dumps(job)},{labels}}}'
                 response = client.get(endpoint, params={"query": expression})
                 response.raise_for_status()
                 payload = response.json()
@@ -136,6 +154,7 @@ def collect_victim_health(
     readings = [
         view.service_reachable, view.probe_duration_seconds,
         view.erp_process_rss_bytes, view.erp_process_cpu_seconds,
+        view.host_cpu_percent, view.host_ram_percent,
     ]
     if all(item.status == "UNKNOWN" for item in readings):
         view.note = "No instrumented ERP target configured or observed"
@@ -145,6 +164,6 @@ def collect_victim_health(
         view.note = "Independent probe recorded ERP service unavailable"
     else:
         view.note = "Measurements from configured Prometheus collectors"
-    # Host readings intentionally remain UNKNOWN until a separately certified
-    # host-level collector is connected. Process RSS is not host RAM.
+    # Host metrics remain UNKNOWN unless a real PC4 exporter is configured
+    # and returns one fresh tenant/site-scoped time-series per measurement.
     return view
