@@ -1,5 +1,5 @@
 name: mon-soc
-# PC1 only. Use authenticated SSH tunnels for PC2 operator access.
+# Run on the chosen consolidated MON host. Operators use SSH tunnels; no fixed PC assignment.
 services:
   postgres:
     image: postgres:17-alpine
