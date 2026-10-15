@@ -38,7 +38,7 @@ def parse_neighbors(
         mac = item.get("lladdr")
         interface = item.get("dev")
         state = item.get("state")
-        if not isinstance(address, str) or not isinstance(mac, str) or not isinstance(interface, str):
+        if not all(isinstance(value, str) for value in (address, mac, interface)):
             continue
         if isinstance(state, list):
             state = ",".join(str(part) for part in state)
