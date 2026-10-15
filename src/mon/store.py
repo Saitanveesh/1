@@ -22,6 +22,7 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.event_fabric import FabricReceipt, FabricReceiptStatus
+from mon.range_evidence import ExerciseReceipt
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -33,7 +34,6 @@ from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.taxii import TaxiiFeedRecord, TaxiiFeedState
 from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
-from mon.range_evidence import ExerciseReceipt
 from mon.topology import TopologyBatch, TopologyObservation
 
 
