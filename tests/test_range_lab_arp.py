@@ -39,7 +39,10 @@ def test_capture_conflicting_mapping_triggers_evidence_not_confirmed_mitm():
     )
     assert finding["confidence"] == 0.83
     assert "not confirmed MITM" in finding["attributes"]["claim"]
-    assert finding["evidence"][-1]["raw_reference"].endswith(".pcap")
+    assert any(
+        item["raw_reference"] == "arp-packets.pcap"
+        for item in finding["evidence"]
+    )
 
 
 def test_parser_accepts_ethernet_mode_tcpdump_reply():
