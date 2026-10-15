@@ -69,9 +69,12 @@ cp example.env .env
 # set MON_AUTH_ISSUER and MON_AUTH_AUDIENCE to your real configured issuer.
 # Do NOT leave sample values or commit .env.
 mkdir -p auth
-# Provision your approved identity-provider public key into auth/public.pem,
-# with read-only permissions. Never put the private signing key here.
-chmod 600 .env auth/public.pem
+# Provision your approved identity-provider PUBLIC key into auth/public.pem.
+# This is public verification material, not a signing secret. The non-root
+# MON Docker container (UID 10001) needs read access to this bind mount.
+chmod 600 .env
+chmod 755 auth
+chmod 644 auth/public.pem
 docker compose --env-file .env -f compose.soc.yml config -q
 docker compose --env-file .env -f compose.soc.yml up -d --build
 docker compose --env-file .env -f compose.soc.yml ps
