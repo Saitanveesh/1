@@ -34,19 +34,25 @@ def load_captured_events(
         evidence_dir / "arp-captured-frames.txt",
         evidence_dir / "victim.jsonl",
     ]
-    contents: list[str] = []
+    contents: dict[str, str] = {}
     hashes: dict[str, str] = {}
     for path in files:
-        if not path.is_file() or path.stat().st_size > 2_000_000:
-            raise ValueError(f"required bounded evidence file missing: {path.name}")
+        if not path.is_file():
+            continue
+        if path.stat().st_size > 2_000_000:
+            raise ValueError(f"bounded evidence file too large: {path.name}")
         raw = path.read_bytes()
         hashes[path.name] = hashlib.sha256(raw).hexdigest()
-        contents.append(raw.decode("utf-8"))
+        contents[path.name] = raw.decode("utf-8")
+    if not contents:
+        raise ValueError("no real captured evidence files present")
     arp = events_from_capture_text(
-        contents[0], tenant_id=tenant_id, site_id=site_id,
+        contents.get("arp-captured-frames.txt", ""),
+        tenant_id=tenant_id, site_id=site_id,
     )
     http = events_from_service_log(
-        contents[1], target=target, tenant_id=tenant_id, site_id=site_id,
+        contents.get("victim.jsonl", ""),
+        target=target, tenant_id=tenant_id, site_id=site_id,
     )
     events = sorted(
         [*arp, *http],
@@ -97,10 +103,14 @@ def upload(
         # The API schema may evolve. Do not claim accepted=number sent
         # without reading and validating the actual per-event result.
         batches += 1
-        if "results" in result and isinstance(result["results"], list):
-            accepted += len(result["results"])
-        else:
-            raise ValueError("MON did not provide per-event acknowledgement")
+        ids = [item.event_id for item in batch.events]
+        if (
+            not isinstance(result.get("results"), list)
+            or result.get("accepted_event_ids") != ids
+            or len(result["results"]) != len(ids)
+        ):
+            raise ValueError("MON did not acknowledge the actual submitted event IDs")
+        accepted += len(ids)
     return {"batches_acknowledged": batches, "events_acknowledged": accepted}
 
 
