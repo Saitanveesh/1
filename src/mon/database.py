@@ -660,10 +660,13 @@ class DatabaseStore:
         return inserted
 
     def list_topology_observations(
-        self, tenant_id: str, site_id: str, *, limit: int = 10000
+        self, tenant_id: str, site_id: str, *,
+        limit: int = 10000, before: dt.datetime | None = None,
     ) -> tuple[list[TopologyObservation], bool]:
         if not 1 <= limit <= 10000:
             raise ValueError("topology observation limit out of range")
+        if before is not None and before.utcoffset() is None:
+            raise ValueError("topology history time must be timezone-aware")
         statement = (
             select(TopologyObservationRow)
             .where(
@@ -676,6 +679,8 @@ class DatabaseStore:
             )
             .limit(limit + 1)
         )
+        if before is not None:
+            statement = statement.where(TopologyObservationRow.observed_at <= before)
         with self._session_factory() as session:
             self._apply_rls_scope(session, tenant_id, site_id)
             rows = session.scalars(statement).all()
