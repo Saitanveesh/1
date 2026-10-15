@@ -48,7 +48,7 @@ class SnmpV3SwitchConfig(BaseModel):
     ttl_seconds: int = Field(default=120, ge=30, le=3600)
 
     @model_validator(mode="after")
-    def private_management_host(self) -> "SnmpV3SwitchConfig":
+    def private_management_host(self) -> SnmpV3SwitchConfig:
         try:
             address = ipaddress.ip_address(self.address)
         except ValueError as exc:
@@ -158,14 +158,14 @@ async def _walk_with_pysnmp(config: SnmpV3SwitchConfig, oid: str) -> list[tuple[
     """Optional PySNMP 7.1 asyncio backend; SHA-256 auth and AES128 privacy."""
     try:
         from pysnmp.hlapi.v3arch.asyncio import (
+            USM_AUTH_HMAC192_SHA256,
+            USM_PRIV_CFB128_AES,
             ContextData,
             ObjectIdentity,
             ObjectType,
             SnmpEngine,
             UdpTransportTarget,
             UsmUserData,
-            USM_AUTH_HMAC192_SHA256,
-            USM_PRIV_CFB128_AES,
             bulk_walk_cmd,
         )
     except ImportError as exc:
