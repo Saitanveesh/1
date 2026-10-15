@@ -1,4 +1,4 @@
-import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView, TopologySnapshot, VictimHealthView } from "./types";
+import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView, TopologySnapshot, VictimHealthView, ExerciseReceipt } from "./types";
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -122,5 +122,13 @@ export function fetchVictimHealth(
 ): Promise<VictimHealthView> {
   return getJson<VictimHealthView>(
     `/api/v1/range/erp-health?${query({ tenantId, siteId })}`
+  );
+}
+
+export function fetchRangeExercises(
+  tenantId: string, siteId: string
+): Promise<ExerciseReceipt[]> {
+  return getJson<ExerciseReceipt[]>(
+    `/api/v1/range/exercises?${query({ tenantId, siteId })}`
   );
 }
