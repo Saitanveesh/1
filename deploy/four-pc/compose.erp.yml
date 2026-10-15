@@ -1,0 +1,46 @@
+name: mon-erp-range
+# PC4 only, disposable workload. ERP_BIND_IP MUST be on an isolated,
+# approved exercise network; never the campus management-LAN interface.
+services:
+  erp-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mon_erp_range
+      POSTGRES_USER: mon_erp_range
+      POSTGRES_PASSWORD: ${ERP_DB_PASSWORD:?Set isolated-range DB password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mon_erp_range -d mon_erp_range"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - erp-range-db:/var/lib/postgresql/data
+      - ../../demo/erp_range/db/001_synthetic_erp.sql:/docker-entrypoint-initdb.d/001_synthetic_erp.sql:ro
+    networks: [erp-internal]
+
+  erp-app:
+    build:
+      context: ../../demo/erp_range
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ERP_DATABASE_URL: ${ERP_DATABASE_URL:?Set isolated-range ERP database URL}
+    ports:
+      - "${ERP_BIND_IP:?Bind only to isolated exercise IP}:8081:8081"
+    depends_on:
+      erp-db:
+        condition: service_healthy
+    networks: [erp-internal]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+
+networks:
+  erp-internal:
+    driver: bridge
+    internal: true
+volumes:
+  erp-range-db:
