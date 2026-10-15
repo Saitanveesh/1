@@ -28,7 +28,8 @@ export function matchTopologyFindings(
 
   const ipToNode = new Map<string, string | null>();
   for (const node of snapshot.nodes) {
-    for (const ip of node.ip_addresses) {
+    if (node.status !== "OBSERVED") continue;
+    for (const ip of node.active_ip_addresses) {
       if (ipToNode.has(ip) && ipToNode.get(ip) !== node.node_id) {
         ipToNode.set(ip, null);
       } else if (!ipToNode.has(ip)) {
