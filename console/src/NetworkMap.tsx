@@ -59,7 +59,10 @@ export default function NetworkMap({
   const [snapshot, setSnapshot] = useState<TopologySnapshot | null>(null);
   const [root, setRoot] = useState("");
   const [historicalAt, setHistoricalAt] = useState("");
-  const historicalInstant = historicalAt ? new Date(historicalAt).toISOString() : undefined;
+  const historicalMillis = historicalAt ? Date.parse(historicalAt) : NaN;
+  const historicalInstant = Number.isFinite(historicalMillis)
+    ? new Date(historicalMillis).toISOString() : undefined;
+  const liveSequence = historicalAt ? 0 : sequence;
   const [layer, setLayer] = useState<TopologyLayer>("L2");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
@@ -80,12 +83,12 @@ export default function NetworkMap({
       }
     };
     void load();
-    const interval = window.setInterval(() => void load(), 10000);
+    const interval = historicalAt ? undefined : window.setInterval(() => void load(), 10000);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (interval !== undefined) window.clearInterval(interval);
     };
-  }, [tenantId, siteId, root, historicalInstant, sequence]);
+  }, [tenantId, siteId, root, historicalInstant, historicalAt, liveSequence]);
 
   const visibleNodes = useMemo(() => {
     if (!snapshot) return [];
