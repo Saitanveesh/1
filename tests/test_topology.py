@@ -7,8 +7,7 @@ from pydantic import ValidationError
 from mon.api import app, store
 from mon.database import Base, DatabaseStore
 from mon.store import InMemoryStore
-from mon.topology import build_topology_snapshot, TopologyBatch, TopologyObservation
-
+from mon.topology import TopologyBatch, TopologyObservation, build_topology_snapshot
 
 NOW = dt.datetime(2026, 10, 15, 9, 0, tzinfo=dt.UTC)
 
