@@ -25,8 +25,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
           pip check
+      - name: Topology regression
+        run: pytest -q tests/test_topology.py tests/test_topology_neighbor_collector.py
       - name: Lint
-        run: ruff check .
+        run: |
+          ruff check --diff tests/test_topology.py || true
+          ruff check .
       - name: Test
         run: pytest -q
 
