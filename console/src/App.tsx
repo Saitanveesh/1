@@ -544,7 +544,7 @@ export default function App() {
           <NetworkMap tenantId={tenantId} siteId={siteId} sequence={state.sequence} findings={state.findings} />
         )}
         {view === "Victim Health" && authState === "OK" && (
-          <VictimHealth tenantId={tenantId} siteId={siteId} />
+          <VictimHealth tenantId={tenantId} siteId={siteId} assets={state.assets} />
         )}
         {view === "Exercise Timeline" && authState === "OK" && (
           <ExerciseTimeline tenantId={tenantId} siteId={siteId} />
