@@ -1,0 +1,66 @@
+name: mon-soc
+# PC1 only. Use authenticated SSH tunnels for PC2 operator access.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mon
+      POSTGRES_USER: mon
+      POSTGRES_PASSWORD: ${MON_DB_PASSWORD:?Set a strong database password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mon -d mon"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - mon-soc-data:/var/lib/postgresql/data
+    networks: [soc-internal]
+
+  mon-api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MON_ENV: production
+      MON_DATABASE_URL: ${MON_DATABASE_URL:?Provide tenant-safe PostgreSQL connection URL}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [soc-internal]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    user: "65534:65534"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle=false
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./targets:/etc/prometheus/targets:ro
+      - mon-metrics:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks: [soc-internal]
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks: [soc-internal]
+
+networks:
+  soc-internal:
+    driver: bridge
+volumes:
+  mon-soc-data:
+  mon-metrics:
