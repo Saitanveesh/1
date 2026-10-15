@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import time
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -372,10 +373,15 @@ async def get_topology(
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
     root_node_id: str | None = Query(default=None, max_length=256),
+    at: dt.datetime | None = Query(default=None),
 ) -> TopologySnapshot:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    if at is not None and (
+        at.utcoffset() is None or at > dt.datetime.now(dt.UTC)
+    ):
+        raise HTTPException(status_code=422, detail="at must be a past, timezone-aware timestamp")
     observations, truncated = await run_in_threadpool(
-        store.list_topology_observations, tenant_id, site_id,
+        store.list_topology_observations, tenant_id, site_id, before=at,
     )
     return await run_in_threadpool(
         build_topology_snapshot,
@@ -383,6 +389,7 @@ async def get_topology(
         tenant_id,
         site_id,
         root_node_id=root_node_id,
+        at=at,
         truncated=truncated,
     )
 
