@@ -40,6 +40,27 @@ services:
     tmpfs:
       - /tmp:size=32m,noexec,nosuid
 
+  # PC4 host-level OS counters. Scrape only through the separately approved
+  # monitoring interface; never bind to the shared campus management LAN.
+  host-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --web.listen-address=:9100
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    ports:
+      - "${ERP_MONITOR_BIND_IP:?Use a protected monitoring interface}:9100:9100"
+    networks: [erp-edge]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   erp-internal:
     driver: bridge
