@@ -247,6 +247,8 @@ export interface TopologyNode {
   label: string;
   ip_addresses: string[];
   mac_addresses: string[];
+  active_ip_addresses: string[];
+  active_mac_addresses: string[];
   last_seen: string;
   status: "OBSERVED" | "STALE";
   evidence_ids: string[];
@@ -264,6 +266,19 @@ export interface TopologyLink {
   sensor_id: string;
 }
 
+export interface TopologyCoverage {
+  sensors_seen: number;
+  active_sensors: number;
+  stale_sensors: number;
+  observed_nodes: number;
+  stale_nodes: number;
+  observed_links: number;
+  stale_links: number;
+  unresolved_nodes: number;
+  last_observation_at: string | null;
+  complete_network_visibility: boolean | null;
+}
+
 export interface TopologySnapshot {
   tenant_id: string;
   site_id: string;
@@ -271,6 +286,7 @@ export interface TopologySnapshot {
   root_node_id: string | null;
   distance_basis: string;
   coverage: string;
+  coverage_details: TopologyCoverage;
   observations_considered: number;
   truncated: boolean;
   nodes: TopologyNode[];
