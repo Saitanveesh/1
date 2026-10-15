@@ -432,10 +432,13 @@ async def get_synthetic_erp_health(
     principal: CurrentPrincipal,
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=256),
 ) -> VictimHealthView:
-    """Real probe/process readings only; absent host telemetry remains UNKNOWN."""
+    """Read strictly scoped real metrics for any selected enrolled asset."""
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
-    return await run_in_threadpool(collect_victim_health, tenant_id, site_id)
+    return await run_in_threadpool(
+        collect_victim_health, tenant_id, site_id, asset_id=asset_id,
+    )
 
 
 @app.get("/api/v1/findings", response_model=list[Finding])
