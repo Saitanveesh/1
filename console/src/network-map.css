@@ -1,0 +1,18 @@
+.network-map { min-height: 640px; }
+.network-toolbar { display: grid; grid-template-columns: minmax(210px,1fr) 190px minmax(210px,1fr); gap: 12px; padding: 16px; }
+.network-toolbar label { display: grid; gap: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #444; }
+.network-toolbar input,.network-toolbar select { width: 100%; height: 38px; padding: 8px; background: #fff; color: #111; border: 1px solid #b5b5b5; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.network-layout { display: grid; grid-template-columns: minmax(0,1fr) 280px; border-top: 1px solid #ddd; }
+.network-stage { min-width: 0; overflow: auto; border-right: 1px solid #ddd; background: #fdfdfd; }
+.network-stage svg { width: 100%; min-width: 700px; display: block; }
+.network-node { cursor: pointer; outline: none; }
+.network-node:hover circle,.network-node:focus circle { stroke: #000; stroke-width: 3; }
+.network-inspector { padding: 16px; overflow-wrap: anywhere; }
+.network-inspector h2 { margin: 8px 0 14px; }
+.network-inspector dl { display: grid; grid-template-columns: 90px 1fr; font-size: 11px; gap: 10px; margin: 0; }
+.network-inspector dt { color: #666; }
+.network-inspector dd { margin: 0; overflow-wrap: anywhere; }
+.network-inspector p { font-size: 11px; line-height: 1.5; }
+.network-explain,.network-warning,.network-footnote { color: #555; font-size: 11px; margin: 8px 16px 16px; line-height: 1.5; }
+.network-warning { color: #8a2525; font-weight: 600; }
+@media (max-width: 1320px) { .network-layout { grid-template-columns: 1fr; } .network-stage { border-right: none; border-bottom: 1px solid #ddd; } }
