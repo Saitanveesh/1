@@ -26,7 +26,7 @@ jobs:
           pip install -e '.[dev]'
           pip check
       - name: Topology regression
-        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py
+        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py
       - name: Read-only topology collector CLI smoke
         run: mon-topology-collect --help
       - name: Lint
