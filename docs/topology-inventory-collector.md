@@ -114,6 +114,38 @@ provided collection timestamp, and the PostgreSQL store retains the source
 evidence. Partial multi-batch success is possible: on failure, preserve the
 original snapshot/timestamp and retry instead of altering evidence.
 
+## Reconstruct a historical network state
+
+The same authenticated, tenant/site-scoped API supports an exact as-of cutoff:
+
+```text
+GET /api/v1/topology?tenant_id=YOUR_TENANT&site_id=YOUR_SITE&at=2026-10-15T08%3A00%3A00Z
+```
+
+Open **Network Map** in the MON console, choose the local date and time under
+**Reconstruct at local date/time**, and inspect devices and links from the
+selected timestamp. The map displays **HISTORICAL RECONSTRUCTION** and suppresses
+present-day incident markers. Use **Return to live** to resume current events.
+
+`coverage_details` exposes numbers of sensors seen, fresh/stale sensors,
+fresh/stale graph nodes and links, unresolved identities, and last evidence
+timestamp. Network-wide coverage remains **UNKNOWN** until the expected
+network inventory and per-segment instrumentation can be verified.
+
+Each node returns `active_ip_addresses` / `active_mac_addresses` for fresh
+evidence at the requested instant, plus `ip_addresses` /
+`mac_addresses` as historical sightings. A moved or expired IP cannot be
+highlighted by the live map merely because it appeared historically. Even fresh
+IP evidence is not conclusive physical ownership; verify DHCP lease timing,
+switch MAC/port bindings and the appropriate independent telemetry before
+acting.
+
+Historical queries are limited to the latest 10,000 observations **at or
+before** the requested timestamp. A `truncated` response must be treated as
+an incomplete reconstruction, not proof that older devices did not exist.
+The screen reconstructs topology history only; it is not yet a sealed,
+incident-wide evidence replay.
+
 ## Operator and security interpretation
 
 - Network nodes are **observed records**, not independently verified machines.
