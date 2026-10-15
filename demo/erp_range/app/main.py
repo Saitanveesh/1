@@ -8,8 +8,8 @@ from __future__ import annotations
 import os
 import time
 
-import psycopg
 import psutil
+import psycopg
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
@@ -42,11 +42,10 @@ def database_query(query: str, params: tuple[object, ...] = ()) -> list[tuple]:
     """Bounded, parameterized reads against disposable ERP database."""
     if not DATABASE_URL:
         raise RuntimeError("ERP database is not configured")
-    with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SET statement_timeout TO 3000")
-            cursor.execute(query, params)
-            return cursor.fetchall()
+    with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn, conn.cursor() as cursor:
+        cursor.execute("SET statement_timeout TO 3000")
+        cursor.execute(query, params)
+        return cursor.fetchall()
 
 
 @app.middleware("http")
