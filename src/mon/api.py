@@ -373,7 +373,7 @@ async def get_topology(
     tenant_id: str = Query(min_length=1),
     site_id: str = Query(min_length=1),
     root_node_id: str | None = Query(default=None, max_length=256),
-    at: dt.datetime | None = Query(default=None),
+    at: dt.datetime | None = None,
 ) -> TopologySnapshot:
     require_scope(principal, tenant_id, site_id, Permission.VIEW)
     if at is not None and (
