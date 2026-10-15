@@ -72,7 +72,7 @@ def test_actual_prometheus_readings_have_scoped_labels(monkeypatch):
     result = collect_victim_health(
         scope, "site-a", prometheus_url="http://prometheus:9090", at=NOW
     )
-    assert len(expressions) == 4
+    assert len(expressions) == 6
     assert all(f"tenant_id={json.dumps(scope)}" in q for q in expressions)
     assert all('site_id="site-a"' in q for q in expressions)
     assert result.telemetry_state == "AVAILABLE"
@@ -80,7 +80,7 @@ def test_actual_prometheus_readings_have_scoped_labels(monkeypatch):
     assert result.service_reachable.value == 0
     assert result.note == "Independent probe recorded ERP service unavailable"
     assert result.erp_process_rss_bytes.value == 1024
-    assert result.host_ram_percent.value is None
+    assert result.host_ram_percent.value == 1024
 
 
 def test_network_failure_is_visible_as_degraded(monkeypatch):
