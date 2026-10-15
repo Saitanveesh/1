@@ -254,17 +254,18 @@ station **not from the attack VLAN**, with `MON_TOKEN_FILE` pointing to an
 already-provisioned operator-scoped token:
 
 ```bash
-curl --fail --show-error \
-  -H "Authorization: Bearer $(cat "$MON_TOKEN_FILE")" \
-  -H "Content-Type: application/json" \
-  --data-binary @~/mon-range-session-001.json \
-  https://YOUR_APPROVED_MON_API/api/v1/range/exercises
+mon-range-upload --receipt ~/mon-range-session-001.json
+mon-range-upload \
+  --receipt ~/mon-range-session-001.json \
+  --api-url https://YOUR_APPROVED_MON_API \
+  --token-file /etc/mon/ingest.token
 ```
 
-**Note:** embedding a token in a shell-expanded argument is visible to
-local process inspection on some OSes. For production, use an authorized
-mTLS-backed collector or a dedicated secret-aware uploader instead.
-Do not use the example command on shared operator workstations.
+The first command checks the receipt locally without sending it. The
+second performs HTTPS upload with a mode-0600 token file, no proxy and
+no redirect-following. The dedicated token must be provisioned by a
+trusted MON administrator with the correct tenant/site INGEST scope;
+do not use the red-team attack VM's broad operator credentials.
 The upload enforces a matching SHA-256 receipt, tenant/site RBAC,
 immutable exercise ID and database RLS. It is still **self-reported
 client telemetry**, not network-packet evidence or a response audit.
