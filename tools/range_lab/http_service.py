@@ -1,6 +1,7 @@
 """Measured, disposable HTTP target for an uplink-free Linux namespace lab."""
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import time
@@ -30,10 +31,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        try:
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
-            pass
         print(json.dumps({
             "observed_at": dt.datetime.now(dt.UTC).isoformat(),
             "src_ip": self.client_address[0],
