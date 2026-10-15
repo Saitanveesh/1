@@ -26,7 +26,7 @@ jobs:
           pip install -e '.[dev,erp-range,switch]'
           pip check
       - name: Topology, switch and ERP regression
-        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py tests/test_topology_snmpv3.py tests/test_range_erp.py tests/test_range_health.py tests/test_range_exercise.py
+        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py tests/test_topology_snmpv3.py tests/test_range_erp.py tests/test_range_health.py tests/test_range_exercise.py tests/test_range_evidence.py
       - name: PySNMPv3 runtime import smoke
         run: python -c "from pysnmp.hlapi.v3arch.asyncio import bulk_walk_cmd, USM_AUTH_HMAC192_SHA256, USM_PRIV_CFB128_AES; assert bulk_walk_cmd"
       - name: Read-only topology collector CLI smoke
