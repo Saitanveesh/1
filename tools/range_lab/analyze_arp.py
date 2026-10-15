@@ -56,7 +56,7 @@ def events_from_capture_text(
             raw_reference="arp-packets.pcap",
         )
         stable_id = hashlib.sha256(
-            f"range-arp:{line_number}:{line}".encode("utf-8")
+            f"range-arp:{line_number}:{line}".encode()
         ).hexdigest()
         events.append(SecurityEvent(
             event_id=stable_id,
