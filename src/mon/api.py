@@ -100,12 +100,12 @@ from mon.site_identity_models import (
     SiteEnrollmentResult,
     SiteIdentityRecord,
 )
-from mon.topology import TopologyBatch, TopologySnapshot, build_topology_snapshot
 from mon.site_response_models import SiteResponseUpdate
 from mon.site_response_reconciliation import (
     SiteResponseUpdateError,
     SiteResponseUpdateReconciler,
 )
+from mon.topology import TopologyBatch, TopologySnapshot, build_topology_snapshot
 
 app = FastAPI(
     title="MON Security Fabric Control Plane",
