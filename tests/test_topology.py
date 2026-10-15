@@ -1,17 +1,13 @@
 import datetime as dt
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-import pytest
 
 from mon.api import app, store
 from mon.database import Base, DatabaseStore
 from mon.store import InMemoryStore
-from mon.topology import (
-    TopologyBatch,
-    TopologyObservation,
-    build_topology_snapshot,
-)
+from mon.topology import TopologyBatch, TopologyObservation, build_topology_snapshot
 
 
 NOW = dt.datetime(2026, 10, 15, 9, 0, tzinfo=dt.UTC)
