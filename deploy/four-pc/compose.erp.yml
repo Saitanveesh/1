@@ -31,7 +31,9 @@ services:
     depends_on:
       erp-db:
         condition: service_healthy
-    networks: [erp-internal]
+    networks:
+      - erp-internal
+      - erp-edge
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -42,5 +44,9 @@ networks:
   erp-internal:
     driver: bridge
     internal: true
+  # Application-only publication network. Expose only on ERP_BIND_IP,
+  # after independent exercise-VLAN isolation has been verified.
+  erp-edge:
+    driver: bridge
 volumes:
   erp-range-db:
