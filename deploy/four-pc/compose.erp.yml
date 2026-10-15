@@ -1,5 +1,6 @@
 name: mon-erp-range
-# PC4 only, disposable workload. ERP_BIND_IP MUST be on an isolated,
+# Deploy on ANY enrolled, approved disposable victim PC or VM.
+# ERP_BIND_IP MUST be on an isolated,
 # approved exercise network; never the campus management-LAN interface.
 services:
   erp-db:
@@ -40,7 +41,7 @@ services:
     tmpfs:
       - /tmp:size=32m,noexec,nosuid
 
-  # PC4 host-level OS counters. Scrape only through the separately approved
+  # Enrolled victim host-level OS counters. Scrape only through the approved
   # monitoring interface; never bind to the shared campus management LAN.
   host-exporter:
     image: prom/node-exporter:v1.9.1
