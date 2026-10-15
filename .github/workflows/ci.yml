@@ -309,16 +309,25 @@ jobs:
           pip install -e '.[dev]'
           sudo apt-get update
           sudo apt-get install -y iproute2 iputils-ping nftables tcpdump curl
-      - name: Real veth-only MITM/pressure packet-path and rollback acceptance
+      - name: Real MITM, multi-origin containment and rollback within offline outer namespace
         run: |
           set -euo pipefail
-          sudo env MON_DISPOSABLE_VM_CONFIRMED=YES \
+          # A hosted CI runner has a management NIC; never run the attack
+          # harness in its initial network namespace. First enter a new
+          # external-uplink-free namespace inside the disposable CI VM.
+          OUTER="mon-offline-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          cleanup() {
+            sudo ip netns del "$OUTER" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sudo ip netns add "$OUTER"
+          sudo ip -n "$OUTER" link set lo up
+          # The harness enforces the SAME VM/only-loopback/no-route preflight
+          # in this outer namespace; no safety check is bypassed.
+          sudo ip netns exec "$OUTER" env MON_DISPOSABLE_VM_CONFIRMED=YES \
             MON_PYTHON="$(command -v python)" \
             bash tools/range_lab/run.sh --scenario all --victim beta
-      - name: Alternative victim exercise selection
-        run: |
-          set -euo pipefail
-          sudo env MON_DISPOSABLE_VM_CONFIRMED=YES \
+          sudo ip netns exec "$OUTER" env MON_DISPOSABLE_VM_CONFIRMED=YES \
             MON_PYTHON="$(command -v python)" \
             bash tools/range_lab/run.sh --scenario multi-origin --victim alpha
 
