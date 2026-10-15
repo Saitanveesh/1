@@ -101,15 +101,17 @@ curl --fail --max-time 5 http://YOUR_ISOLATED_ERP_IP:8081/api/students?limit=3
 curl --fail --max-time 5 http://YOUR_ISOLATED_ERP_IP:8081/metrics
 ```
 
-These endpoints measure **actual** FastAPI request timings, process RSS/CPU
-time, application readiness and PostgreSQL availability. `/health/live`
-is not database health; `/health/ready` fails with HTTP 503 when DB reads
-fail. **PC4 host CPU/RAM and end-to-end service uptime require separate
-approved host-level telemetry**; the container's process RSS is not host RAM.
+These endpoints measure actual request timing, process RSS/CPU time and
+database readiness. `/health/ready` fails with HTTP 503 if DB reads fail.
+PC4 host CPU and RAM now have a separate Node Exporter, listening only on the
+operator-approved `ERP_MONITOR_BIND_IP:9100` interface. This sensitive metrics
+endpoint must be accessible only to PC1 and denied to PC3 and campus clients
+by independent firewall/routing rules. Keep it unconfigured until isolation
+is verified. Process memory is not host memory.
 
 ## Independent PC1 Prometheus/Blackbox observation of PC4
 
-Initially both `targets/*.json` contain `[]`: **zero configured targets**
+Initially all three `targets/*.json` files contain `[]`: **zero configured targets**
 is intentional and must show no service metrics, never a manufactured healthy
 ERP value. After confirming the private probe route and authorization,
 edit the files **only on PC1**.
@@ -126,6 +128,12 @@ Illustrative format (substitute the actual private, routed target):
 ```
 
 Put the above in `targets/erp-metrics.json` with only the host:port.
+For `targets/erp-host.json`, configure the actual PC4 `HOST:9100` address
+with the same tenant/site labels after confirming the monitoring VLAN and
+firewall scope. MON's measured CPU percentage uses idle CPU-time rate; memory
+percentage comes from available/total host memory. Missing or ambiguous
+host data stays UNKNOWN.
+
 For `targets/erp-probe.json` use an **actual** URL including the health path,
 such as `http://YOUR_APPROVED_ERP_IP:8081/health/ready`.
 These represent two distinct measurements: self-reported application/process
