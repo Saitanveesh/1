@@ -9,7 +9,7 @@ Complements: ADR 0076 on network-wide attribution, observation and isolated exer
 
 Use **at most four dedicated physical lab computers** to operate the MON cyber-range demonstration; existing network switches and the institution's computers are assets to be discovered, not MON server roles that must each be dedicated to a single purpose. A four-computer consolidation does not imply one sensor or one mirror port can see all segments. Additional virtual sensors, switch exports, endpoint collectors and approved network instrumentation may be necessary; capacity and coverage must be tested.
 
-No attacker or victim identity is preselected in MON's detection/attribution schema. For initial acceptance, a red-team exercise launcher and disposable victim workload can live on two named computers, but their addresses must be runtime-discovered. Authorized alternatives among monitored network hosts or VMs may assume those roles during later exercises without code changes.
+The primary device graph must be derived from observed network adjacency, independent of lab labels, and have layer-specific verified hop counts and an honest distance-unknown state, per [ADR 0078](0078-evidence-backed-topology-and-network-distance.md). No attacker or victim identity is preselected in MON's detection/attribution schema. For initial acceptance, a red-team exercise launcher and disposable victim workload can live on two named computers, but their addresses must be runtime-discovered. Authorized alternatives among monitored network hosts or VMs may assume those roles during later exercises without code changes.
 
 ## Physical profile (four PCs total for initial live demonstration)
 
@@ -35,7 +35,7 @@ A map is not an unqualified claim of 'every device' simply because a scan comple
 
 Maintain `asset_id`, observed IP/MAC/VLAN, switch+port, site/lab physical mapping, first_seen/last_seen, source, freshness expiry, confidence and identity evidence. Display observed endpoints, expected-but-unobserved inventory and blind spots separately. A shutdown, firewalled, wireless-roaming, virtualized or unmanaged endpoint may not have enough evidence for physical attribution. Never label the source/target as a verified person if only an IP appears.
 
-The inventory must support join/leave, DHCP reassignments, multiple IPs, MAC move, virtualization, NAT, L2 trunk and wireless AP exceptions. Do not assume packet path from visual topology alone; label inferred vs directly observed hops.
+The user-facing default must be one dynamic network graph with optional verified location properties, not lab-count cards. It must support verifiable L2/L3 distance and unknown paths, zoom/pan/search and graph clustering driven by observed connectivity. The inventory must support join/leave, DHCP reassignments, multiple IPs, MAC move, virtualization, NAT, L2 trunk and wireless AP exceptions. Do not assume packet path from visual topology alone; label inferred vs directly observed hops.
 
 ## Backend ownership and storage
 
