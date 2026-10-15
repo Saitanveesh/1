@@ -45,6 +45,29 @@ visibility into an entire switched network. The collector performs no active
 scans or switch configuration changes. Lab attack exercises require a separate,
 approved isolated range with real verification and rollback.
 
+## Four-computer deployment and isolated synthetic ERP range (development branch)
+
+The active development branch includes a real, **read-only SNMPv3** managed-switch
+collector for selected BRIDGE-MIB/FDB and LLDP observations, with SHA-256 USM
+authentication, AES privacy, a bounded poller and secrets stored in a
+mode-0600 local file. Switch identities, VLAN coverage and packet paths
+remain unverified until the actual model, firmware, OIDs and SPAN placement
+are tested on approved equipment.
+
+The new [four-PC deployment runbook](deploy/four-pc/README.md) contains
+two independent Compose stacks: **PC1 MON SOC** (PostgreSQL, API, React
+console, Prometheus, Blackbox probes) and **PC4 isolated synthetic ERP**
+(FastAPI application + a real PostgreSQL database seeded entirely from
+fictional records). PC2 uses an SSH-forwarded authenticated operator console.
+PC3 is the authorized exercise station, **not a hard-coded attacker ID**.
+
+The ERP service records measured request timing, process RSS/CPU and real
+database readiness; the external probe separately measures HTTP availability.
+The deployment defaults to **no configured telemetry targets**, avoiding
+fabricated healthy data. PC4 host-level metrics, real switch coverage,
+physical isolation and attack→contain→rollback remain integration gates,
+not release claims.
+
 ## Narrated architecture walkthrough
 
 For explaining MON end to end to a non-technical audience, the repository includes a synthetic,
