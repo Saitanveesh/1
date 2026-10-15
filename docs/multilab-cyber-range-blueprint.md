@@ -6,7 +6,7 @@ Updated: 2026-10-15
 
 ## Objective
 
-A red-team participant can use **any authorized enrolled exercise station** among five laboratories (planning assumption: ~25 endpoints each). MON identifies that station and the affected target **from live evidence**, rather than by assigning PC6 or a fixed IP as the attacker. The blue team chooses a containment point effective on the real path. An audience sees the story and the independently measured victim impact in near real time.
+A red-team participant can use **any authorized enrolled exercise station** on a network with an unknown, changing number of connected assets. MON identifies its observed source and target **from live evidence**, rather than assuming their identities, locations, IPs, or belonging to particular labs. The example of five laboratories and roughly 125 desktops does not define network boundaries, actual attachment locations, inventory cardinality or discoverable topology. The blue team chooses a control point effective on the verified path. An audience sees the live evidence, decisions and independently measured victim impact.
 
 This is two related but distinct deployments:
 - **Campus observation**: permissioned, passive, privacy-aware detection and attribution across instruments we actually control. Default alert-only or human-approved actions; no unbounded test traffic.
@@ -24,34 +24,46 @@ The five-lab network may contain any number of endpoints; do not assume 125 as a
 
 Detailed acceptance gates, storage tiers, health collection levels and rollback policy: [ADR 0077](adr/0077-four-computer-soc-consolidation.md).
 
-## Proposed physical/logical layout (subject to hardware survey)
+## Evidence-backed network map — no fixed lab labels or inventory size
+
+The primary map must visualize a **discovered graph**, not five lab cards or manually entered endpoint counts. A device can be connected anywhere that the available institutional telemetry can establish. Names like Lab A or Lab B may appear as **optional verified location attributes** only, never as default clusters, topology segments or assumptions.
+
+MON does not automatically know that every physically connected device exists. It reconciles DHCP, router ARP/ND, switch MAC forwarding/VLAN/port/LLDP (read-only management access where supported), wireless associations, IPFIX/sFlow/NetFlow, authenticated endpoint inventories, and authorized narrowly scoped active discovery. Each observation has evidence references and last-seen timestamps; list unobserved/blind spots separately. A single passive sensor or a WireGuard tunnel does **not** reveal arbitrary same-switch traffic elsewhere.
+
+**Proposed data flow, with no physical layout assumption:**
 
 ```text
-LAB A (25 stations) -- Access switch A --+
-LAB B (25 stations) -- Access switch B --+
-LAB C (25 stations) -- Access switch C --+-- Distribution/Core -- Authorized upstream
-LAB D (25 stations) -- Access switch D --+
-LAB E (25 stations) -- Access switch E --+
-      |                 |                          |
-   endpoint logs   MAC/port/DHCP/RADIUS       flow/SPAN/tap
-      +-----------------+--------------------------+
-                        v
-                MON collectors / sensors
-                        |
-                Local Site Controller
-                        |
-         MON events + evidence + asset/topology mapping
-                        |
-          correlate -> investigate -> policy decision
-                        |
-            chosen real enforcement adapter
-                        |
-         verify blocking + service health + rollback
-
-Exercise test VLANs/VM networks are isolated from ordinary campus traffic.
+Unknown, changing campus network:
+  managed switch(es) — wireless AP(s) — router(s) — wired/wireless hosts
+  VM hosts — services — printers — cameras — previously unseen devices
+                      |
+  authorized switch tables / LLDP / DHCP / ND / Wi-Fi / endpoint / flow / TAP
+                      |
+                 MON collectors
+                      |
+              Evidence + freshness
+                      |
+     Asset identity resolver + multilayer network graph
+                      |
+          Detection / correlation / path assessment
+                      |
+     Policy-aware enforcement + verification + rollback
+                      |
+    Network graph / Attack view / Victim health / Audit timeline
 ```
 
-A one-gateway packet sensor sees only what passes through that point. Per-switch telemetry and additional sensors may be needed to see same-LAN east-west traffic. Sensor placement is finalized after evaluating switch topology and mirror availability.
+**Distance**: a selected **network root** (core/distribution router/switch) gives a verified L2-link or L3-hop depth within that specific topology layer, with source evidence. The MON console may be drawn as the **central observer**, but its telemetry subscription does not constitute a physical cable or a transit hop to every device. Ping latency is measured in milliseconds, not number of switches or metres. If no path evidence exists show **Distance unknown**, never fake a ring or inferred port as certain.
+
+Default interaction: pan/zoom, live nodes joining or becoming stale, search, device inspection, toggles for physical/L2, routed/L3, observed communications and application dependencies, incident source/target highlighting, link-evidence panels, coverage uncertainty, and scalable clustering by **observed connectivity** rather than buildings. Unverified physical location remains explicitly unknown.
+
+See [ADR 0078](adr/0078-evidence-backed-topology-and-network-distance.md) for the canonical graph model, typed API direction, provenance contract, distance semantics and acceptance gates.
+
+## Proposed physical/logical layout (subject to hardware survey)
+
+Only **four dedicated computers** are planned for the initial presentation: PC1 hosts the consolidated MON backend and durable storage; PC2 is the blue-team operator console; PC3 is the controlled red-team launcher; PC4 hosts disposable instrumented application/victim VMs. Other real endpoints are observed assets, not dedicated MON-role machines. Switch exports, additional virtual sensors or endpoint collectors may be required to observe more segments even with only four dedicated physical PCs.
+
+The actual topology of access/distribution/core switching is to be **discovered and verified**, not drawn in advance. If there are multiple isolated networks, VLANs or sites, the UI must distinguish independent connected components and the coverage frontier. The range's attack fabric must remain isolated from normal campus systems.
+
 
 ## Runtime attribution (do not preselect an attacker)
 
@@ -66,9 +78,9 @@ For each suspicious event:
 
 Example **illustrative only**, not observed:
 ```
-Suspicious requests -> IP 10.40.2.18 -> observed MAC -> Lab B switch/port 14
-     -> possible Lab B seat 14 -> test web service in Lab D
-MON: suspected source; identity and location confidence explained
+Suspicious requests -> source IP -> time-matched DHCP lease and MAC
+     -> observed switch/port if corroborated -> affected test web service
+MON: suspected source; physical attachment and location shown only when evidenced
 Blue team: approved limited block on applicable access switch or gateway
 Victim monitor: requests/latency before and after; allowed traffic unaffected
 ```
@@ -79,7 +91,7 @@ Victim monitor: requests/latency before and after; allowed traffic unaffected
 2. **Victim pulse**: service success, response latency, CPU/RAM, network rates; chart points from measured probes/agents.
 3. **Blue-team response**: detection evidence, plan, approver, target, containment status, effect and remaining TTL.
 4. **Red-team stage**: operator-authorized scenario type, elapsed time, exercise ID and emergency STOP; redact secrets.
-5. **Lab topology**: five labs and switch/port map; explicitly mark unobserved segments and inferred hops.
+5. **Dynamic network topology**: observed nodes, switch/AP/router adjacency, optional verified physical locations, uncertain/unobserved segments and layer-specific hop counts.
 6. **Evidence timeline**: alert receipt, correlation, command dispatched, rule verified, service recovered, rollback and audit.
 
 Three display modes: visitor (plain English), analyst (technical evidence) and replay (clearly labeled historical data, never marked live). Wall tiles subscribe to the same authenticated live event stream and event IDs.
@@ -95,7 +107,7 @@ Then develop (not merely label) further scenarios:
 
 ## Required site survey before implementation
 
-Record for all five access switches and distribution path: vendor/model/firmware; L2/L3 uplinks; VLANs and subnets; routing boundaries; managed credentials/RBAC; SPAN/TAP availability and mirror oversubscription; sFlow/NetFlow/IPFIX support; DHCP server/log access; 802.1X/RADIUS/NAC support; MAC-address table / LLDP / SNMPv3 support; DAI/DHCP-snooping/IPSG availability; programmable ACL/quarantine facilities; and physical port-to-seat documentation.
+Inventory all observed/authorized access switches and distribution paths, without assuming a fixed number: record vendor/model/firmware; L2/L3 uplinks; VLANs and subnets; routing boundaries; managed credentials/RBAC; SPAN/TAP availability and mirror oversubscription; sFlow/NetFlow/IPFIX support; DHCP server/log access; 802.1X/RADIUS/NAC support; MAC-address table / LLDP / SNMPv3 support; DAI/DHCP-snooping/IPSG availability; programmable ACL/quarantine facilities; and physical port-to-seat documentation.
 
 Record host OS, hypervisor capacity, available spare switch ports, expected traffic peaks, administrator approvals, red/blue team scopes, campus privacy and change controls. Do not enable switch security features on production without reviewing trusted-port placement and the impact on existing static IP devices.
 
@@ -119,4 +131,4 @@ Record host OS, hypervisor capacity, available spare switch ports, expected traf
 - a misrouted or outside-scope test and an uncertain source attribution cannot auto-block a production endpoint;
 - performance data and gaps are recorded, not invented.
 
-The existing seven-PC runbook remains valid as a *smaller routed lab regression test*; it is not proof of five-lab campus coverage.
+The earlier seven-PC runbook remains a *legacy isolated routed regression test*, not a requirement to allocate seven PCs and not proof of campus-wide discovery, coverage, or physical-port attribution.
