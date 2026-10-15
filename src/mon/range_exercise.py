@@ -122,7 +122,7 @@ def execute_exercise(
             status, latency, _ = get(
                 permit.target_ip, permit.target_port, "/api/students?limit=1"
             )
-        except (OSError, http.client.HTTPException, TimeoutError):
+        except (OSError, http.client.HTTPException):
             status, latency = None, None
         attempts += 1
         if status == 200:
@@ -169,8 +169,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("refusing to overwrite an existing evidence file")
         result = execute_exercise(permit)
         args.out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with args.out.open("x", encoding="utf-8") as handle:
-            os.chmod(args.out, 0o600)
+        descriptor = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
         print(json.dumps({
             "exercise_id": result["exercise_id"], "attempts": result["attempts"],
