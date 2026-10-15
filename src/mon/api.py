@@ -100,6 +100,7 @@ from mon.site_identity_models import (
     SiteEnrollmentResult,
     SiteIdentityRecord,
 )
+from mon.topology import TopologyBatch, TopologySnapshot, build_topology_snapshot
 from mon.site_response_models import SiteResponseUpdate
 from mon.site_response_reconciliation import (
     SiteResponseUpdateError,
@@ -339,6 +340,51 @@ async def live_snapshot(
         ],
         "graph": snapshot.model_dump(mode="json"),
     }
+
+
+@app.post("/api/v1/topology/observations", status_code=201)
+async def ingest_topology_observations(
+    batch: TopologyBatch,
+    principal: CurrentPrincipal,
+) -> dict[str, int]:
+    first = batch.observations[0]
+    require_scope(principal, first.tenant_id, first.site_id, Permission.INGEST)
+    try:
+        inserted = await run_in_threadpool(store.add_topology_observations, batch)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if inserted:
+        await live_hub.publish(
+            LiveMessageKind.TOPOLOGY_UPDATED,
+            first.tenant_id,
+            first.site_id,
+            {"inserted": inserted},
+        )
+    return {
+        "inserted": inserted,
+        "duplicates": len(batch.observations) - inserted,
+    }
+
+
+@app.get("/api/v1/topology", response_model=TopologySnapshot)
+async def get_topology(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    root_node_id: str | None = Query(default=None, max_length=256),
+) -> TopologySnapshot:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    observations, truncated = await run_in_threadpool(
+        store.list_topology_observations, tenant_id, site_id,
+    )
+    return await run_in_threadpool(
+        build_topology_snapshot,
+        observations,
+        tenant_id,
+        site_id,
+        root_node_id=root_node_id,
+        truncated=truncated,
+    )
 
 
 @app.get("/api/v1/findings", response_model=list[Finding])
