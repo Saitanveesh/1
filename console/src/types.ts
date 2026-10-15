@@ -313,3 +313,28 @@ export interface VictimHealthView {
   host_ram_percent: VictimMetric;
   note: string;
 }
+
+export interface ExerciseSample {
+  observed_at: string;
+  http_status: number | null;
+  latency_seconds: number | null;
+}
+
+export interface ExerciseReceipt {
+  exercise_id: string;
+  tenant_id: string;
+  site_id: string;
+  approved_by: string;
+  target_ip: string;
+  started_at: string;
+  finished_at: string;
+  scenario: "BOUNDED_SINGLE_SOURCE_HTTP_REQUESTS";
+  attack_claim: "NONE";
+  containment_claim: "NONE";
+  attempts: number;
+  http_200: number;
+  other_or_failed: number;
+  samples: ExerciseSample[];
+  sha256: string;
+  provenance: "SELF_REPORTED_EXERCISE";
+}
