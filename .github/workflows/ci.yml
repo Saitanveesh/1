@@ -23,12 +23,16 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -e '.[dev,erp-range,switch]'
           pip check
-      - name: Topology regression
-        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py
+      - name: Topology, switch and ERP regression
+        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py tests/test_topology_snmpv3.py tests/test_range_erp.py
+      - name: PySNMPv3 runtime import smoke
+        run: python -c "from pysnmp.hlapi.v3arch.asyncio import bulk_walk_cmd, USM_AUTH_HMAC192_SHA256, USM_PRIV_CFB128_AES; assert bulk_walk_cmd"
       - name: Read-only topology collector CLI smoke
         run: mon-topology-collect --help
+      - name: Read-only SNMPv3 collector CLI smoke
+        run: mon-switch-snmpv3 --help
       - name: Lint
         run: |
           ruff check --diff tests/test_topology.py || true
@@ -42,6 +46,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build control-plane image
         run: docker build -t mon-control-plane:test .
+      - name: Build isolated synthetic ERP service image
+        run: docker build -t mon-synthetic-erp:test demo/erp_range
+      - name: Validate four-PC Compose manifests without starting a service
+        env:
+          MON_DB_PASSWORD: test-only-not-for-production
+          MON_DATABASE_URL: postgresql+psycopg://mon:test-only-not-for-production@postgres:5432/mon
+          ERP_DB_PASSWORD: test-only-not-for-production
+          ERP_DATABASE_URL: postgresql://mon_erp_range:test-only-not-for-production@erp-db:5432/mon_erp_range
+          ERP_BIND_IP: 192.0.2.10
+        run: |
+          docker compose -f deploy/four-pc/compose.soc.yml config -q
+          docker compose -f deploy/four-pc/compose.erp.yml config -q
 
   postgres-integration:
     runs-on: ubuntu-latest
