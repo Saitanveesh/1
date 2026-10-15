@@ -21,11 +21,18 @@ done
 case "$SCENARIO" in mitm|multi-origin|all) ;; *) exit 2 ;; esac
 case "$VICTIM" in alpha|beta) ;; *) exit 2 ;; esac
 
+MON_PYTHON="${MON_PYTHON:-python3}"
+if [[ "$MON_PYTHON" == */* ]]; then
+  [ -x "$MON_PYTHON" ] || { echo "Invalid MON_PYTHON executable" >&2; exit 2; }
+else
+  command -v "$MON_PYTHON" >/dev/null || { echo "Missing Python executable" >&2; exit 2; }
+fi
+
 if [ "${EUID}" -ne 0 ]; then
   echo "Run inside a disposable Ubuntu VM with sudo; never on shared college host OS." >&2
   exit 2
 fi
-for cmd in ip python3 curl tcpdump timeout nft sysctl sha256sum grep mktemp ping; do
+for cmd in ip curl tcpdump timeout nft sysctl sha256sum grep mktemp ping; do
   command -v "$cmd" >/dev/null || { echo "Missing command: $cmd" >&2; exit 2; }
 done
 # Must be explicitly acknowledged after institutional authorization. This
@@ -97,7 +104,7 @@ attach "$RELAY" 10.253.42.30 4
 attach "$V1" 10.253.42.20 5
 attach "$V2" 10.253.42.21 6
 
-ip netns exec "$VICTIM_NS" python3 "$HERE/http_service.py" >"$OUT/victim.jsonl" 2>&1 &
+ip netns exec "$VICTIM_NS" "$MON_PYTHON" "$HERE/http_service.py" >"$OUT/victim.jsonl" 2>&1 &
 SERVER_PID="$!"
 ready=0
 for i in $(seq 1 30); do
@@ -133,7 +140,7 @@ if [ "$SCENARIO" = "mitm" ] || [ "$SCENARIO" = "all" ]; then
   # and arp_lab.py independently refuses initial or routed namespaces.
   MON_RANGE_NAMESPACE=isolated-veth-only ip netns exec "$RELAY" \
     env MON_RANGE_NAMESPACE=isolated-veth-only \
-    python3 "$HERE/arp_lab.py" "$VICTIM_IP" "$VICTIM_MAC" \
+    "$MON_PYTHON" "$HERE/arp_lab.py" "$VICTIM_IP" "$VICTIM_MAC" \
     10.253.42.10 "$CLIENT_MAC" >"$OUT/arp-attempt.json"
   ip -n "$CLIENT" neigh show "$VICTIM_IP" dev eth0 >"$OUT/arp-binding-during.txt"
   ip -n "$VICTIM_NS" neigh show 10.253.42.10 dev eth0 >>"$OUT/arp-binding-during.txt"
@@ -141,7 +148,7 @@ if [ "$SCENARIO" = "mitm" ] || [ "$SCENARIO" = "all" ]; then
   ARP_CAPTURE_PID=""
   tcpdump -nn -e -tt -r "$OUT/arp-packets.pcap" \
     >"$OUT/arp-captured-frames.txt" 2>"$OUT/arp-read.log"
-  python3 "$HERE/analyze_arp.py" --tcpdump-text "$OUT/arp-captured-frames.txt" \
+  "$MON_PYTHON" "$HERE/analyze_arp.py" --tcpdump-text "$OUT/arp-captured-frames.txt" \
     --out "$OUT/arp-mon-findings.json" >"$OUT/arp-analysis.log"
   if ! grep -qi "$RELAY_MAC" "$OUT/arp-binding-during.txt"; then
     echo "ARP redirection did not take effect: no MITM claim" >&2
@@ -182,7 +189,7 @@ if [ "$SCENARIO" = "multi-origin" ] || [ "$SCENARIO" = "all" ]; then
   echo "[MULTI-ORIGIN] Three real independent namespaces, capped at 5 rps each"
   LOAD_PIDS=()
   for item in "$SRC2" "$SRC3" "$RELAY"; do
-    ip netns exec "$item" python3 "$HERE/load.py" \
+    ip netns exec "$item" "$MON_PYTHON" "$HERE/load.py" \
       --target "$VICTIM_IP" --duration 6 --rps 5 \
       >"$OUT/load-${item}.json" &
     LOAD_PIDS+=("$!")
@@ -190,7 +197,7 @@ if [ "$SCENARIO" = "multi-origin" ] || [ "$SCENARIO" = "all" ]; then
   for pid in "${LOAD_PIDS[@]}"; do
     wait "$pid"
   done
-  python3 "$HERE/analyze_http.py" \
+  "$MON_PYTHON" "$HERE/analyze_http.py" \
     --log "$OUT/victim.jsonl" --target "$VICTIM_IP" \
     --out "$OUT/multi-source-mon-findings.json" \
     >"$OUT/multi-source-analysis.log"
