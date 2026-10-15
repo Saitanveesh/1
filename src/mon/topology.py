@@ -260,6 +260,8 @@ def build_topology_snapshot(
         nodes=sorted(nodes.values(), key=lambda n: n.node_id),
         links=sorted(
             links.values(),
-            key=lambda l: (l.source_id, l.target_id, l.layer, l.relationship),
+            key=lambda link: (
+                link.source_id, link.target_id, link.layer, link.relationship
+            ),
         ),
     )
