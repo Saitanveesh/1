@@ -51,7 +51,9 @@ def _check_base_url(url: str, *, allow_local_http: bool) -> str:
             "localhost", "127.0.0.1", "::1",
         }
         if not (allow_local_http and local):
-            raise ValueError("topology upload requires HTTPS (or explicit loopback development mode)")
+            raise ValueError(
+                "topology upload requires HTTPS or explicit loopback development mode"
+            )
     if not parsed.hostname:
         raise ValueError("API URL must contain a host")
     if parsed.path not in {"", "/"}:
@@ -69,6 +71,8 @@ def upload(
     """Submit bounded authenticated batches; reject redirect token forwarding."""
     endpoint = _check_base_url(api_url, allow_local_http=allow_local_http)
     token = _read_bearer(token_file)
+    if not records:
+        return 0, 0
     opener = urllib.request.build_opener(_NoRedirect)
     inserted, duplicate = 0, 0
     for i in range(0, len(records), 250):
