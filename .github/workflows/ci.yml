@@ -39,7 +39,15 @@ jobs:
         run: mon-range-upload --help
       - name: Validate isolated netns harness shell and Python entrypoints
         run: |
-          bash -n tools/range_lab/run.sh
+          bash -n tools/range_lab/run.sh tools/range_lab/preflight.sh
+          # The hosted runner is not a disconnected single-interface VM.
+          # A successful preflight on CI would mean the safety gate is broken.
+          if sudo env MON_DISPOSABLE_VM_CONFIRMED=YES \
+              bash tools/range_lab/preflight.sh > /tmp/mon-range-preflight.log 2>&1; then
+            echo "Unsafe: disconnected-VM preflight unexpectedly passed CI runner"
+            exit 1
+          fi
+          cat /tmp/mon-range-preflight.log
           python -m compileall -q tools/range_lab
           python tools/range_lab/load.py --help
           python tools/range_lab/analyze_arp.py --help
