@@ -1,24 +1,24 @@
-# MON four-computer cyber-range profile
+# MON runtime-role cyber range (no fixed attacker/victim PCs)
 
 Status: **software manifests + synthetic ERP service implemented**. Not certified against
 the institution's actual switches, endpoint population, campus LAN, or PC hardware.
 No network is scanned or attacked when these files are added to Git.
 
-## Allocation: four physical computers, not seven
+## Dynamic roles — no fixed attacker or victim machine
 
-- **PC1 — MON SOC and monitoring**: PostgreSQL control-plane data, MON API,
+- **MON SOC host — selectable consolidated monitoring computer/VM**: PostgreSQL control-plane data, MON API,
   React console, Prometheus metrics archive and independent Blackbox probes.
   A real passive packet sensor still needs an authorized TAP/SPAN/flow export
   or a local interface that genuinely observes the path. The base container
   does NOT automatically receive all switched traffic.
-- **PC2 — blue team**: browser plus SSH tunnel to PC1 console. Uses issuer
+- **Blue-team operator — any authenticated workstation/browser**: browser plus SSH tunnel to PC1 console. Uses issuer
   authentication/RBAC and an authorized `mon_session` browser cookie. The
   current MON codebase does not contain a complete identity-provider login
   portal; provisioning the actual issuer/session is a deployment prerequisite.
-- **PC3 — red team**: authorized exercise station with verified isolation.
+- **Red-team source — any authorized enrolled exercise PC/VM**: authorized exercise station with verified isolation.
   No MON daemon or artificial fixed-source attacker address is required.
   Attack tooling is not included in the management network deployment.
-- **PC4 — disposable victim**: isolated synthetic university ERP API and
+- **Disposable victim — ANY authorized enrolled PC/VM**: isolated synthetic university ERP API and
   PostgreSQL with **only fabricated records**. PC4 does not represent the
   institution's production ERP. It can be replaced by any separately
   authorized, instrumented disposable victim without editing detector code.
@@ -39,13 +39,13 @@ No network is scanned or attacked when these files are added to Git.
 4. Prepare institution-approved identity-provider signing keys and issue
    correctly scoped MON browser sessions; no hard-coded developer bypass.
    Secure PC1 management access, and use a dedicated non-root Docker account.
-5. Confirm PC1 can reach PC4's **approved probe/metrics interface**, while
+5. Confirm PC1 can reach the enrolled victim's **approved probe/metrics interface**, while
    the red-team attack interface is restricted to the approved exercise
    workload and cannot reach campus production networks.
 
-## PC1 preparation and SOC startup
+## Start the consolidated MON server (whichever approved host is selected)
 
-All commands are for the checked-out branch in a disposable test host.
+All commands are for the checked-out branch in a disposable test host. The directory is retained for backward compatibility; it is NOT a fixed physical machine assignment.
 
 ```bash
 git checkout design/dynamic-multilab-cyber-range
@@ -64,18 +64,18 @@ docker compose --env-file .env -f compose.soc.yml up -d --build
 docker compose --env-file .env -f compose.soc.yml ps
 ```
 
-The SOC API is bound **only to PC1 loopback :8080**; the operator console is
-bound to **PC1 loopback :8088**; Prometheus is **PC1 loopback :9090**.
+The SOC API is bound **only to the MON server's loopback :8080**; the operator console is
+bound to **the MON server's loopback :8088**; Prometheus is **the MON server's loopback :9090**.
 PostgreSQL is internal to Docker and uses a named persistent volume.
 MON's existing container entrypoint applies Alembic migrations.
 All production JWT/mTLS identity enrollment and audit controls are still
 required, not replaced by Docker Compose.
 
-## PC4 preparation and isolated ERP startup
+## Install disposable synthetic ERP on the chosen victim PC/VM
 
-Copy the same repository checkout to disposable PC4. Prepare a **separate**
+Copy the same repository checkout to the currently chosen isolated victim PC/VM. Prepare a **separate**
 private `.env` there, with `ERP_DB_PASSWORD`, `ERP_DATABASE_URL` and
-`ERP_BIND_IP`. That bind IP must be an address actually configured on PC4's
+`ERP_BIND_IP`. That bind IP must be an address actually configured on the enrolled victim's
 isolated, authorized exercise interface; it must **not** be a campus
 management interface. The example's RFC 5737 documentation address must
 never be treated as a real interface.
@@ -91,7 +91,7 @@ docker compose --env-file .env -f compose.erp.yml up -d --build
 docker compose --env-file .env -f compose.erp.yml ps
 ```
 
-From an explicitly permitted monitoring station that can reach PC4's
+From an explicitly permitted monitoring station that can reach the enrolled victim's
 approved interface:
 
 ```bash
@@ -103,7 +103,7 @@ curl --fail --max-time 5 http://YOUR_ISOLATED_ERP_IP:8081/metrics
 
 These endpoints measure actual request timing, process RSS/CPU time and
 database readiness. `/health/ready` fails with HTTP 503 if DB reads fail.
-PC4 host CPU and RAM now have a separate Node Exporter, listening only on the
+Enrolled victim host CPU and RAM now have a separate Node Exporter, listening only on the
 operator-approved `ERP_MONITOR_BIND_IP:9100` interface. This sensitive metrics
 endpoint must be accessible only to PC1 and denied to PC3 and campus clients
 by independent firewall/routing rules. Keep it unconfigured until isolation
@@ -142,21 +142,21 @@ retains seven days of measurements in a named volume for this pilot.
 Restrict PC1-to-PC4 access to the intended route and do not trust operator
 labels as an isolation boundary.
 
-## PC2 blue-team browser and PC3 red-team station
+## Blue-team browser and runtime-selected red-team station
 
-On PC2, after verifying the PC1 SSH host key and authenticating as an
+On any blue-team workstation, after verifying the MON SOC host's SSH host key and authenticating as an
 authorized operator:
 
 ```bash
 ssh -N -L 8088:127.0.0.1:8088 YOUR_PC1_OPERATOR@YOUR_PC1_MANAGEMENT_ADDRESS
 ```
 
-Open `http://127.0.0.1:8088` on PC2. A properly provisioned `mon_session`
+Open `http://127.0.0.1:8088` on the chosen blue-team workstation. A properly provisioned `mon_session`
 cookie from the institution's trusted MON issuer is necessary to use API and
 live WebSocket features. An unconfigured identity provider should produce
 an authentication error, not a demo bypass.
 
-PC3 is a role, not a hard-coded attacker identity in MON. Exercise traffic
+There is no designated attacker PC in MON. Exercise traffic
 may originate from another preauthorized range participant if scope controls
 and exercise isolation are independently validated. No attack targets on
 the campus LAN and no actual college ERP accounts/data.
