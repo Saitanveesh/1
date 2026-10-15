@@ -26,7 +26,7 @@ jobs:
           pip install -e '.[dev,erp-range,switch]'
           pip check
       - name: Topology, switch and ERP regression
-        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py tests/test_topology_snmpv3.py tests/test_range_erp.py
+        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py tests/test_topology_snmpv3.py tests/test_range_erp.py tests/test_range_health.py
       - name: PySNMPv3 runtime import smoke
         run: python -c "from pysnmp.hlapi.v3arch.asyncio import bulk_walk_cmd, USM_AUTH_HMAC192_SHA256, USM_PRIV_CFB128_AES; assert bulk_walk_cmd"
       - name: Read-only topology collector CLI smoke
@@ -59,6 +59,7 @@ jobs:
           ERP_DB_PASSWORD: test-only-not-for-production
           ERP_DATABASE_URL: postgresql://mon_erp_range:test-only-not-for-production@erp-db:5432/mon_erp_range
           ERP_BIND_IP: 192.0.2.10
+          ERP_MONITOR_BIND_IP: 192.0.2.11
         run: |
           docker compose -f deploy/four-pc/compose.soc.yml config -q
           docker compose -f deploy/four-pc/compose.erp.yml config -q
@@ -67,6 +68,7 @@ jobs:
           ERP_DB_PASSWORD: github-actions-test-only-secret
           ERP_DATABASE_URL: postgresql://mon_erp_range:github-actions-test-only-secret@erp-db:5432/mon_erp_range
           ERP_BIND_IP: 127.0.0.1
+          ERP_MONITOR_BIND_IP: 127.0.0.1
         run: |
           set -euo pipefail
           cleanup() {
@@ -102,6 +104,10 @@ jobs:
               metrics = response.read().decode('utf-8')
           assert 'mon_erp_process_rss_bytes' in metrics
           assert 'mon_erp_http_requests_total' in metrics
+          with urllib.request.urlopen('http://127.0.0.1:9100/metrics') as response:
+              host_metrics = response.read().decode('utf-8')
+          assert 'node_cpu_seconds_total' in host_metrics
+          assert 'node_memory_MemAvailable_bytes' in host_metrics
           PY
 
   postgres-integration:
