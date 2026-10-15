@@ -1,4 +1,4 @@
-import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView } from "./types";
+import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView, TopologySnapshot } from "./types";
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -104,3 +104,14 @@ export function rollbackResponse(
   );
 }
 
+
+export function fetchTopology(
+  tenantId: string, siteId: string, rootNodeId?: string
+): Promise<TopologySnapshot> {
+  const params = new URLSearchParams({
+    tenant_id: tenantId,
+    site_id: siteId,
+    ...(rootNodeId ? { root_node_id: rootNodeId } : {})
+  });
+  return getJson<TopologySnapshot>(`/api/v1/topology?${params.toString()}`);
+}
