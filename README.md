@@ -24,6 +24,27 @@ There is no single perimeter device that defines trust. Enforcement may occur at
 switch/NAC, network firewall/router, cloud control, WAF, or upstream mitigation point,
 depending on evidence and the enforcement graph.
 
+## Evidence-backed network discovery (development branch)
+
+The four-PC SOC design uses a dynamic network graph: devices are learned from
+actual scoped inventory observations and must **not** be allocated to invented
+labs or assigned a presumed physical location. The current branch includes
+PostgreSQL-backed topology observations, authenticated `/api/v1/topology` APIs,
+an interactive Network Map view, and a read-only collector for Linux neighbor
+cache and separately exported managed-switch MAC/LLDP information.
+
+Run `mon-topology-collect --help` after installing the Python package. See
+[collector runbook](docs/topology-inventory-collector.md) and
+[ADR 0078](docs/adr/0078-evidence-backed-topology-and-network-distance.md).
+Observed IP-address matches with recent findings may be highlighted, but an
+IP match does not prove a person, physical workstation, or attack path.
+
+**Scope boundary:** No physical campus switches have been connected by this
+work, no live campus inventory is verified, and one collector does not guarantee
+visibility into an entire switched network. The collector performs no active
+scans or switch configuration changes. Lab attack exercises require a separate,
+approved isolated range with real verification and rollback.
+
 ## Narrated architecture walkthrough
 
 For explaining MON end to end to a non-technical audience, the repository includes a synthetic,
