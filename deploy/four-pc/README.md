@@ -1,5 +1,18 @@
 # MON runtime-role cyber range (no fixed attacker/victim PCs)
 
+**For a same-day Lab A demonstration of MITM and multi-origin HTTP
+pressure on REAL packets without touching the shared college LAN,
+start with [the isolated runnable lab kit](../../tools/range_lab/README.md).**
+It has no fixed physical attacker or victim computer and runs inside a
+disposable Ubuntu VM on any approved host. The code explicitly refuses
+non-disposable target IPs and tests containment/rollback. This is the
+required first safety gate before connecting campus switch collectors.
+
+**The files below remain an optional consolidated SOC deployment profile**,
+not a fixed assignment that says PC4 is the victim. Install the victim
+workload on whichever authorized isolated PC/VM the operator chooses and
+enroll its real sensor/health identity.
+
 Status: **software manifests + synthetic ERP service implemented**. Not certified against
 the institution's actual switches, endpoint population, campus LAN, or PC hardware.
 No network is scanned or attacked when these files are added to Git.
