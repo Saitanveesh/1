@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -29,7 +30,7 @@ def events_from_capture_text(
     if len(text) > 2_000_000:
         raise ValueError("capture transcription exceeds 2 MB")
     events = []
-    for index, line in enumerate(text.splitlines()):
+    for line_number, line in enumerate(text.splitlines(), 1):
         match = _ARP_REPLY.search(line)
         time_match = _TIMESTAMP.match(line)
         if not match or not time_match:
@@ -53,8 +54,11 @@ def events_from_capture_text(
             observed_at=observed_at,
             raw_reference="arp-packets.pcap",
         )
+        stable_id = hashlib.sha256(
+            f"range-arp:{line_number}:{line}".encode("utf-8")
+        ).hexdigest()
         events.append(SecurityEvent(
-            event_id=f"range-arp-{index:08d}",
+            event_id=stable_id,
             tenant_id=tenant_id, site_id=site_id,
             sensor_id="range-arp-passive",
             observed_at=observed_at,
