@@ -48,10 +48,14 @@ jobs:
         run: docker build -t mon-control-plane:test .
       - name: Build isolated synthetic ERP service image
         run: docker build -t mon-synthetic-erp:test demo/erp_range
+      - name: Build SOC operator console image
+        run: docker build -f deploy/four-pc/console/Dockerfile -t mon-console:test .
       - name: Validate four-PC Compose manifests without starting a service
         env:
           MON_DB_PASSWORD: test-only-not-for-production
           MON_DATABASE_URL: postgresql+psycopg://mon:test-only-not-for-production@postgres:5432/mon
+          MON_AUTH_ISSUER: https://test-issuer.invalid
+          MON_AUTH_AUDIENCE: mon-ci
           ERP_DB_PASSWORD: test-only-not-for-production
           ERP_DATABASE_URL: postgresql://mon_erp_range:test-only-not-for-production@erp-db:5432/mon_erp_range
           ERP_BIND_IP: 192.0.2.10
