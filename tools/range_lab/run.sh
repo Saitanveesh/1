@@ -25,7 +25,7 @@ if [ "${EUID}" -ne 0 ]; then
   echo "Run inside a disposable Ubuntu VM with sudo; never on shared college host OS." >&2
   exit 2
 fi
-for cmd in ip python3 curl tcpdump timeout nft sysctl sha256sum grep mktemp; do
+for cmd in ip python3 curl tcpdump timeout nft sysctl sha256sum grep mktemp ping; do
   command -v "$cmd" >/dev/null || { echo "Missing command: $cmd" >&2; exit 2; }
 done
 # Must be explicitly acknowledged after institutional authorization. This
@@ -167,12 +167,16 @@ fi
 
 if [ "$SCENARIO" = "multi-origin" ] || [ "$SCENARIO" = "all" ]; then
   echo "[MULTI-ORIGIN] Three real independent namespaces, capped at 5 rps each"
+  LOAD_PIDS=()
   for item in "$SRC2" "$SRC3" "$RELAY"; do
     ip netns exec "$item" python3 "$HERE/load.py" \
       --target "$VICTIM_IP" --duration 6 --rps 5 \
       >"$OUT/load-${item}.json" &
+    LOAD_PIDS+=("$!")
   done
-  wait
+  for pid in "${LOAD_PIDS[@]}"; do
+    wait "$pid"
+  done
   # Quantification comes from real server and source logs, not synthetic
   # graphics, a fabricated pps value, or a claimed upstream DDoS.
   ip netns exec "$CLIENT" curl -fsS --max-time 4 \
