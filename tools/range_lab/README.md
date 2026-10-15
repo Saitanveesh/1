@@ -58,6 +58,14 @@ sudo env MON_DISPOSABLE_VM_CONFIRMED=YES \
   bash tools/range_lab/run.sh --scenario multi-origin --victim alpha
 ```
 
+The script now performs a **fail-closed preflight** before creating any
+bridge or namespace: it requires an actual detected VM (not dual-boot Ubuntu
+bare metal), only the `lo` interface in the VM, no external IPv4/IPv6
+routes, prerequisites and explicit institutional authorization confirmation.
+**Install dependencies and clone the repo first using temporary VM networking,
+then power off the VM and REMOVE its virtual NIC.** Restart the disconnected
+VM and run the check. If it refuses, do not bypass it.
+
 The script **refuses** to operate outside root-controlled disposable
 namespaces without explicit confirmation. It builds one ephemeral virtual
 bridge; six veth-only isolated participants; and hard-coded *internal*
