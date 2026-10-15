@@ -54,9 +54,11 @@ fi
 OUT="$(mktemp -d /tmp/mon-isolated-range.XXXXXXXX)"
 SERVER_PID=""
 TCPDUMP_PID=""
+ARP_CAPTURE_PID=""
 cleanup() {
   set +e
   [ -z "$TCPDUMP_PID" ] || kill "$TCPDUMP_PID" 2>/dev/null
+  [ -z "$ARP_CAPTURE_PID" ] || kill "$ARP_CAPTURE_PID" 2>/dev/null
   [ -z "$SERVER_PID" ] || kill "$SERVER_PID" 2>/dev/null
   for ns in "${NAMES[@]}"; do
     ip netns del "$ns" 2>/dev/null
@@ -113,6 +115,11 @@ printf 'Run: isolated veth namespaces only\nVictim selected: %s (%s)\nEvidence: 
 
 if [ "$SCENARIO" = "mitm" ] || [ "$SCENARIO" = "all" ]; then
   echo "[MITM] Baseline authentic MAC binding, then isolated ARP redirection"
+  # Capture original and forged ARP replies from the freshly created bridge.
+  timeout 7 tcpdump -U -nn -s 96 -i "$BRIDGE" -c 25 \
+    -w "$OUT/arp-packets.pcap" arp >"$OUT/arp-capture.log" 2>&1 &
+  ARP_CAPTURE_PID="$!"
+  sleep 0.4
   # Establish real neighbor mappings before testing contradictory replies.
   ip netns exec "$CLIENT" ping -c 1 -W 1 "$VICTIM_IP" >/dev/null
   ip netns exec "$VICTIM_NS" ping -c 1 -W 1 10.253.42.10 >/dev/null
@@ -130,6 +137,12 @@ if [ "$SCENARIO" = "mitm" ] || [ "$SCENARIO" = "all" ]; then
     10.253.42.10 "$CLIENT_MAC" >"$OUT/arp-attempt.json"
   ip -n "$CLIENT" neigh show "$VICTIM_IP" dev eth0 >"$OUT/arp-binding-during.txt"
   ip -n "$VICTIM_NS" neigh show 10.253.42.10 dev eth0 >>"$OUT/arp-binding-during.txt"
+  wait "$ARP_CAPTURE_PID" || true
+  ARP_CAPTURE_PID=""
+  tcpdump -nn -e -tt -r "$OUT/arp-packets.pcap" \
+    >"$OUT/arp-captured-frames.txt" 2>"$OUT/arp-read.log"
+  python3 "$HERE/analyze_arp.py" --tcpdump-text "$OUT/arp-captured-frames.txt" \
+    --out "$OUT/arp-mon-findings.json" >"$OUT/arp-analysis.log"
   if ! grep -qi "$RELAY_MAC" "$OUT/arp-binding-during.txt"; then
     echo "ARP redirection did not take effect: no MITM claim" >&2
     exit 1
