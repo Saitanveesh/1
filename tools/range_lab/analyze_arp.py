@@ -16,7 +16,8 @@ from mon.detection import DetectionEngine
 from mon.domain import EvidenceClass, EvidenceRef, SecurityEvent
 
 _ARP_REPLY = re.compile(
-    r"ARP,\s+Reply\s+(?P<ip>\d{1,3}(?:\.\d{1,3}){3})\s+is-at\s+"
+    r"(?:ARP,\s+Reply|ethertype ARP\s*\([^)]*\),\s*length\s*\d+:\s*Reply)"
+    r"\s+(?P<ip>\d{1,3}(?:\.\d{1,3}){3})\s+is-at\s+"
     r"(?P<mac>[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})"
 )
 _TIMESTAMP = re.compile(r"^\s*(\d{10,12}(?:\.\d+)?)\s+")
