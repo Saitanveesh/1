@@ -33,6 +33,7 @@ from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.taxii import TaxiiFeedRecord, TaxiiFeedState
 from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
+from mon.topology import TopologyBatch, TopologyObservation
 
 
 class PipelineStore(Protocol):
@@ -164,6 +165,12 @@ class ResponseStateStore(Protocol):
 
 
 class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
+    def add_topology_observations(self, batch: TopologyBatch) -> int: ...
+
+    def list_topology_observations(
+        self, tenant_id: str, site_id: str, *, limit: int = 10000
+    ) -> tuple[list[TopologyObservation], bool]: ...
+
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
 
     def get_event(
@@ -362,6 +369,7 @@ class InMemoryStore:
         self.taxii_feeds: dict[tuple[str, str, str], TaxiiFeedRecord] = {}
         self.identities: dict[tuple[str, str, str], IdentityRecord] = {}
         self.processes: dict[tuple[str, str, str], ProcessRecord] = {}
+        self.topology_observations: dict[tuple[str, str, str], TopologyObservation] = {}
         self._identity_lock = threading.RLock()
         self._scope_locks: defaultdict[tuple[str, str], threading.Lock] = defaultdict(
             threading.Lock
@@ -451,6 +459,36 @@ class InMemoryStore:
             for (asset_tenant, asset_site, _), value in self.assets.items()
             if asset_tenant == tenant_id and asset_site == site_id
         ]
+
+    def add_topology_observations(self, batch: TopologyBatch) -> int:
+        # All-or-nothing collision checks, then append immutable observations.
+        items = batch.observations
+        with self._identity_lock:
+            for item in items:
+                key = (item.tenant_id, item.site_id, item.observation_id)
+                existing = self.topology_observations.get(key)
+                if existing is not None and existing != item:
+                    raise ValueError("topology observation_id exists with different content")
+            inserted = 0
+            for item in items:
+                key = (item.tenant_id, item.site_id, item.observation_id)
+                if key not in self.topology_observations:
+                    self.topology_observations[key] = item
+                    inserted += 1
+        return inserted
+
+    def list_topology_observations(
+        self, tenant_id: str, site_id: str, *, limit: int = 10000
+    ) -> tuple[list[TopologyObservation], bool]:
+        if not 1 <= limit <= 10000:
+            raise ValueError("topology observation limit out of range")
+        with self._identity_lock:
+            observations = [
+                o for (t, s, _), o in self.topology_observations.items()
+                if t == tenant_id and s == site_id
+            ]
+        observations.sort(key=lambda o: (o.observed_at, o.observation_id))
+        return observations[-limit:], len(observations) > limit
 
     def get_identity(
         self,
