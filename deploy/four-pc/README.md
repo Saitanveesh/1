@@ -9,7 +9,7 @@ non-disposable target IPs and tests containment/rollback. This is the
 required first safety gate before connecting campus switch collectors.
 
 **The files below remain an optional consolidated SOC deployment profile**,
-not a fixed assignment that says PC4 is the victim. Install the victim
+not a fixed assignment that says selected victim host is the victim. Install the victim
 workload on whichever authorized isolated PC/VM the operator chooses and
 enroll its real sensor/health identity.
 
@@ -24,7 +24,7 @@ No network is scanned or attacked when these files are added to Git.
   A real passive packet sensor still needs an authorized TAP/SPAN/flow export
   or a local interface that genuinely observes the path. The base container
   does NOT automatically receive all switched traffic.
-- **Blue-team operator — any authenticated workstation/browser**: browser plus SSH tunnel to PC1 console. Uses issuer
+- **Blue-team operator — any authenticated workstation/browser**: browser plus SSH tunnel to MON host console. Uses issuer
   authentication/RBAC and an authorized `mon_session` browser cookie. The
   current MON codebase does not contain a complete identity-provider login
   portal; provisioning the actual issuer/session is a deployment prerequisite.
@@ -32,7 +32,7 @@ No network is scanned or attacked when these files are added to Git.
   No MON daemon or artificial fixed-source attacker address is required.
   Attack tooling is not included in the management network deployment.
 - **Disposable victim — ANY authorized enrolled PC/VM**: isolated synthetic university ERP API and
-  PostgreSQL with **only fabricated records**. PC4 does not represent the
+  PostgreSQL with **only fabricated records**. selected victim host does not represent the
   institution's production ERP. It can be replaced by any separately
   authorized, instrumented disposable victim without editing detector code.
 
@@ -41,18 +41,18 @@ No network is scanned or attacked when these files are added to Git.
 1. Obtain written campus/IT authorization for monitoring and an approved
    exercise subnet/VLAN with designated switch ports or physically isolated
    virtual switch. Verify the exercise fabric has **no routing or bridging**
-   into ordinary campus systems before PC3 can send scenario traffic.
+   into ordinary campus systems before selected isolated exercise source can send scenario traffic.
 2. Survey managed-switch vendor/model, firmware, SNMPv3 read-only support,
    LLDP, BRIDGE-MIB, Q-BRIDGE-MIB, SPAN/flow export, VLANs, trunk ports and
    expected device count. Do not infer 100% visibility from one port.
-3. Install Docker Engine + Compose on PC1 and PC4 in disposable OS/VMs.
-   PC1 storage needs separate persistent quotas, backups and disk alerts;
+3. Install Docker Engine + Compose on MON host and selected victim host in disposable OS/VMs.
+   MON host storage needs separate persistent quotas, backups and disk alerts;
    size CPU/RAM only after realistic measured load. Do not deploy on the
    operator's main laptop for first tests.
 4. Prepare institution-approved identity-provider signing keys and issue
    correctly scoped MON browser sessions; no hard-coded developer bypass.
-   Secure PC1 management access, and use a dedicated non-root Docker account.
-5. Confirm PC1 can reach the enrolled victim's **approved probe/metrics interface**, while
+   Secure MON host management access, and use a dedicated non-root Docker account.
+5. Confirm MON host can reach the enrolled victim's **approved probe/metrics interface**, while
    the red-team attack interface is restricted to the approved exercise
    workload and cannot reach campus production networks.
 
@@ -98,7 +98,7 @@ git checkout design/dynamic-multilab-cyber-range
 cd deploy/four-pc
 umask 077
 cp example.env .env
-# Set PC4 values and verify isolated interface ownership before proceeding.
+# Set selected victim host values and verify isolated interface ownership before proceeding.
 docker compose --env-file .env -f compose.erp.yml config -q
 docker compose --env-file .env -f compose.erp.yml up -d --build
 docker compose --env-file .env -f compose.erp.yml ps
@@ -118,16 +118,16 @@ These endpoints measure actual request timing, process RSS/CPU time and
 database readiness. `/health/ready` fails with HTTP 503 if DB reads fail.
 Enrolled victim host CPU and RAM now have a separate Node Exporter, listening only on the
 operator-approved `ERP_MONITOR_BIND_IP:9100` interface. This sensitive metrics
-endpoint must be accessible only to PC1 and denied to PC3 and campus clients
+endpoint must be accessible only to MON host and denied to selected isolated exercise source and campus clients
 by independent firewall/routing rules. Keep it unconfigured until isolation
 is verified. Process memory is not host memory.
 
-## Independent PC1 Prometheus/Blackbox observation of PC4
+## Independent MON host Prometheus/Blackbox observation of selected victim host
 
 Initially all three `targets/*.json` files contain `[]`: **zero configured targets**
 is intentional and must show no service metrics, never a manufactured healthy
 ERP value. After confirming the private probe route and authorization,
-edit the files **only on PC1**.
+edit the files **only on MON host**.
 
 Illustrative format (substitute the actual private, routed target):
 
@@ -141,7 +141,7 @@ Illustrative format (substitute the actual private, routed target):
 ```
 
 Put the above in `targets/erp-metrics.json` with only the host:port.
-For `targets/erp-host.json`, configure the actual PC4 `HOST:9100` address
+For `targets/erp-host.json`, configure the actual selected victim host `HOST:9100` address
 with the same tenant/site labels after confirming the monitoring VLAN and
 firewall scope. MON's measured CPU percentage uses idle CPU-time rate; memory
 percentage comes from available/total host memory. Missing or ambiguous
@@ -152,7 +152,7 @@ such as `http://YOUR_APPROVED_ERP_IP:8081/health/ready`.
 These represent two distinct measurements: self-reported application/process
 metrics and an independently performed HTTP readiness probe. Prometheus
 retains seven days of measurements in a named volume for this pilot.
-Restrict PC1-to-PC4 access to the intended route and do not trust operator
+Restrict MON host-to-selected victim host access to the intended route and do not trust operator
 labels as an isolation boundary.
 
 ## Blue-team browser and runtime-selected red-team station
@@ -216,7 +216,7 @@ management credentials before expanding to other devices. Record actual
 firmware/OID/port mapping mismatches and blind spots. The four-PC Compose
 profile does not itself deploy this SNMP poller automatically.
 
-## PC3 isolated, bounded red-team exercise and evidence ingestion
+## selected isolated exercise source isolated, bounded red-team exercise and evidence ingestion
 
 The `mon-range-exercise` command is a **single-source, low-rate HTTP
 test**, not a denial-of-service, MITM, credential attack or exploit tool.
@@ -227,7 +227,7 @@ marker. A local permit file is an operator record, not a cryptographic
 institutional authorization mechanism. **Independent switch/VM isolation
 and approval are mandatory**, especially on the shared campus LAN.
 
-On PC3 in the authorized disposable VM, create `~/permit.json` with
+On selected isolated exercise source in the authorized disposable VM, create `~/permit.json` with
 permissions 0600. The values below are a format illustration; replace the
 IP and expiry with your actual approved exercise identity and a future
 time within two hours:
@@ -299,24 +299,24 @@ confirmed incidents and operator containment history.
   evidence before deciding containment.
 - Dynamic physical enforcement and safe rollback still require adapter
   capability testing against the exact path and equipment.
-- A successful CI integration test is not certification of real PC1–PC4
+- A successful CI integration test is not certification of real MON host–selected victim host
   resources, campus visibility, switches, live attack impact or recovery.
 
 ## Rollback and release gates
 
-- Stop demo PC4 services using
+- Stop demo selected victim host services using
   `docker compose --env-file .env -f compose.erp.yml down`; this preserves
   the named test database volume. To **discard only fictional test records**,
   separately remove the isolated test volume after verifying its name.
-- Stop PC1 services using `docker compose --env-file .env -f compose.soc.yml down`
+- Stop MON host services using `docker compose --env-file .env -f compose.soc.yml down`
   without `-v`; durable MON evidence and metrics must not be deleted
   as a side effect of routine shutdown.
 - Mandatory gates: unit/CI success, Compose config/build, disposable VM
   integration, restart/crash/retention verification, live sensor packet path,
-  true PC4 health under load, management-network isolation, and approved
+  true selected victim host health under load, management-network isolation, and approved
   enforcement with TTL+verification+rollback.
 - **Not yet certified:** SNMP management hardware, four physical PC resources,
-  network isolation, PC2 issuer/browser login, all-endpoint coverage, full
+  network isolation, blue-team workstation issuer/browser login, all-endpoint coverage, full
   host-health exporter, red-team exercise and automatic containment.
 
 Do not claim that a successful Docker build means these physical gates passed.
