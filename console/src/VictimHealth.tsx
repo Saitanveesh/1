@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchVictimHealth } from "./api";
-import type { VictimHealthView, VictimMetric } from "./types";
+import type { Asset, VictimHealthView, VictimMetric } from "./types";
 
 function measured(
   item: VictimMetric | undefined,
@@ -35,18 +35,21 @@ function Measurement({
 
 export default function VictimHealth({
   tenantId,
-  siteId
+  siteId,
+  assets
 }: {
   tenantId: string;
   siteId: string;
+  assets: Asset[];
 }) {
+  const [selectedAsset, setSelectedAsset] = useState("");
   const [health, setHealth] = useState<VictimHealthView | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const value = await fetchVictimHealth(tenantId, siteId);
+        const value = await fetchVictimHealth(tenantId, siteId, selectedAsset || undefined);
         if (!cancelled) {
           setHealth(value);
           setError("");
@@ -64,7 +67,7 @@ export default function VictimHealth({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [tenantId, siteId]);
+  }, [tenantId, siteId, selectedAsset]);
 
   const response = health?.service_reachable;
   const availability =
@@ -77,15 +80,31 @@ export default function VictimHealth({
       <div className="panel-head">
         <div>
           <span className="eyebrow">INDEPENDENT VICTIM EVIDENCE</span>
-          <h2>Instrumented ERP victim health</h2>
+          <h2>Runtime-selected victim health</h2>
         </div>
         <span className="mono">{health?.telemetry_state ?? "NOT CONNECTED"}</span>
       </div>
       <p className="network-explain">
-        This view measures only an authorized, instrumented synthetic ERP target.
-        No metric is inferred for unrelated devices. Missing or stale observations
-        remain UNKNOWN; process RSS is not PC4 host RAM.
+        This view measures only actual authorized, instrumented selected assets.
+        No metric is inferred for unrelated devices. No PC is a fixed victim. Missing or stale observations
+        remain UNKNOWN; process RSS is not host RAM.
       </p>
+      <label className="network-footnote">
+        Selected observed device (not automatically enrolled for host monitoring)
+        <select value={selectedAsset} onChange={(event) => setSelectedAsset(event.target.value)}>
+          <option value="">Unassigned / legacy single-target view</option>
+          {assets.map((asset) => (
+            <option key={asset.asset_id} value={asset.asset_id}>
+              {asset.display_name} · {asset.asset_id}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selectedAsset && (
+        <p className="network-footnote">
+          Device selected at runtime: {selectedAsset}. If no matching exporter, show UNKNOWN.
+        </p>
+      )}
       {error && <p className="network-warning" role="alert">Telemetry unavailable: {error}</p>}
       <div className="metrics-grid">
         <Measurement title="Independent service reachability"
