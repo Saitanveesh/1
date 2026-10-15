@@ -535,7 +535,7 @@ export default function App() {
           </>
         )}
         {view === "Network Map" && authState === "OK" && (
-          <NetworkMap tenantId={tenantId} siteId={siteId} sequence={state.sequence} />
+          <NetworkMap tenantId={tenantId} siteId={siteId} sequence={state.sequence} findings={state.findings} />
         )}
         {view === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
         {view === "Attack Graph" && <AttackGraph state={state} />}
