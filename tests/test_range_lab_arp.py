@@ -42,6 +42,18 @@ def test_capture_conflicting_mapping_triggers_evidence_not_confirmed_mitm():
     assert finding["evidence"][-1]["raw_reference"].endswith(".pcap")
 
 
+def test_parser_accepts_ethernet_mode_tcpdump_reply():
+    # tcpdump -e prints ethertype ARP rather than the short 'ARP, Reply' form.
+    text = (
+        f"{TS:.6f} 02:11:22:33:44:55 > 02:aa:bb:cc:dd:ee, "
+        "ethertype ARP (0x0806), length 42: "
+        "Reply 10.253.42.20 is-at 02:11:22:33:44:55, length 28"
+    )
+    events = events_from_capture_text(text)
+    assert len(events) == 1
+    assert events[0].attributes["arp_sender_mac"] == "02:11:22:33:44:55"
+
+
 def test_no_evidence_from_uncaptured_or_invalid_packets():
     assert events_from_capture_text("") == []
     text = f"{TS:.6f} ARP, Request who-has 10.253.42.20"
