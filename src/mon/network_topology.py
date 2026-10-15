@@ -46,7 +46,7 @@ class TopologyObservation(BaseModel):
     dst_port: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
-    def validate_observation(self) -> "TopologyObservation":
+    def validate_observation(self) -> TopologyObservation:
         if self.source == self.target:
             raise ValueError("self-links are not valid topology observations")
         if self.observed_at.tzinfo is None or self.valid_until.tzinfo is None:
