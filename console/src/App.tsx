@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import NetworkMap from "./NetworkMap";
+import ExerciseTimeline from "./ExerciseTimeline";
 import VictimHealth from "./VictimHealth";
 import { LiveClient, type LiveState } from "./live";
 import type {
@@ -22,6 +23,7 @@ type View =
   | "Overview"
   | "Network Map"
   | "Victim Health"
+  | "Exercise Timeline"
   | "Incidents"
   | "Attack Graph"
   | "Telemetry"
@@ -35,6 +37,7 @@ const views: View[] = [
   "Overview",
   "Network Map",
   "Victim Health",
+  "Exercise Timeline",
   "Incidents",
   "Attack Graph",
   "Telemetry",
@@ -542,6 +545,9 @@ export default function App() {
         )}
         {view === "Victim Health" && authState === "OK" && (
           <VictimHealth tenantId={tenantId} siteId={siteId} />
+        )}
+        {view === "Exercise Timeline" && authState === "OK" && (
+          <ExerciseTimeline tenantId={tenantId} siteId={siteId} />
         )}
         {view === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
         {view === "Attack Graph" && <AttackGraph state={state} />}
