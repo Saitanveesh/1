@@ -9,11 +9,19 @@ function graph(addresses: string[][]): TopologySnapshot {
     tenant_id: "tenant-a", site_id: "site-1",
     captured_at: new Date(clock).toISOString(),
     root_node_id: null, distance_basis: "NO_ROOT_SELECTED",
-    coverage: "UNKNOWN", observations_considered: addresses.length,
+    coverage: "UNKNOWN",
+    coverage_details: {
+      sensors_seen: 1, active_sensors: 1, stale_sensors: 0,
+      observed_nodes: addresses.length, stale_nodes: 0, observed_links: 0,
+      stale_links: 0, unresolved_nodes: 0, last_observation_at: new Date(clock).toISOString(),
+      complete_network_visibility: null
+    },
+    observations_considered: addresses.length,
     truncated: false, links: [],
     nodes: addresses.map((ips, i) => ({
       node_id: `node-${i}`, node_type: "UNVERIFIED",
       label: `Observed ${i}`, ip_addresses: ips, mac_addresses: [],
+      active_ip_addresses: ips, active_mac_addresses: [],
       status: "OBSERVED", last_seen: new Date(clock).toISOString(),
       evidence_ids: [`ev-${i}`], distance_hops: null
     }))
@@ -48,6 +56,27 @@ describe("observed network finding overlay", () => {
     );
     expect(results.roles.size).toBe(0);
     expect(results.unresolvedEndpoints).toBe(2);
+  });
+
+  it("does not mark a historical-only address as a live source", () => {
+    const snapshot = graph([["192.0.2.1", "192.0.2.2"]]);
+    snapshot.nodes[0].active_ip_addresses = ["192.0.2.2"];
+    const result = matchTopologyFindings(
+      snapshot, [finding("192.0.2.1", "192.0.2.2")], clock
+    );
+    expect(result.roles.get("node-0")?.has("SOURCE")).toBe(false);
+    expect(result.roles.get("node-0")?.has("TARGET")).toBe(true);
+    expect(result.unresolvedEndpoints).toBe(1);
+  });
+
+  it("does not use expired node observations for incident identity", () => {
+    const snapshot = graph([["192.0.2.1"]]);
+    snapshot.nodes[0].status = "STALE";
+    const result = matchTopologyFindings(
+      snapshot, [finding("192.0.2.1", "203.0.113.9")], clock
+    );
+    expect(result.roles.size).toBe(0);
+    expect(result.unresolvedEndpoints).toBe(2);
   });
 
   it("omits stale findings rather than implying an active attack", () => {
