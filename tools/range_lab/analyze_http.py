@@ -48,7 +48,7 @@ def events_from_service_log(
             raw_reference=f"victim.jsonl:line-{line_number}",
         )
         stable_id = hashlib.sha256(
-            f"range-http:{line_number}:{raw}".encode("utf-8")
+            f"range-http:{line_number}:{raw}".encode()
         ).hexdigest()
         events.append(SecurityEvent(
             event_id=stable_id,
