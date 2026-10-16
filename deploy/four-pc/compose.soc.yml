@@ -57,7 +57,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=7d
-      - --web.enable-lifecycle=false
+      # Leave lifecycle HTTP reload/shutdown disabled (Prometheus default).
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./targets:/etc/prometheus/targets:ro
