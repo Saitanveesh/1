@@ -83,6 +83,33 @@ jobs:
         run: |
           docker compose -f deploy/four-pc/compose.soc.yml config -q
           docker compose -f deploy/four-pc/compose.erp.yml config -q
+      - name: Start real Prometheus container and verify readiness
+        env:
+          MON_DB_PASSWORD: ci-only-no-real-secret
+          MON_DATABASE_URL: postgresql+psycopg://mon:ci-only-no-real-secret@postgres:5432/mon
+          MON_AUTH_ISSUER: https://ci-issuer.invalid
+          MON_AUTH_AUDIENCE: mon-ci
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker compose -f deploy/four-pc/compose.soc.yml down --remove-orphans
+          }
+          trap cleanup EXIT
+          docker compose -f deploy/four-pc/compose.soc.yml up -d --no-deps prometheus
+          healthy=0
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 3 http://127.0.0.1:9090/-/ready > /dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$healthy" != 1 ]; then
+            docker compose -f deploy/four-pc/compose.soc.yml ps -a
+            docker compose -f deploy/four-pc/compose.soc.yml logs --tail=80 prometheus
+            exit 1
+          fi
+          curl -fsS --max-time 5 http://127.0.0.1:9090/api/v1/status/buildinfo > /dev/null
       - name: Integration — real synthetic ERP with disposable PostgreSQL
         env:
           ERP_DB_PASSWORD: github-actions-test-only-secret
