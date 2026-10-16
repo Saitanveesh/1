@@ -26,6 +26,7 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.event_fabric import FabricReceipt, FabricReceiptStatus
+from mon.range_evidence import ExerciseReceipt
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -38,6 +39,7 @@ from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.store import InMemoryStore, Store
 from mon.taxii import TaxiiFeedRecord, TaxiiFeedState
 from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
+from mon.topology import TopologyBatch, TopologyObservation
 
 
 class Base(DeclarativeBase):
@@ -482,6 +484,40 @@ class SensorIdentityRow(Base):
     )
 
 
+class TopologyObservationRow(Base):
+    __tablename__ = "topology_observations"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    observation_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    observed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index("ix_topology_observations_scope_time",
+              "tenant_id", "site_id", "observed_at"),
+    )
+
+
+class ExerciseReceiptRow(Base):
+    __tablename__ = "range_exercise_receipts"
+
+    pk: Mapped[str] = mapped_column(String(900), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    site_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    exercise_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    finished_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_range_exercise_receipts_scope_time",
+            "tenant_id", "site_id", "finished_at",
+        ),
+    )
+
 def _key(tenant_id: str, site_id: str, object_id: str) -> str:
     return f"{tenant_id}\x1f{site_id}\x1f{object_id}"
 
@@ -605,6 +641,116 @@ class DatabaseStore:
             finally:
                 self._transaction_state.rls_scope = None
                 self._transaction_state.session = None
+
+    def add_exercise_receipt(self, receipt: ExerciseReceipt) -> bool:
+        key = _key(receipt.tenant_id, receipt.site_id, receipt.exercise_id)
+        try:
+            with self._session_factory.begin() as session:
+                self._apply_rls_scope(session, receipt.tenant_id, receipt.site_id)
+                row = session.get(ExerciseReceiptRow, key)
+                if row is not None:
+                    if ExerciseReceipt.model_validate(row.payload) != receipt:
+                        raise ValueError("exercise_id exists with different evidence")
+                    return False
+                session.add(ExerciseReceiptRow(
+                    pk=key,
+                    tenant_id=receipt.tenant_id,
+                    site_id=receipt.site_id,
+                    exercise_id=receipt.exercise_id,
+                    finished_at=dt.datetime.fromisoformat(receipt.finished_at),
+                    payload=receipt.model_dump(mode="json"),
+                ))
+                session.flush()
+        except IntegrityError as exc:
+            raise ValueError("exercise_id already exists (concurrent ingest)") from exc
+        return True
+
+    def list_exercise_receipts(
+        self, tenant_id: str, site_id: str, *, limit: int = 100,
+    ) -> list[ExerciseReceipt]:
+        if not 1 <= limit <= 100:
+            raise ValueError("exercise receipt limit out of range")
+        statement = (
+            select(ExerciseReceiptRow)
+            .where(
+                ExerciseReceiptRow.tenant_id == tenant_id,
+                ExerciseReceiptRow.site_id == site_id,
+            )
+            .order_by(
+                ExerciseReceiptRow.finished_at.desc(),
+                ExerciseReceiptRow.exercise_id.desc(),
+            )
+            .limit(limit)
+        )
+        with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
+            rows = session.scalars(statement).all()
+        return [ExerciseReceipt.model_validate(row.payload) for row in rows]
+
+    def add_topology_observations(self, batch: TopologyBatch) -> int:
+        items = batch.observations
+        tenant_id, site_id = items[0].tenant_id, items[0].site_id
+        inserted = 0
+        try:
+            with self._session_factory.begin() as session:
+                self._apply_rls_scope(session, tenant_id, site_id)
+                for item in items:
+                    key = _key(tenant_id, site_id, item.observation_id)
+                    existing = session.get(TopologyObservationRow, key)
+                    if existing is not None:
+                        if TopologyObservation.model_validate(existing.payload) != item:
+                            raise ValueError(
+                                "topology observation_id exists with different content"
+                            )
+                        continue
+                    session.add(
+                        TopologyObservationRow(
+                            pk=key,
+                            tenant_id=tenant_id,
+                            site_id=site_id,
+                            observation_id=item.observation_id,
+                            observed_at=item.observed_at,
+                            expires_at=item.expires_at,
+                            payload=item.model_dump(mode="json"),
+                        )
+                    )
+                    inserted += 1
+                session.flush()
+        except IntegrityError as exc:
+            raise ValueError(
+                "topology observation_id already exists (possible concurrent ingest)"
+            ) from exc
+        return inserted
+
+    def list_topology_observations(
+        self, tenant_id: str, site_id: str, *,
+        limit: int = 10000, before: dt.datetime | None = None,
+    ) -> tuple[list[TopologyObservation], bool]:
+        if not 1 <= limit <= 10000:
+            raise ValueError("topology observation limit out of range")
+        if before is not None and before.utcoffset() is None:
+            raise ValueError("topology history time must be timezone-aware")
+        statement = (
+            select(TopologyObservationRow)
+            .where(
+                TopologyObservationRow.tenant_id == tenant_id,
+                TopologyObservationRow.site_id == site_id,
+            )
+            .order_by(
+                TopologyObservationRow.observed_at.desc(),
+                TopologyObservationRow.observation_id.desc(),
+            )
+            .limit(limit + 1)
+        )
+        if before is not None:
+            statement = statement.where(TopologyObservationRow.observed_at <= before)
+        with self._session_factory() as session:
+            self._apply_rls_scope(session, tenant_id, site_id)
+            rows = session.scalars(statement).all()
+        return (
+            [TopologyObservation.model_validate(row.payload) for row in reversed(rows[:limit])],
+            len(rows) > limit,
+        )
 
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool:
         return self.get_event(tenant_id, site_id, event_id) is not None

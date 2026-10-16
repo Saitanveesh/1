@@ -1,4 +1,4 @@
-import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView } from "./types";
+import type { IncidentInvestigation, LiveSnapshot, OperatorPrincipal, ResponseExecution, ResponsePlan, ResponseRequestPayload, SensorFleetView, TopologySnapshot, VictimHealthView, ExerciseReceipt } from "./types";
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -104,3 +104,36 @@ export function rollbackResponse(
   );
 }
 
+
+export function fetchTopology(
+  tenantId: string, siteId: string, rootNodeId?: string, at?: string
+): Promise<TopologySnapshot> {
+  const params = new URLSearchParams({
+    tenant_id: tenantId,
+    site_id: siteId,
+    ...(rootNodeId ? { root_node_id: rootNodeId } : {}),
+    ...(at ? { at } : {})
+  });
+  return getJson<TopologySnapshot>(`/api/v1/topology?${params.toString()}`);
+}
+
+export function fetchVictimHealth(
+  tenantId: string, siteId: string, assetId?: string
+): Promise<VictimHealthView> {
+  const params = new URLSearchParams({
+    tenant_id: tenantId,
+    site_id: siteId,
+    ...(assetId ? { asset_id: assetId } : {})
+  });
+  return getJson<VictimHealthView>(
+    `/api/v1/range/erp-health?${params.toString()}`
+  );
+}
+
+export function fetchRangeExercises(
+  tenantId: string, siteId: string
+): Promise<ExerciseReceipt[]> {
+  return getJson<ExerciseReceipt[]>(
+    `/api/v1/range/exercises?${query({ tenantId, siteId })}`
+  );
+}

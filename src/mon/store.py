@@ -22,6 +22,7 @@ from mon.domain import (
     SecurityEvent,
 )
 from mon.event_fabric import FabricReceipt, FabricReceiptStatus
+from mon.range_evidence import ExerciseReceipt
 from mon.sensor_fleet_models import (
     SensorEnrollmentTokenRecord,
     SensorHeartbeat,
@@ -33,6 +34,7 @@ from mon.site_command_models import SiteCommandRecord
 from mon.site_identity_models import EnrollmentTokenRecord, SiteIdentityRecord
 from mon.taxii import TaxiiFeedRecord, TaxiiFeedState
 from mon.threat_intel import IndicatorType, ThreatIndicator, ThreatIntelSource
+from mon.topology import TopologyBatch, TopologyObservation
 
 
 class PipelineStore(Protocol):
@@ -164,6 +166,19 @@ class ResponseStateStore(Protocol):
 
 
 class Store(PipelineStore, ResponseStateStore, FabricReceiptStore, Protocol):
+    def add_exercise_receipt(self, receipt: ExerciseReceipt) -> bool: ...
+
+    def list_exercise_receipts(
+        self, tenant_id: str, site_id: str, *, limit: int = 100,
+    ) -> list[ExerciseReceipt]: ...
+
+    def add_topology_observations(self, batch: TopologyBatch) -> int: ...
+
+    def list_topology_observations(
+        self, tenant_id: str, site_id: str, *,
+        limit: int = 10000, before: dt.datetime | None = None,
+    ) -> tuple[list[TopologyObservation], bool]: ...
+
     def event_exists(self, tenant_id: str, site_id: str, event_id: str) -> bool: ...
 
     def get_event(
@@ -362,6 +377,8 @@ class InMemoryStore:
         self.taxii_feeds: dict[tuple[str, str, str], TaxiiFeedRecord] = {}
         self.identities: dict[tuple[str, str, str], IdentityRecord] = {}
         self.processes: dict[tuple[str, str, str], ProcessRecord] = {}
+        self.topology_observations: dict[tuple[str, str, str], TopologyObservation] = {}
+        self.exercise_receipts: dict[tuple[str, str, str], ExerciseReceipt] = {}
         self._identity_lock = threading.RLock()
         self._scope_locks: defaultdict[tuple[str, str], threading.Lock] = defaultdict(
             threading.Lock
@@ -451,6 +468,65 @@ class InMemoryStore:
             for (asset_tenant, asset_site, _), value in self.assets.items()
             if asset_tenant == tenant_id and asset_site == site_id
         ]
+
+    def add_exercise_receipt(self, receipt: ExerciseReceipt) -> bool:
+        key = (receipt.tenant_id, receipt.site_id, receipt.exercise_id)
+        with self._identity_lock:
+            existing = self.exercise_receipts.get(key)
+            if existing is not None:
+                if existing != receipt:
+                    raise ValueError("exercise_id exists with different evidence")
+                return False
+            self.exercise_receipts[key] = receipt
+            return True
+
+    def list_exercise_receipts(
+        self, tenant_id: str, site_id: str, *, limit: int = 100,
+    ) -> list[ExerciseReceipt]:
+        if not 1 <= limit <= 100:
+            raise ValueError("exercise receipt limit out of range")
+        with self._identity_lock:
+            items = [
+                item for (t, s, _), item in self.exercise_receipts.items()
+                if t == tenant_id and s == site_id
+            ]
+        return sorted(
+            items, key=lambda item: (item.finished_at, item.exercise_id), reverse=True
+        )[:limit]
+
+    def add_topology_observations(self, batch: TopologyBatch) -> int:
+        # All-or-nothing collision checks, then append immutable observations.
+        items = batch.observations
+        with self._identity_lock:
+            for item in items:
+                key = (item.tenant_id, item.site_id, item.observation_id)
+                existing = self.topology_observations.get(key)
+                if existing is not None and existing != item:
+                    raise ValueError("topology observation_id exists with different content")
+            inserted = 0
+            for item in items:
+                key = (item.tenant_id, item.site_id, item.observation_id)
+                if key not in self.topology_observations:
+                    self.topology_observations[key] = item
+                    inserted += 1
+        return inserted
+
+    def list_topology_observations(
+        self, tenant_id: str, site_id: str, *,
+        limit: int = 10000, before: dt.datetime | None = None,
+    ) -> tuple[list[TopologyObservation], bool]:
+        if not 1 <= limit <= 10000:
+            raise ValueError("topology observation limit out of range")
+        if before is not None and before.utcoffset() is None:
+            raise ValueError("topology history time must be timezone-aware")
+        with self._identity_lock:
+            observations = [
+                o for (t, s, _), o in self.topology_observations.items()
+                if t == tenant_id and s == site_id
+                and (before is None or o.observed_at <= before)
+            ]
+        observations.sort(key=lambda o: (o.observed_at, o.observation_id))
+        return observations[-limit:], len(observations) > limit
 
     def get_identity(
         self,

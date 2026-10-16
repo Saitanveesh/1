@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import time
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -50,6 +51,8 @@ from mon.fabric_ingress import (
 from mon.investigation import build_incident_investigation
 from mon.live import LiveEventHub, LiveMessageKind
 from mon.pipeline import PipelineStateError, SecurityPipeline
+from mon.range_evidence import ExerciseReceipt
+from mon.range_health import VictimHealthView, collect_victim_health
 from mon.response import ResponseOrchestrator, ResponseStateError
 from mon.response_dispatch import ResponseDispatcher
 from mon.sensor_fleet import (
@@ -105,6 +108,7 @@ from mon.site_response_reconciliation import (
     SiteResponseUpdateError,
     SiteResponseUpdateReconciler,
 )
+from mon.topology import TopologyBatch, TopologySnapshot, build_topology_snapshot
 
 app = FastAPI(
     title="MON Security Fabric Control Plane",
@@ -339,6 +343,102 @@ async def live_snapshot(
         ],
         "graph": snapshot.model_dump(mode="json"),
     }
+
+
+@app.post("/api/v1/topology/observations", status_code=201)
+async def ingest_topology_observations(
+    batch: TopologyBatch,
+    principal: CurrentPrincipal,
+) -> dict[str, int]:
+    first = batch.observations[0]
+    require_scope(principal, first.tenant_id, first.site_id, Permission.INGEST)
+    try:
+        inserted = await run_in_threadpool(store.add_topology_observations, batch)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if inserted:
+        await live_hub.publish(
+            LiveMessageKind.TOPOLOGY_UPDATED,
+            first.tenant_id,
+            first.site_id,
+            {"inserted": inserted},
+        )
+    return {
+        "inserted": inserted,
+        "duplicates": len(batch.observations) - inserted,
+    }
+
+
+@app.get("/api/v1/topology", response_model=TopologySnapshot)
+async def get_topology(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    root_node_id: str | None = Query(default=None, max_length=256),
+    at: dt.datetime | None = None,
+) -> TopologySnapshot:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    if at is not None and (
+        at.utcoffset() is None or at > dt.datetime.now(dt.UTC)
+    ):
+        raise HTTPException(status_code=422, detail="at must be a past, timezone-aware timestamp")
+    observations, truncated = await run_in_threadpool(
+        store.list_topology_observations, tenant_id, site_id, before=at,
+    )
+    return await run_in_threadpool(
+        build_topology_snapshot,
+        observations,
+        tenant_id,
+        site_id,
+        root_node_id=root_node_id,
+        at=at,
+        truncated=truncated,
+    )
+
+
+@app.post("/api/v1/range/exercises", status_code=201)
+async def ingest_range_exercise(
+    receipt: ExerciseReceipt,
+    principal: CurrentPrincipal,
+) -> dict[str, object]:
+    """Operator-submitted, hashed observations; never confirmed attack telemetry."""
+    require_scope(principal, receipt.tenant_id, receipt.site_id, Permission.INGEST)
+    try:
+        stored = await run_in_threadpool(store.add_exercise_receipt, receipt)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "stored": stored,
+        "exercise_id": receipt.exercise_id,
+        "provenance": "SELF_REPORTED_EXERCISE",
+    }
+
+
+@app.get("/api/v1/range/exercises", response_model=list[ExerciseReceipt])
+async def list_range_exercises(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> list[ExerciseReceipt]:
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return await run_in_threadpool(
+        store.list_exercise_receipts, tenant_id, site_id, limit=limit,
+    )
+
+
+@app.get("/api/v1/range/erp-health", response_model=VictimHealthView)
+async def get_synthetic_erp_health(
+    principal: CurrentPrincipal,
+    tenant_id: str = Query(min_length=1),
+    site_id: str = Query(min_length=1),
+    asset_id: str | None = Query(default=None, min_length=1, max_length=256),
+) -> VictimHealthView:
+    """Read strictly scoped real metrics for any selected enrolled asset."""
+    require_scope(principal, tenant_id, site_id, Permission.VIEW)
+    return await run_in_threadpool(
+        collect_victim_health, tenant_id, site_id, asset_id=asset_id,
+    )
 
 
 @app.get("/api/v1/findings", response_model=list[Finding])

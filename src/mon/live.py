@@ -17,6 +17,7 @@ class LiveMessageKind(StrEnum):
     HEARTBEAT = "stream.heartbeat"
     EVENT_PROCESSED = "event.processed"
     ASSET_UPDATED = "asset.updated"
+    TOPOLOGY_UPDATED = "topology.updated"
     INCIDENT_UPDATED = "incident.updated"
     ENFORCEMENT_UPDATED = "enforcement.updated"
     RESPONSE_PLANNED = "response.planned"

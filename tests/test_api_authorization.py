@@ -143,3 +143,44 @@ def test_live_websocket_uses_authenticated_scope(real_auth) -> None:
         headers=headers,
     ) as websocket:
         websocket.receive_json()
+
+
+def test_topology_ingest_and_read_enforce_same_scoped_permissions(real_auth) -> None:
+    client, private_key = real_auth
+    ingest_token = make_token(
+        private_key, roles=["site_controller"], tenant_id="tenant-a", site_ids=["site-1"]
+    )
+    viewer_token = make_token(
+        private_key, roles=["viewer"], tenant_id="tenant-a", site_ids=["site-1"]
+    )
+    ingest_headers = {"Authorization": f"Bearer {ingest_token}"}
+    viewer_headers = {"Authorization": f"Bearer {viewer_token}"}
+    batch = {"observations": [{
+        "observation_id": "auth-topology-1",
+        "tenant_id": "tenant-a", "site_id": "site-1",
+        "sensor_id": "sensor-a", "evidence_id": "reference-a",
+        "observed_at": dt.datetime.now(dt.UTC).isoformat(),
+        "kind": "NODE", "node_id": "observed-ip",
+    }]}
+    accepted = client.post(
+        "/api/v1/topology/observations", json=batch, headers=ingest_headers,
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert client.post(
+        "/api/v1/topology/observations", json=batch, headers=viewer_headers,
+    ).status_code == 403
+    assert client.post(
+        "/api/v1/topology/observations",
+        json={"observations": [{**batch["observations"][0], "site_id": "site-2"}]},
+        headers=ingest_headers,
+    ).status_code == 403
+    assert client.get(
+        "/api/v1/topology",
+        params={"tenant_id": "tenant-a", "site_id": "site-1"},
+        headers=viewer_headers,
+    ).status_code == 200
+    assert client.get(
+        "/api/v1/topology",
+        params={"tenant_id": "tenant-b", "site_id": "site-1"},
+        headers=viewer_headers,
+    ).status_code == 403

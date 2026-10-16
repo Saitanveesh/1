@@ -1,0 +1,325 @@
+# MON runtime-role cyber range (no fixed attacker/victim PCs)
+
+**For a same-day Lab A demonstration of MITM and multi-origin HTTP
+pressure on REAL packets without touching the shared college LAN,
+start with [the isolated runnable lab kit](../../tools/range_lab/README.md).**
+It has no fixed physical attacker or victim computer and runs inside a
+disposable Ubuntu VM on any approved host. The code explicitly refuses
+non-disposable target IPs and tests containment/rollback. This is the
+required first safety gate before connecting campus switch collectors.
+
+**The files below remain an optional consolidated SOC deployment profile**,
+not a fixed assignment that says selected victim host is the victim. Install the victim
+workload on whichever authorized isolated PC/VM the operator chooses and
+enroll its real sensor/health identity.
+
+Status: **software manifests + synthetic ERP service implemented**. Not certified against
+the institution's actual switches, endpoint population, campus LAN, or PC hardware.
+No network is scanned or attacked when these files are added to Git.
+
+## Dynamic roles — no fixed attacker or victim machine
+
+- **MON SOC host — selectable consolidated monitoring computer/VM**: PostgreSQL control-plane data, MON API,
+  React console, Prometheus metrics archive and independent Blackbox probes.
+  A real passive packet sensor still needs an authorized TAP/SPAN/flow export
+  or a local interface that genuinely observes the path. The base container
+  does NOT automatically receive all switched traffic.
+- **Blue-team operator — any authenticated workstation/browser**: browser plus SSH tunnel to MON host console. Uses issuer
+  authentication/RBAC and an authorized `mon_session` browser cookie. The
+  current MON codebase does not contain a complete identity-provider login
+  portal; provisioning the actual issuer/session is a deployment prerequisite.
+- **Red-team source — any authorized enrolled exercise PC/VM**: authorized exercise station with verified isolation.
+  No MON daemon or artificial fixed-source attacker address is required.
+  Attack tooling is not included in the management network deployment.
+- **Disposable victim — ANY authorized enrolled PC/VM**: isolated synthetic university ERP API and
+  PostgreSQL with **only fabricated records**. selected victim host does not represent the
+  institution's production ERP. It can be replaced by any separately
+  authorized, instrumented disposable victim without editing detector code.
+
+## Required isolation and resource preparation
+
+1. Obtain written campus/IT authorization for monitoring and an approved
+   exercise subnet/VLAN with designated switch ports or physically isolated
+   virtual switch. Verify the exercise fabric has **no routing or bridging**
+   into ordinary campus systems before selected isolated exercise source can send scenario traffic.
+2. Survey managed-switch vendor/model, firmware, SNMPv3 read-only support,
+   LLDP, BRIDGE-MIB, Q-BRIDGE-MIB, SPAN/flow export, VLANs, trunk ports and
+   expected device count. Do not infer 100% visibility from one port.
+3. Install Docker Engine + Compose on MON host and selected victim host in disposable OS/VMs.
+   MON host storage needs separate persistent quotas, backups and disk alerts;
+   size CPU/RAM only after realistic measured load. Do not deploy on the
+   operator's main laptop for first tests.
+4. Prepare institution-approved identity-provider signing keys and issue
+   correctly scoped MON browser sessions; no hard-coded developer bypass.
+   Secure MON host management access, and use a dedicated non-root Docker account.
+5. Confirm MON host can reach the enrolled victim's **approved probe/metrics interface**, while
+   the red-team attack interface is restricted to the approved exercise
+   workload and cannot reach campus production networks.
+
+## Start the consolidated MON server (whichever approved host is selected)
+
+All commands are for the checked-out branch in a disposable test host. The directory is retained for backward compatibility; it is NOT a fixed physical machine assignment.
+
+```bash
+git checkout design/dynamic-multilab-cyber-range
+cd deploy/four-pc
+umask 077
+cp example.env .env
+# Edit .env. Set real unique passwords, URL-encode reserved URL chars, and
+# set MON_AUTH_ISSUER and MON_AUTH_AUDIENCE to your real configured issuer.
+# Do NOT leave sample values or commit .env.
+mkdir -p auth
+# Provision your approved identity-provider PUBLIC key into auth/public.pem.
+# This is public verification material, not a signing secret. The non-root
+# MON Docker container (UID 10001) needs read access to this bind mount.
+chmod 600 .env
+chmod 755 auth
+chmod 644 auth/public.pem
+docker compose --env-file .env -f compose.soc.yml config -q
+docker compose --env-file .env -f compose.soc.yml up -d --build
+docker compose --env-file .env -f compose.soc.yml ps
+```
+
+The SOC API is bound **only to the MON server's loopback :8080**; the operator console is
+bound to **the MON server's loopback :8088**; Prometheus is **the MON server's loopback :9090**.
+PostgreSQL is internal to Docker and uses a named persistent volume.
+MON's existing container entrypoint applies Alembic migrations.
+All production JWT/mTLS identity enrollment and audit controls are still
+required, not replaced by Docker Compose.
+
+## Install disposable synthetic ERP on the chosen victim PC/VM
+
+Copy the same repository checkout to the currently chosen isolated victim PC/VM. Prepare a **separate**
+private `.env` there, with `ERP_DB_PASSWORD`, `ERP_DATABASE_URL` and
+`ERP_BIND_IP`. That bind IP must be an address actually configured on the enrolled victim's
+isolated, authorized exercise interface; it must **not** be a campus
+management interface. The example's RFC 5737 documentation address must
+never be treated as a real interface.
+
+```bash
+git checkout design/dynamic-multilab-cyber-range
+cd deploy/four-pc
+umask 077
+cp example.env .env
+# Set selected victim host values and verify isolated interface ownership before proceeding.
+docker compose --env-file .env -f compose.erp.yml config -q
+docker compose --env-file .env -f compose.erp.yml up -d --build
+docker compose --env-file .env -f compose.erp.yml ps
+```
+
+From an explicitly permitted monitoring station that can reach the enrolled victim's
+approved interface:
+
+```bash
+curl --fail --max-time 5 http://YOUR_ISOLATED_ERP_IP:8081/health/live
+curl --fail --max-time 5 http://YOUR_ISOLATED_ERP_IP:8081/health/ready
+curl --fail --max-time 5 http://YOUR_ISOLATED_ERP_IP:8081/api/students?limit=3
+curl --fail --max-time 5 http://YOUR_ISOLATED_ERP_IP:8081/metrics
+```
+
+These endpoints measure actual request timing, process RSS/CPU time and
+database readiness. `/health/ready` fails with HTTP 503 if DB reads fail.
+Enrolled victim host CPU and RAM now have a separate Node Exporter, listening only on the
+operator-approved `ERP_MONITOR_BIND_IP:9100` interface. This sensitive metrics
+endpoint must be accessible only to MON host and denied to selected isolated exercise source and campus clients
+by independent firewall/routing rules. Keep it unconfigured until isolation
+is verified. Process memory is not host memory.
+
+## Independent MON host Prometheus/Blackbox observation of selected victim host
+
+Initially all three `targets/*.json` files contain `[]`: **zero configured targets**
+is intentional and must show no service metrics, never a manufactured healthy
+ERP value. After confirming the private probe route and authorization,
+edit the files **only on MON host**.
+
+Illustrative format (substitute the actual private, routed target):
+
+```json
+[
+  {
+    "targets": ["10.77.0.50:8081"],
+    "labels": {"tenant_id": "YOUR_TENANT", "site_id": "YOUR_SITE"}
+  }
+]
+```
+
+Put the above in `targets/erp-metrics.json` with only the host:port.
+For `targets/erp-host.json`, configure the actual selected victim host `HOST:9100` address
+with the same tenant/site labels after confirming the monitoring VLAN and
+firewall scope. MON's measured CPU percentage uses idle CPU-time rate; memory
+percentage comes from available/total host memory. Missing or ambiguous
+host data stays UNKNOWN.
+
+For `targets/erp-probe.json` use an **actual** URL including the health path,
+such as `http://YOUR_APPROVED_ERP_IP:8081/health/ready`.
+These represent two distinct measurements: self-reported application/process
+metrics and an independently performed HTTP readiness probe. Prometheus
+retains seven days of measurements in a named volume for this pilot.
+Restrict MON host-to-selected victim host access to the intended route and do not trust operator
+labels as an isolation boundary.
+
+## Blue-team browser and runtime-selected red-team station
+
+On any blue-team workstation, after verifying the MON SOC host's SSH host key and authenticating as an
+authorized operator:
+
+```bash
+ssh -N -L 8088:127.0.0.1:8088 YOUR_PC1_OPERATOR@YOUR_PC1_MANAGEMENT_ADDRESS
+```
+
+Open `http://127.0.0.1:8088` on the chosen blue-team workstation. A properly provisioned `mon_session`
+cookie from the institution's trusted MON issuer is necessary to use API and
+live WebSocket features. An unconfigured identity provider should produce
+an authentication error, not a demo bypass.
+
+There is no designated attacker PC in MON. Exercise traffic
+may originate from another preauthorized range participant if scope controls
+and exercise isolation are independently validated. No attack targets on
+the campus LAN and no actual college ERP accounts/data.
+
+## One-switch SNMPv3 read-only collection
+
+Install the optional collector on an authorized Linux collector station:
+
+```bash
+python -m pip install -e '.[switch]'
+mon-switch-snmpv3 --help
+```
+
+Use an administrator-provisioned mode-0600 **single-line JSON** config file
+outside the repo with `switch_id`, `address` (literal authorized RFC1918
+management IP), `username`, `auth_passphrase`, `priv_passphrase`,
+optional `port` and `ttl_seconds`. SNMPv3 requires SHA-256 authentication
+plus AES128 privacy. No SNMP SET operation exists. Do not pass secrets as
+command arguments or store them in this repository.
+
+```bash
+mon-switch-snmpv3 --config-file /etc/mon/switch-auth.json \
+  --tenant-id YOUR_TENANT --site-id YOUR_SITE \
+  --sensor-id managed-switch-sensor
+```
+
+This first performs an **offline JSON export only**, showing actual LLDP
+neighbor labels and default-bridge FDB MAC-to-port data with unknown VLAN.
+After validating identities and establishing a scoped `INGEST` token:
+
+```bash
+mon-switch-snmpv3 --config-file /etc/mon/switch-auth.json \
+  --tenant-id YOUR_TENANT --site-id YOUR_SITE \
+  --sensor-id managed-switch-sensor \
+  --api-url https://YOUR_APPROVED_MON_API \
+  --token-file /etc/mon/topology.token
+```
+
+A default BRIDGE-MIB table does NOT expose every VLAN on all switches.
+LLDP sysName is untrusted peer-supplied input, not attestation. Poll failure
+aborts the whole observation batch rather than asserting an empty, healthy
+switch. Test on one certified switch/model using temporary, least-privilege
+management credentials before expanding to other devices. Record actual
+firmware/OID/port mapping mismatches and blind spots. The four-PC Compose
+profile does not itself deploy this SNMP poller automatically.
+
+## selected isolated exercise source isolated, bounded red-team exercise and evidence ingestion
+
+The `mon-range-exercise` command is a **single-source, low-rate HTTP
+test**, not a denial-of-service, MITM, credential attack or exploit tool.
+It makes at most 3 requests/second for 45 seconds to the verified synthetic
+ERP on TCP/8081, using only `GET /api/students?limit=1`. A
+preflight request must identify the unique `isolated-range` application
+marker. A local permit file is an operator record, not a cryptographic
+institutional authorization mechanism. **Independent switch/VM isolation
+and approval are mandatory**, especially on the shared campus LAN.
+
+On selected isolated exercise source in the authorized disposable VM, create `~/permit.json` with
+permissions 0600. The values below are a format illustration; replace the
+IP and expiry with your actual approved exercise identity and a future
+time within two hours:
+
+```json
+{
+  "exercise_id": "range-session-001",
+  "target_ip": "192.168.50.20",
+  "target_port": 8081,
+  "tenant_id": "YOUR_TENANT",
+  "site_id": "YOUR_SITE",
+  "approved_by": "AUTHORIZED_OPERATOR",
+  "expires_at": "2026-10-15T18:00:00+05:30",
+  "rps": 2,
+  "duration_seconds": 15
+}
+```
+
+```bash
+chmod 600 ~/permit.json
+mon-range-exercise \
+  --permit-file ~/permit.json \
+  --out ~/mon-range-session-001.json \
+  --confirm-isolated-range
+```
+
+The tool writes an immutable-by-default, SHA-256 checked JSON receipt
+containing actual request timestamps, HTTP statuses, measured durations and
+failure counts. It never claims that a service was compromised or blocked.
+If the target is not the synthetic ERP, its permit expires, or the request
+scope is invalid, the exercise stops before sending the workload. It also
+refuses to overwrite an existing receipt.
+
+After review, a specifically authorized `INGEST` principal uploads the
+receipt to the authenticated MON API. For example, from a secure management
+station **not from the attack VLAN**, with `MON_TOKEN_FILE` pointing to an
+already-provisioned operator-scoped token:
+
+```bash
+mon-range-upload --receipt ~/mon-range-session-001.json
+mon-range-upload \
+  --receipt ~/mon-range-session-001.json \
+  --api-url https://YOUR_APPROVED_MON_API \
+  --token-file /etc/mon/ingest.token
+```
+
+The first command checks the receipt locally without sending it. The
+second performs HTTPS upload with a mode-0600 token file, no proxy and
+no redirect-following. The dedicated token must be provisioned by a
+trusted MON administrator with the correct tenant/site INGEST scope;
+do not use the red-team attack VM's broad operator credentials.
+The upload enforces a matching SHA-256 receipt, tenant/site RBAC,
+immutable exercise ID and database RLS. It is still **self-reported
+client telemetry**, not network-packet evidence or a response audit.
+The SOC's **Exercise Timeline** view shows these records distinctly from
+confirmed incidents and operator containment history.
+
+## What the four-PC code still cannot assert
+
+- SNMPv3 polling is implemented but requires model/firmware-specific
+  certification and actual authorized read-only access; VLAN and LLDP
+  physical identity remain unknown unless independently proven.
+- A single source's bounded HTTP GETs do **not** constitute DDoS.
+  MITM and volumetric load remain out of scope for this low-risk runner;
+  future approved exercises need dedicated isolated topology and sensor
+  instrumentation, not assumptions about an entire campus.
+- Neither local permit claims nor a content hash proves the physical
+  origin of a packet; correlate actual packet/flow and trusted endpoint
+  evidence before deciding containment.
+- Dynamic physical enforcement and safe rollback still require adapter
+  capability testing against the exact path and equipment.
+- A successful CI integration test is not certification of real MON host–selected victim host
+  resources, campus visibility, switches, live attack impact or recovery.
+
+## Rollback and release gates
+
+- Stop demo selected victim host services using
+  `docker compose --env-file .env -f compose.erp.yml down`; this preserves
+  the named test database volume. To **discard only fictional test records**,
+  separately remove the isolated test volume after verifying its name.
+- Stop MON host services using `docker compose --env-file .env -f compose.soc.yml down`
+  without `-v`; durable MON evidence and metrics must not be deleted
+  as a side effect of routine shutdown.
+- Mandatory gates: unit/CI success, Compose config/build, disposable VM
+  integration, restart/crash/retention verification, live sensor packet path,
+  true selected victim host health under load, management-network isolation, and approved
+  enforcement with TTL+verification+rollback.
+- **Not yet certified:** SNMP management hardware, four physical PC resources,
+  network isolation, blue-team workstation issuer/browser login, all-endpoint coverage, full
+  host-health exporter, red-team exercise and automatic containment.
+
+Do not claim that a successful Docker build means these physical gates passed.

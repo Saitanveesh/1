@@ -238,3 +238,104 @@ export interface SensorFleetView {
   version?: string;
   last_error?: string;
 }
+
+export type TopologyLayer = "L2" | "L3" | "COMMUNICATION";
+
+export interface TopologyNode {
+  node_id: string;
+  node_type: string;
+  label: string;
+  ip_addresses: string[];
+  mac_addresses: string[];
+  active_ip_addresses: string[];
+  active_mac_addresses: string[];
+  last_seen: string;
+  status: "OBSERVED" | "STALE";
+  evidence_ids: string[];
+  distance_hops: number | null;
+}
+
+export interface TopologyLink {
+  source_id: string;
+  target_id: string;
+  layer: TopologyLayer;
+  relationship: string;
+  observed_at: string;
+  status: "OBSERVED" | "STALE";
+  evidence_id: string;
+  sensor_id: string;
+}
+
+export interface TopologyCoverage {
+  sensors_seen: number;
+  active_sensors: number;
+  stale_sensors: number;
+  observed_nodes: number;
+  stale_nodes: number;
+  observed_links: number;
+  stale_links: number;
+  unresolved_nodes: number;
+  last_observation_at: string | null;
+  complete_network_visibility: boolean | null;
+}
+
+export interface TopologySnapshot {
+  tenant_id: string;
+  site_id: string;
+  captured_at: string;
+  root_node_id: string | null;
+  distance_basis: string;
+  coverage: string;
+  coverage_details: TopologyCoverage;
+  observations_considered: number;
+  truncated: boolean;
+  nodes: TopologyNode[];
+  links: TopologyLink[];
+}
+
+export interface VictimMetric {
+  status: "FRESH" | "STALE" | "UNKNOWN" | "AMBIGUOUS";
+  value: number | null;
+  observed_at: string | null;
+  source: string;
+}
+
+export interface VictimHealthView {
+  tenant_id: string;
+  site_id: string;
+  asset_id: string | null;
+  collected_at: string;
+  telemetry_state: "AVAILABLE" | "DEGRADED" | "UNCONFIGURED";
+  service_reachable: VictimMetric;
+  probe_duration_seconds: VictimMetric;
+  erp_process_rss_bytes: VictimMetric;
+  erp_process_cpu_seconds: VictimMetric;
+  host_cpu_percent: VictimMetric;
+  host_ram_percent: VictimMetric;
+  note: string;
+}
+
+export interface ExerciseSample {
+  observed_at: string;
+  http_status: number | null;
+  latency_seconds: number | null;
+}
+
+export interface ExerciseReceipt {
+  exercise_id: string;
+  tenant_id: string;
+  site_id: string;
+  approved_by: string;
+  target_ip: string;
+  started_at: string;
+  finished_at: string;
+  scenario: "BOUNDED_SINGLE_SOURCE_HTTP_REQUESTS";
+  attack_claim: "NONE";
+  containment_claim: "NONE";
+  attempts: number;
+  http_200: number;
+  other_or_failed: number;
+  samples: ExerciseSample[];
+  sha256: string;
+  provenance: "SELF_REPORTED_EXERCISE";
+}

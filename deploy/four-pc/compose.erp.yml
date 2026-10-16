@@ -1,0 +1,74 @@
+name: mon-erp-range
+# Deploy on ANY enrolled, approved disposable victim PC or VM.
+# ERP_BIND_IP MUST be on an isolated,
+# approved exercise network; never the campus management-LAN interface.
+services:
+  erp-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mon_erp_range
+      POSTGRES_USER: mon_erp_range
+      POSTGRES_PASSWORD: ${ERP_DB_PASSWORD:?Set isolated-range DB password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mon_erp_range -d mon_erp_range"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - erp-range-db:/var/lib/postgresql/data
+      - ../../demo/erp_range/db/001_synthetic_erp.sql:/docker-entrypoint-initdb.d/001_synthetic_erp.sql:ro
+    networks: [erp-internal]
+
+  erp-app:
+    build:
+      context: ../../demo/erp_range
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ERP_DATABASE_URL: ${ERP_DATABASE_URL:?Set isolated-range ERP database URL}
+    ports:
+      - "${ERP_BIND_IP:?Bind only to isolated exercise IP}:8081:8081"
+    depends_on:
+      erp-db:
+        condition: service_healthy
+    networks:
+      - erp-internal
+      - erp-edge
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+
+  # Enrolled victim host-level OS counters. Scrape only through the approved
+  # monitoring interface; never bind to the shared campus management LAN.
+  host-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --web.listen-address=:9100
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    ports:
+      - "${ERP_MONITOR_BIND_IP:?Use a protected monitoring interface}:9100:9100"
+    networks: [erp-edge]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  erp-internal:
+    driver: bridge
+    internal: true
+  # Application-only publication network. Expose only on ERP_BIND_IP,
+  # after independent exercise-VLAN isolation has been verified.
+  erp-edge:
+    driver: bridge
+volumes:
+  erp-range-db:

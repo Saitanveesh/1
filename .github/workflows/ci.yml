@@ -23,10 +23,40 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -e '.[dev,erp-range,switch]'
           pip check
+      - name: Topology, switch and ERP regression
+        run: pytest -q tests/test_topology.py tests/test_network_topology.py tests/test_topology_neighbor_collector.py tests/test_topology_inventory.py tests/test_topology_history.py tests/test_topology_snmpv3.py tests/test_range_erp.py tests/test_range_health.py tests/test_range_exercise.py tests/test_range_evidence.py tests/test_range_receipt_upload.py tests/test_arp_conflict_detection.py tests/test_range_lab_arp.py tests/test_range_lab_http.py tests/test_range_lab_ingest.py tests/test_lab_soc_session.py
+      - name: PySNMPv3 runtime import smoke
+        run: python -c "from pysnmp.hlapi.v3arch.asyncio import bulk_walk_cmd, USM_AUTH_HMAC192_SHA256, USM_PRIV_CFB128_AES; assert bulk_walk_cmd"
+      - name: Read-only topology collector CLI smoke
+        run: mon-topology-collect --help
+      - name: Read-only SNMPv3 collector CLI smoke
+        run: mon-switch-snmpv3 --help
+      - name: Isolated ERP exercise CLI smoke
+        run: mon-range-exercise --help
+      - name: Scoped exercise evidence uploader CLI smoke
+        run: mon-range-upload --help
+      - name: Validate isolated netns harness shell and Python entrypoints
+        run: |
+          bash -n tools/range_lab/run.sh tools/range_lab/preflight.sh tools/lab_soc_init.sh
+          # The hosted runner is not a disconnected single-interface VM.
+          # A successful preflight on CI would mean the safety gate is broken.
+          if sudo env MON_DISPOSABLE_VM_CONFIRMED=YES \
+              bash tools/range_lab/preflight.sh > /tmp/mon-range-preflight.log 2>&1; then
+            echo "Unsafe: disconnected-VM preflight unexpectedly passed CI runner"
+            exit 1
+          fi
+          cat /tmp/mon-range-preflight.log
+          python -m compileall -q tools/range_lab
+          python tools/range_lab/load.py --help
+          python tools/range_lab/analyze_arp.py --help
+          python tools/range_lab/analyze_http.py --help
+          python -m tools.range_lab.ingest --help
       - name: Lint
-        run: ruff check .
+        run: |
+          ruff check --diff tests/test_topology.py || true
+          ruff check .
       - name: Test
         run: pytest -q
 
@@ -36,6 +66,96 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build control-plane image
         run: docker build -t mon-control-plane:test .
+      - name: Build isolated synthetic ERP service image
+        run: docker build -t mon-synthetic-erp:test demo/erp_range
+      - name: Build SOC operator console image
+        run: docker build -f deploy/four-pc/console/Dockerfile -t mon-console:test .
+      - name: Validate four-PC Compose manifests without starting a service
+        env:
+          MON_DB_PASSWORD: test-only-not-for-production
+          MON_DATABASE_URL: postgresql+psycopg://mon:test-only-not-for-production@postgres:5432/mon
+          MON_AUTH_ISSUER: https://test-issuer.invalid
+          MON_AUTH_AUDIENCE: mon-ci
+          ERP_DB_PASSWORD: test-only-not-for-production
+          ERP_DATABASE_URL: postgresql://mon_erp_range:test-only-not-for-production@erp-db:5432/mon_erp_range
+          ERP_BIND_IP: 192.0.2.10
+          ERP_MONITOR_BIND_IP: 192.0.2.11
+        run: |
+          docker compose -f deploy/four-pc/compose.soc.yml config -q
+          docker compose -f deploy/four-pc/compose.erp.yml config -q
+      - name: Start real Prometheus container and verify readiness
+        env:
+          MON_DB_PASSWORD: ci-only-no-real-secret
+          MON_DATABASE_URL: postgresql+psycopg://mon:ci-only-no-real-secret@postgres:5432/mon
+          MON_AUTH_ISSUER: https://ci-issuer.invalid
+          MON_AUTH_AUDIENCE: mon-ci
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker compose -f deploy/four-pc/compose.soc.yml down --remove-orphans
+          }
+          trap cleanup EXIT
+          docker compose -f deploy/four-pc/compose.soc.yml up -d --no-deps prometheus
+          healthy=0
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 3 http://127.0.0.1:9090/-/ready > /dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$healthy" != 1 ]; then
+            docker compose -f deploy/four-pc/compose.soc.yml ps -a
+            docker compose -f deploy/four-pc/compose.soc.yml logs --tail=80 prometheus
+            exit 1
+          fi
+          curl -fsS --max-time 5 http://127.0.0.1:9090/api/v1/status/buildinfo > /dev/null
+      - name: Integration — real synthetic ERP with disposable PostgreSQL
+        env:
+          ERP_DB_PASSWORD: github-actions-test-only-secret
+          ERP_DATABASE_URL: postgresql://mon_erp_range:github-actions-test-only-secret@erp-db:5432/mon_erp_range
+          ERP_BIND_IP: 127.0.0.1
+          ERP_MONITOR_BIND_IP: 127.0.0.1
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker compose -f deploy/four-pc/compose.erp.yml down -v --remove-orphans
+          }
+          trap cleanup EXIT
+          docker compose -f deploy/four-pc/compose.erp.yml up -d --build --wait
+          ready=0
+          for i in $(seq 1 30); do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:8081/health/ready > /tmp/erp-ready.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            docker compose -f deploy/four-pc/compose.erp.yml logs --tail=80 erp-db erp-app
+            exit 1
+          fi
+          python - <<'PY'
+          import json, urllib.request
+          with open('/tmp/erp-ready.json', encoding='utf-8') as handle:
+              ready = json.load(handle)
+          assert ready['state'] == 'READY'
+          assert ready['database'] == 'RESPONDING'
+          assert ready['synthetic_records'] == '250'
+          with urllib.request.urlopen('http://127.0.0.1:8081/api/students?limit=4') as response:
+              payload = json.load(response)
+          assert payload['dataset'] == 'FICTIONAL / GENERATED TEST RECORDS'
+          assert len(payload['records']) == 4
+          assert all(row['code'].startswith('DEMO-') for row in payload['records'])
+          with urllib.request.urlopen('http://127.0.0.1:8081/metrics') as response:
+              metrics = response.read().decode('utf-8')
+          assert 'mon_erp_process_rss_bytes' in metrics
+          assert 'mon_erp_http_requests_total' in metrics
+          with urllib.request.urlopen('http://127.0.0.1:9100/metrics') as response:
+              host_metrics = response.read().decode('utf-8')
+          assert 'node_cpu_seconds_total' in host_metrics
+          assert 'node_memory_MemAvailable_bytes' in host_metrics
+          PY
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -202,6 +322,41 @@ jobs:
         # stock ubuntu-latest runner both native sources report
         # SOURCE_UNAVAILABLE/PERMISSION_DENIED rather than fabricating
         # telemetry, and the process must still start and shut down cleanly.
+
+  isolated-mitm-and-multi-origin-range:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install MON and disposable Linux namespace tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+          sudo apt-get update
+          sudo apt-get install -y iproute2 iputils-ping nftables tcpdump curl
+      - name: Real MITM, multi-origin containment and rollback within offline outer namespace
+        run: |
+          set -euo pipefail
+          # A hosted CI runner has a management NIC; never run the attack
+          # harness in its initial network namespace. First enter a new
+          # external-uplink-free namespace inside the disposable CI VM.
+          OUTER="mon-offline-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          cleanup() {
+            sudo ip netns del "$OUTER" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sudo ip netns add "$OUTER"
+          sudo ip -n "$OUTER" link set lo up
+          # The harness enforces the SAME VM/only-loopback/no-route preflight
+          # in this outer namespace; no safety check is bypassed.
+          sudo ip netns exec "$OUTER" env MON_DISPOSABLE_VM_CONFIRMED=YES \
+            MON_PYTHON="$(command -v python)" \
+            bash tools/range_lab/run.sh --scenario all --victim beta
+          sudo ip netns exec "$OUTER" env MON_DISPOSABLE_VM_CONFIRMED=YES \
+            MON_PYTHON="$(command -v python)" \
+            bash tools/range_lab/run.sh --scenario multi-origin --victim alpha
 
   linux-enforcement-sandbox:
     runs-on: ubuntu-latest

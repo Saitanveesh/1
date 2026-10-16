@@ -24,6 +24,61 @@ There is no single perimeter device that defines trust. Enforcement may occur at
 switch/NAC, network firewall/router, cloud control, WAF, or upstream mitigation point,
 depending on evidence and the enforcement graph.
 
+## Evidence-backed network discovery (development branch)
+
+The four-PC SOC design uses a dynamic network graph: devices are learned from
+actual scoped inventory observations and must **not** be allocated to invented
+labs or assigned a presumed physical location. The current branch includes
+PostgreSQL-backed topology observations, authenticated `/api/v1/topology` APIs,
+an interactive Network Map view, and a read-only collector for Linux neighbor
+cache and separately exported managed-switch MAC/LLDP information.
+
+Run `mon-topology-collect --help` after installing the Python package. See
+[collector runbook](docs/topology-inventory-collector.md) and
+[ADR 0078](docs/adr/0078-evidence-backed-topology-and-network-distance.md).
+Observed IP-address matches with recent findings may be highlighted, but an
+IP match does not prove a person, physical workstation, or attack path.
+
+**Scope boundary:** No physical campus switches have been connected by this
+work, no live campus inventory is verified, and one collector does not guarantee
+visibility into an entire switched network. The collector performs no active
+scans or switch configuration changes. Lab attack exercises require a separate,
+approved isolated range with real verification and rollback.
+
+## Runtime-selected endpoints and executable isolated cyber range (development branch)
+
+**No PC is hard-coded as the attacker or victim.** MON's authorized,
+evidence-backed sensor topology discovers an unknown number of devices.
+A selected physical workstation can run a disposable ERP victim or an
+exercise source **only after isolation and enrollment**, regardless of
+its lab/seat number. Health is selected by observed `asset_id`; missing
+metrics remain UNKNOWN.
+
+[Start here: executable isolated MITM + multi-origin laboratory kit](tools/range_lab/README.md).
+The kit starts virtual participants inside a new Linux bridge with **no
+campus uplink or default route** and verifies real ARP redirection, actual
+captured HTTP packet path, victim logs, source-aware pressure detection,
+temporary nftables enforcement and rollback. It supports selecting either
+of two disposable test victims at runtime. A successful CI acceptance run
+does **not** mean MITM or DDoS is safe to test against connected college
+workstations.
+
+The [optional consolidated SOC deployment runbook](deploy/four-pc/README.md)
+contains MON/PostgreSQL/React/Prometheus on a controlled server and a
+synthetic ERP/DB workload **deployable to any approved isolated PC/VM**,
+not PC4. The legacy directory name is not a hardware assignment. A
+read-only SNMPv3 switch collector integrates approved FDB/LLDP evidence;
+actual switch VLAN coverage, physical path and port attribution still
+require institution-specific verification.
+
+The first-stage isolated demonstration shows **a real MITM packet-path
+exercise** and **bounded multi-origin application-pressure behavior**.
+It is not an ISP-scale volumetric DDoS test. Full managed-switch/NAC
+enforcement, independently established whole-campus visibility and
+physical exercise-VLAN isolation remain hardware-dependent release gates.
+Do not seed virtual exercise telemetry as if it were campus devices.
+
+
 ## Narrated architecture walkthrough
 
 For explaining MON end to end to a non-technical audience, the repository includes a synthetic,
