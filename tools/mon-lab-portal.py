@@ -15,7 +15,9 @@ import ipaddress
 import json
 import os
 import secrets
+import shutil
 import socket
+import subprocess
 import struct
 import threading
 import time
@@ -51,6 +53,34 @@ AUTH_WINDOW = 120
 AUTH_ATTEMPTS = 5
 WINDOW = 90
 METRICS_TOKEN = os.environ.get("MON_METRICS_TOKEN", "")
+
+
+def inspect_protected_route() -> dict:
+    """Read only the host's selected route. This is not proof of PC6 forwarding."""
+    if not PROTECTED_HOST_IP:
+        return {"protected_route_interface": None, "protected_route_check": "UNCONFIGURED"}
+    binary = shutil.which("ip")
+    if binary is None:
+        return {"protected_route_interface": None, "protected_route_check": "UNVERIFIED"}
+    try:
+        result = subprocess.run(
+            [binary, "-j", "-4", "route", "get", PROTECTED_HOST_IP],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+        if result.returncode != 0:
+            return {"protected_route_interface": None, "protected_route_check": "UNVERIFIED"}
+        output = json.loads(result.stdout)
+        route = output[0] if isinstance(output, list) and output else {}
+        interface = route.get("dev")
+        return {
+            "protected_route_interface": interface,
+            "protected_route_check": (
+                "MATCHES_CAPTURE_INTERFACE" if interface == PROTECTED_CAPTURE_INTERFACE
+                else "DIFFERENT_INTERFACE" if interface else "UNVERIFIED"
+            ),
+        }
+    except (OSError, ValueError, subprocess.TimeoutExpired, IndexError, TypeError):
+        return {"protected_route_interface": None, "protected_route_check": "UNVERIFIED"}
 
 
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
@@ -322,6 +352,7 @@ class FlowCapture:
             "events": events,
             "lab_route_events": route_events,
             "protected_route_samples": protected_samples,
+            **inspect_protected_route(),
             "packet_layer": "IP headers only; no application payload captured",
             "samples": [{k: v for k, v in row.items() if k != "flows"} for row in samples],
             "flows": top,
