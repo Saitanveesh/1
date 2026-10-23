@@ -77,16 +77,18 @@ export function currentProtectedIncidents(
 
 export type IdsStatus =
   "CHECKING" | "API UNAVAILABLE" | "SERVICE OFFLINE" |
-  "NO RECENT EVE" | "EVE OBSERVED";
+  "SERVICE UNVERIFIED" | "NO RECENT EVE" | "EVE OBSERVED";
 
 export function idsStatus(
   snapshot: SuricataSnapshot | null,
-  accessible: boolean
+  availability: "CHECKING" | "AVAILABLE" | "UNAVAILABLE"
 ): IdsStatus {
-  if (!accessible) return snapshot ? "API UNAVAILABLE" : "CHECKING";
-  if (!snapshot || snapshot.service_state !== "active") {
-    return "SERVICE OFFLINE";
-  }
-  return snapshot.status === "RECENT_EVE"
+  if (availability === "CHECKING") return "CHECKING";
+  if (availability === "UNAVAILABLE") return "API UNAVAILABLE";
+  const service = snapshot?.service_state;
+  if (service === "failed" || service === "inactive" ||
+      service === "deactivating") return "SERVICE OFFLINE";
+  if (service !== "active") return "SERVICE UNVERIFIED";
+  return snapshot?.status === "RECENT_EVE"
     ? "EVE OBSERVED" : "NO RECENT EVE";
 }
