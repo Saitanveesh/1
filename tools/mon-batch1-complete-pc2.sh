@@ -58,7 +58,7 @@ log "Existing sensor, portal, API, console and protected route ready."
 git -C "$CODE" fetch --no-tags https://github.com/Saitanveesh/1.git "refs/heads/$BRANCH"
 REV="$(git -C "$CODE" rev-parse FETCH_HEAD)"
 STAGE="$(mktemp -d "$ROOT/batch1-final-stage.XXXXXXXX")"
-git -C "$CODE" archive "$REV" console tools/mon-lab-portal.py tools/mon_alert_ack.py tools/mon_suricata_bridge.py lab/pc5-training-site |
+git -C "$CODE" archive "$REV" console tools lab/pc5-training-site |
   tar -x -C "$STAGE"
 ln -s "$WEB/node_modules" "$STAGE/console/node_modules"
 python3 -m py_compile "$STAGE/tools/"*.py
