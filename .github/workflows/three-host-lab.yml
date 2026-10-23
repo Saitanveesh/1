@@ -1,0 +1,137 @@
+name: three-host-lab-gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/lab_three_host.py'
+      - 'tools/lab_browser_login.py'
+      - 'tools/lab_vite_config.ts'
+      - 'tools/lab_browser_proxy_smoke.py'
+      - 'tools/lab_three_hub.py'
+      - 'tools/lab_three_peer.py'
+      - 'tools/lab_three_pressure.py'
+      - 'tests/test_lab_three_host.py'
+      - 'tests/test_lab_browser_login.py'
+      - 'tests/test_lab_three_hub.py'
+      - 'tests/test_lab_three_peer.py'
+      - 'tests/test_lab_three_pressure.py'
+      - 'docs/lab-three*'
+      - '.github/workflows/three-host-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python314-lab-tooling:
+    name: Python 3.14 lab-tooling compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install project and tests
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+          python -m pip check
+      - name: Static checks
+        run: |
+          ruff check tools/lab_three_host.py tools/lab_three_pressure.py tools/lab_browser_login.py tools/lab_three_hub.py tools/lab_three_peer.py tests/test_lab_three_host.py tests/test_lab_three_pressure.py tests/test_lab_browser_login.py tests/test_lab_three_hub.py tests/test_lab_three_peer.py
+          python -m compileall -q tools/lab_three_host.py tools/lab_three_pressure.py tools/lab_browser_login.py tools/lab_three_hub.py tools/lab_three_peer.py
+      - name: Safety and contract tests (no load generated)
+        run: python -m pytest -q tests/test_lab_three_host.py tests/test_lab_three_pressure.py tests/test_lab_browser_login.py tests/test_lab_three_hub.py tests/test_lab_three_peer.py
+      - name: Runtime import smoke (not Ubuntu 26.04 integration)
+        run: |
+          python -c 'import mon.site_service; import mon.linux_endpoint_collector; import mon.sensor_transport'
+
+  hub-native-syntax:
+    name: Native WireGuard and nftables hub syntax (no interface changes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native parsers in a disposable CI runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools nftables
+      - name: Validate generated hub config and guard without applying either
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import tempfile
+          spec = importlib.util.spec_from_file_location("mon_lab_hub", "tools/lab_three_hub.py")
+          hub = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(hub)
+          with tempfile.TemporaryDirectory() as scratch:
+              out = Path(scratch)
+              guard = out / "mon-hub-guard.nft"
+              guard.write_text(hub.guard_script())
+              config_text = hub.rendered_config(
+                  "A" * 43 + "=", "B" * 43 + "=", "C" * 43 + "="
+              )
+              import subprocess
+              subprocess.run(["sudo", "nft", "-c", "-f", str(guard)], check=True)
+              # Mirror the actual prepare() staging name, not a hand-picked
+              # short "mon-hub.conf" file that masks wg-quick parser failures.
+              with tempfile.NamedTemporaryFile(
+                  mode="w", dir=out, prefix="wgmon-", suffix=".conf",
+                  delete=False
+              ) as staged:
+                  staged.write(config_text)
+                  staged_path = Path(staged.name)
+              assert len(staged_path.stem) <= 15, staged_path.name
+              subprocess.run(
+                  ["wg-quick", "strip", str(staged_path)],
+                  check=True, capture_output=True
+              )
+              # Regression: original long temp basename must NOT work.
+              old_path = out / ".mon-wg0-12345678.conf"
+              old_path.write_text(config_text)
+              assert len(old_path.stem) > 15
+              old = subprocess.run(
+                  ["wg-quick", "strip", str(old_path)],
+                  capture_output=True, text=True
+              )
+              assert old.returncode != 0, "regression test did not reproduce legacy failure"
+          print("NATIVE_SYNTAX_VERIFIED_NO_INTERFACE_APPLIED")
+          PY
+
+  systemd-timer-rollback:
+    name: Disposable systemd rollback timer smoke (no WG changes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Schedule and cancel independent root-owned rollback placeholder
+        run: |
+          sudo systemd-run --unit mon-three-ci-rollback \
+            --on-active=300s --timer-property=AccuracySec=1s /usr/bin/true
+          sudo systemctl is-active --quiet mon-three-ci-rollback.timer
+          sudo systemctl stop mon-three-ci-rollback.timer
+          ! sudo systemctl is-active --quiet mon-three-ci-rollback.timer
+          echo 'SYSTEMD_TIMER_SCHEDULE_CANCEL_VERIFIED'
+
+  vite-login-proxy:
+    name: Actual Node 22 Vite pairing proxy HTTP smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install console dependencies
+        run: npm install --no-audit --no-fund
+      - name: Lab pairing against real Vite proxy (synthetic CI token only)
+        run: |
+          cp vite.config.ts vite.config.original-ci.ts
+          trap 'mv vite.config.original-ci.ts vite.config.ts' EXIT
+          cp ../tools/lab_vite_config.ts vite.config.ts
+          python3 ../tools/lab_browser_proxy_smoke.py

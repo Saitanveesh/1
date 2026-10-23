@@ -1,5 +1,7 @@
 # MON Security Fabric
 
+**MON — Monitoring, Orchestration, Neutralization.** Neutralization means policy-approved, reversible containment with evidence and recovery verification, not irreversible host isolation. See [ADR 0038](docs/adr/0038-mon-name-and-observable-console.md).
+
 MON is a critical-network detection, investigation, containment, recovery, and multi-tenant
 security platform.
 

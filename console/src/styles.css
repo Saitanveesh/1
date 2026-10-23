@@ -21,7 +21,6 @@ button { font: inherit; }
 .shell { display: grid; grid-template-columns: 228px 1fr; min-height: 100vh; }
 .sidebar { position: sticky; top: 0; height: 100vh; border-right: 1px solid var(--line); background: #ffffff; padding: 24px 14px 18px; display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 24px; border-bottom: 1px solid var(--line); }
-.mark { width: 34px; height: 34px; border: 1px solid #000; display: grid; place-items: center; font-weight: 800; }
 .brand strong { display: block; letter-spacing: .16em; font-size: 15px; }
 .brand small, .sidebar-foot small { color: var(--muted); font-size: 10px; letter-spacing: .13em; display: block; margin-top: 3px; }
 
