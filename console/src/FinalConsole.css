@@ -1,0 +1,125 @@
+/* MON final stage — a restrained, understandable operations console.
+   Existing selectors, evidence collection and case actions remain unchanged. */
+:root{--bg:#f5f7fa;--panel:#fff;--line:#dfe5ec;--line-strong:#c5d0dc;--text:#20344b;--muted:#66778a;--dim:#8291a3}
+body{background:var(--bg);color:var(--text);font-family:Inter,"Segoe UI",Arial,sans-serif}
+button,input,select{font-family:inherit}
+button{transition:background-color .14s,border-color .14s,box-shadow .14s}
+button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #3579b4;outline-offset:2px}
+.shell{grid-template-columns:205px minmax(0,1fr);background:var(--bg)}
+.sidebar{position:sticky;top:0;min-width:0;background:#fff;border-right:1px solid #e1e7ee;padding:22px 13px;box-shadow:2px 0 12px #1b334008}
+.sidebar .brand{border-bottom:1px solid #edf0f4;padding:0 8px 22px;gap:11px}
+.sidebar .mark{background:#1d4567;color:#fff;border:0;border-radius:9px;width:36px;height:36px;font-size:19px}
+.sidebar .brand strong{letter-spacing:0;font-size:18px;font-weight:760;color:#193853}
+.sidebar .brand small{font:500 11px Inter,"Segoe UI",sans-serif;letter-spacing:0;color:#7a8b9c;margin-top:1px}
+.sidebar nav{gap:7px;padding-top:23px}
+.sidebar nav button{font-size:13px;font-weight:660;letter-spacing:0;border:0;border-radius:8px;padding:12px 13px;min-height:44px;background:#fff;color:#4d6078}
+.sidebar nav button:hover{background:#f0f5fa;color:#1d4d73}
+.sidebar nav button.active{background:#1b4568;color:#fff;box-shadow:0 3px 11px #1e4b7026}
+.sidebar nav small{font:700 11px Inter,"Segoe UI",sans-serif;letter-spacing:0;background:#e8eef5;color:#426487;border-radius:99px;min-width:23px;text-align:center;padding:2px 5px}
+.sidebar nav button.active small{color:#154364;background:#fff}
+.sidebar-foot{border-top:1px solid #edf1f6;padding:16px 8px 0;gap:10px}
+.mon-logout{border:1px solid #d7e1eb;color:#385975;border-radius:8px;background:#fff;padding:11px 12px;text-align:center;font-size:12px;font-weight:690;letter-spacing:0;margin:0}
+.mon-logout:hover{background:#f3f7fb;color:#1b4466}
+.connection{font-size:11px;letter-spacing:0;color:#557089}
+.connection span{background:#259b64;border:0;border-radius:50%;width:7px;height:7px}
+.connection.offline span,.connection.recovering span{background:#cb8549}
+.topbar{min-height:90px;background:#fff;border-bottom:1px solid #e0e7ef;padding:18px 25px;gap:12px}
+.topbar h1{font-size:clamp(23px,2.5vw,31px);font-weight:760;letter-spacing:-.045em;color:#193750;margin:0}
+.mon-topbar-description{margin:5px 0 0;color:#6c7e90;font-size:12px;line-height:1.4}
+.top-status{display:flex;align-items:center;gap:9px;border:1px solid #dbe5ed;border-radius:50px;padding:10px 14px;font:600 12px Inter,"Segoe UI",sans-serif;color:#3e617d}
+.top-status strong{font-weight:750;color:#2f5875}
+.top-status small{font-size:10px;color:#8291a0;font-weight:500}
+.mon-online-dot,.mon-offline-dot{width:8px;height:8px;border-radius:50%;background:#28a36e}
+.mon-offline-dot{background:#c7833b}
+.mon-evidence-notice{border:1px solid #ebd6ac;background:#fff9ed;color:#765a2d;border-radius:10px;margin:15px 16px 12px;font:500 12px/1.6 Inter,"Segoe UI",sans-serif;padding:13px 17px;gap:12px}
+.mon-evidence-notice strong{font-size:12px;letter-spacing:0}
+.mon-command-desk{padding-bottom:20px}
+.mon-overview-strip{grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin:16px 16px 12px;border:0;background:transparent}
+.mon-overview-strip>div,.mon-overview-strip>button,.mon-command-desk .mon-overview-strip>div,.mon-command-desk .mon-overview-strip>button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;justify-content:space-between;gap:8px;padding:17px 18px;min-width:0;min-height:105px;background:#fff;border:1px solid #dde5ee;border-radius:12px;color:#193650}
+.mon-overview-strip>button{cursor:pointer}
+.mon-overview-strip>button:hover{border-color:#8eb4cf;background:#f9fbfe;box-shadow:0 5px 15px #183b4d0d}
+.mon-overview-strip small,.mon-command-desk .mon-overview-strip small{font:650 12px Inter,"Segoe UI",sans-serif;letter-spacing:0;color:#667c92}
+.mon-overview-strip strong,.mon-command-desk .mon-overview-strip strong{font:750 clamp(18px,2.3vw,26px) Inter,"Segoe UI",sans-serif;overflow-wrap:anywhere;color:#244866}
+.mon-overview-strip>button span{font-size:11px;font-weight:660;color:#47769a}
+.mon-technical-details{margin:12px 15px;background:#fff;border:1px solid #e2e8ee;border-radius:10px;overflow:hidden}
+.mon-technical-details summary{padding:12px 16px;cursor:pointer;font-size:12px;font-weight:700;color:#4b647c;list-style:none}
+.mon-technical-details summary::-webkit-details-marker{display:none}
+.mon-technical-details summary:after{content:"+";float:right;font-size:16px;line-height:1}
+.mon-technical-details[open] summary:after{content:"−"}
+.mon-technical-details[open] summary{border-bottom:1px solid #e8edf3}
+.mon-technical-details .mon-protected-strip{margin:12px}
+.mon-investigation-details{margin:16px}
+.mon-investigation-details .mon-panel{margin:14px;border-radius:9px}
+.mon-command-desk-grid{padding:0 16px;gap:12px;grid-template-columns:minmax(0,1.17fr) minmax(360px,.98fr)}
+.mon-desk-incidents{gap:12px}
+.mon-desk-incidents .panel,.mon-desk-traffic .mon-panel{border:1px solid #e0e7ef;border-radius:12px;box-shadow:0 3px 14px #1a324608}
+.mon-desk-incidents .panel-head{background:#fff;border-bottom:1px solid #ebf0f5;padding:13px 15px;min-height:58px}
+.mon-desk-incidents .panel-head h2{font-size:16px;color:#273f58;font-weight:740}
+.mon-desk-action{font:700 11px Inter,"Segoe UI",sans-serif;border:1px solid #d4e0ea;border-radius:8px;padding:8px 12px;background:#fff;color:#285579;letter-spacing:0}
+.mon-desk-action:hover{background:#f1f6fb;color:#1e476b}
+.mon-desk-incidents table{font-size:11px}
+.mon-desk-incidents th{letter-spacing:0;font-size:10px;color:#75879a;font-weight:690;text-transform:none;background:#f9fbfd}
+.mon-desk-incidents td{color:#2d455c;font-size:11px}
+.mon-command-desk .mon-gauges{margin:0 16px 12px;border:1px solid #e0e7ef;border-radius:12px;overflow:hidden}
+.mon-command-desk .mon-gauges-header{padding:13px 17px}
+.mon-command-desk .mon-gauges-header h2{font-size:17px;color:#29445f}
+.mon-gauges-header a{border:1px solid #d1dde7;border-radius:8px;font:700 11px Inter,"Segoe UI",sans-serif;color:#315c79}
+.mon-gauges-header a:hover{background:#f2f7fc}
+.mon-truth-metric .mon-gauge-name{font:700 11px Inter,"Segoe UI",sans-serif;letter-spacing:0;text-align:left;color:#667e91}
+.mon-truth-value{font:760 clamp(19px,2vw,27px) Inter,"Segoe UI",sans-serif;color:#203b57}
+.mon-truth-metric small{font:500 10px/1.5 Inter,"Segoe UI",sans-serif;color:#728394}
+.mon-gauges-note{font:500 11px/1.6 Inter,"Segoe UI",sans-serif}
+.mon-traffic-compact .mon-panel-heading{padding:15px}
+.mon-traffic-compact .mon-panel-heading h2{font-size:19px;color:#2d4660}
+.mon-traffic-compact .mon-panel-heading p{font-size:11px;line-height:1.4}
+.mon-panel-heading .mon-eyebrow{letter-spacing:0;font-size:10px}
+.mon-chart-control{font:500 11px Inter,"Segoe UI",sans-serif;color:#718194}
+.mon-graph-switch{border:1px solid #d5e1eb;border-radius:8px;overflow:hidden}
+.mon-graph-switch button{font:700 11px Inter,"Segoe UI",sans-serif;color:#57748c;background:#fff}
+.mon-graph-switch button[aria-pressed="true"]{background:#1c4668;color:#fff}
+.mon-graph-switch button + button{border-color:#d5e1eb}
+.mon-chart-frame .mon-packet-line{stroke:#24648f}
+.mon-packet-raw{stroke:#a8c4d6}
+.mon-compact-network-hint{font:500 11px/1.5 Inter,"Segoe UI",sans-serif;color:#7b8c9c}
+.mon-panel,.panel.full{border-color:#e0e7ef}
+.severity{border-radius:5px;border:1px solid #cbd6e1;background:#f0f3f7;color:#465e74;padding:5px 7px;font:750 10px Inter,"Segoe UI",sans-serif;letter-spacing:0;min-width:57px}
+.severity.medium{border:1px solid #dfc388;background:#fff8e7;color:#856016}
+.severity.high{border:1px solid #e5baa8;background:#fff2ed;color:#a3472a}
+.severity.critical{border:1px solid #e6a4a4;background:#feeaea;color:#b33131}
+table th{letter-spacing:0;font-size:10px;text-transform:none;color:#74879b}
+table td{font-size:12px;color:#2c435e}
+.mon-incidents-workspace{margin:15px;grid-template-columns:minmax(250px,285px) minmax(0,1fr)}
+.mon-case-queue{border-radius:12px;overflow:hidden;border-color:#e0e7ef}
+.mon-case-queue-head>span{display:none}
+.mon-case-queue-head{padding:18px}
+.mon-case-queue-head h2{font-size:21px;color:#1b3a56}
+.mon-case-queue-head h2 b{border-radius:50px;background:#e9f0f7;color:#275374}
+.mon-case-queue-head p{font-size:12px}
+.mon-case-queue-row button{padding:13px}
+.mon-case-queue-row strong{font-size:13px;color:#24415b}
+.mon-case-queue-row time{font:500 10px Inter,"Segoe UI",sans-serif;color:#7d8d9c}
+.mon-case-queue-row.is-selected button{background:#edf4f9;box-shadow:inset 3px 0 #2b6994}
+.mon-case-queue-overline{font:600 10px Inter,"Segoe UI",sans-serif}
+.mon-incidents-main>.panel.full{border-radius:12px;overflow:hidden}
+.mon-incidents-main>.panel.full>.panel-head h2{font-size:20px;color:#1e3953}
+.mon-incident-actions .mono{font:650 11px Inter,"Segoe UI",sans-serif;color:#6f8195}
+.mon-case-tabs button{font:700 12px Inter,"Segoe UI",sans-serif;letter-spacing:0}
+.mon-event-chain{border-radius:9px}
+.mon-event-chain>header small{font:700 10px Inter,"Segoe UI",sans-serif;letter-spacing:0}
+.mon-event-chain>header>span{font:500 11px Inter,"Segoe UI",sans-serif}
+.mon-event-chain-stage{font:700 11px Inter,"Segoe UI",sans-serif;letter-spacing:0}
+.mon-event-chain-step strong{font-size:13px}
+.mon-event-chain-step time{font:500 10px Inter,"Segoe UI",sans-serif}
+.mon-incidents-main .detail-grid h3{font:700 13px Inter,"Segoe UI",sans-serif;letter-spacing:0;text-transform:none}
+.control-button{font:700 12px Inter,"Segoe UI",sans-serif;letter-spacing:0;border:1px solid #d1dfeb;border-radius:8px;color:#2a4b67}
+.control-button.primary{background:#194666;color:#fff}
+.control-button:hover:not(:disabled){background:#edf4f9}
+.control-button.primary:hover:not(:disabled){background:#295f83}
+.mon-event-chain-step:before{border-top-color:#b9d1e1}
+.mon-event-chain-step:nth-child(2):before{border-top-color:#6fa3c4}
+.mon-event-chain-step:nth-child(3):before{border-top-color:#3478a5}
+.mon-event-chain-step:nth-child(4):before{border-top-color:#1e5579}
+@media(max-width:1280px){.mon-command-desk-grid{grid-template-columns:1fr}.mon-desk-incidents{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto}}
+@media(max-width:900px){.shell{grid-template-columns:172px minmax(0,1fr)}.mon-overview-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.topbar{padding:15px}.mon-desk-incidents{grid-template-columns:1fr}}
+@media(max-width:650px){.shell{grid-template-columns:1fr}.sidebar{position:relative;height:auto;padding:10px}.sidebar .brand{padding-bottom:8px}.sidebar nav{display:flex;overflow-x:auto;padding:10px 0 2px;gap:6px}.sidebar nav button{white-space:nowrap;flex-shrink:0}.sidebar-foot{display:none}.mon-topbar-description{font-size:11px}.top-status small{display:none}.mon-overview-strip{margin:10px;gap:7px}.mon-overview-strip>div,.mon-overview-strip>button{min-height:88px;padding:12px}.mon-incidents-workspace{margin:9px}.mon-command-desk-grid{padding:0 10px}.mon-command-desk .mon-gauges{margin:0 10px 10px}}
+@media(prefers-reduced-motion:reduce){button{transition:none}}
