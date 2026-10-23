@@ -68,6 +68,6 @@ it("does not mix unrelated PC2 EVE traffic into the protected PC5 IDS panel", as
   await waitFor(() => expect(screen.getByText("MON LAB PC5 signature")).toBeTruthy());
   expect(screen.queryByText("Unrelated host event")).toBeNull();
   const panel = screen.getByTestId("suricata-ids-panel");
-  expect(within(panel).getByText("1")).toBeTruthy();
+  expect(within(panel).getAllByText("1").length).toBeGreaterThanOrEqual(2);
   expect(within(panel).getByText("PROTECTED-HOST EVE ROWS")).toBeTruthy();
 });
