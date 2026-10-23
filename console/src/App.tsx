@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SecurityAlert from "./SecurityAlert";
 import AlertInvestigation from "./AlertInvestigation";
 import AlertCenter, { collectAlerts } from "./AlertCenter";
-import type { SecurityThreatAlert } from "./securityAlerts";
+import { alertFromFinding, type SecurityThreatAlert } from "./securityAlerts";
 import { useSuricataThreatAlerts } from "./suricataThreats";
 import {
   currentProtectedFindings, currentProtectedIncidents, idsStatus,
@@ -121,7 +121,7 @@ function IncidentTable({
   );
 }
 
-function FindingTable({ findings }: { findings: Finding[] }) {
+function FindingTable({ findings, onSelect }: { findings: Finding[]; onSelect?: (finding: Finding) => void }) {
   return (
     <div className="table-wrap">
       <table>
@@ -130,7 +130,7 @@ function FindingTable({ findings }: { findings: Finding[] }) {
           {latest(findings).slice(0, 12).map((item) => (
             <tr key={item.finding_id}>
               <td><span className={`severity ${severityBand(item.severity)}`}>{item.severity}</span></td>
-              <td>{item.detector_id}</td>
+              <td>{onSelect ? <button type="button" className="link" onClick={() => onSelect(item)}>{item.title}</button> : item.title}</td>
               <td>{item.src_ip ?? "Unknown Source"}</td>
               <td>{item.dst_ip ?? "Not recorded"}</td>
               <td>{Math.round(item.confidence * 100)}%</td>
@@ -467,9 +467,13 @@ export default function App() {
   }, [authState, state.connection, state.threatAlert, enqueueThreat, targetIp]);
 
   const ids = useSuricataThreatAlerts(authState === "OK", enqueueThreat, targetIp);
+  const findingAlerts = useMemo(
+    () => currentProtectedFindings(state.findings, targetIp).map(alertFromFinding),
+    [state.findings, targetIp]
+  );
   const alerts = useMemo(
-    () => collectAlerts(ids.snapshot, targetIp, sessionAlerts),
-    [ids.snapshot, targetIp, sessionAlerts]
+    () => collectAlerts(ids.snapshot, targetIp, [...sessionAlerts, ...findingAlerts]),
+    [ids.snapshot, targetIp, sessionAlerts, findingAlerts]
   );
   const unreviewedAlerts = alerts.filter(item => !acknowledgedAlerts[item.key]);
 
@@ -668,14 +672,16 @@ export default function App() {
                     <div><h2>Recent cases</h2></div>
                     <button type="button" className="mon-desk-action" onClick={() => setView("Incidents")}>View cases →</button>
                   </div>
-                  <IncidentTable incidents={metrics.active.slice(0, 6)} />
+                  <IncidentTable incidents={metrics.active.slice(0, 6)}
+                    onSelect={item => { setSelectedIncident(item); setFocusedAlert(null); setView("Incidents"); }}
+                    selectedId={selectedIncident?.incident_id} />
                 </section>
                 <section className="panel">
                   <div className="panel-head">
                     <div><h2>Recent findings</h2></div>
                     <button type="button" className="mon-desk-action" onClick={() => setView("Alerts")}>View alerts →</button>
                   </div>
-                  <FindingTable findings={metrics.recentFindings.slice(0, 5)} />
+                  <FindingTable findings={metrics.recentFindings.slice(0, 5)} onSelect={item => openAlert(alertFromFinding(item))} />
                 </section>
               </div>
             </div>
