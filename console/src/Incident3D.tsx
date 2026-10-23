@@ -63,14 +63,14 @@ export function buildIncidentScene(
   const incident = investigation.incident;
   const kind = classifyIncident(incident);
   const related = executions.filter(r => r.plan.request.incident_id === incident.incident_id);
-  const source = investigation.findings.find(f => f.src_ip)?.src_ip ??
-    incident.entities.find(value => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value)) ?? null;
+  // Entity IPs can identify victims; only explicit finding.src_ip identifies a source.
+  const source = investigation.findings.find(f => f.src_ip)?.src_ip ?? null;
   const assets = investigation.affected_assets.slice(0, 8);
   const targets = assets.flatMap(a => a.ip_addresses);
   const nodes: SceneNode[] = [];
   const links: SceneLink[] = [];
   if (source) nodes.push({
-    id: "source:" + source, label: source, detail: "Source from recorded finding or case",
+    id: "source:" + source, label: source, detail: "Source from recorded incident finding",
     kind: "source", x: kind === "beacon" ? -.9 : -3.3,
     y: kind === "beacon" ? -1.65 : .7, z: kind === "beacon" ? 1.3 : 0,
     ref: source
