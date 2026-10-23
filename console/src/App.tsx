@@ -10,7 +10,7 @@ import Investigation3D from "./Incident3D";
 import SocGauges from "./SocGauges";
 import SuricataPanel from "./SuricataPanel";
 import LoginPage from "./LoginPage";
-import { NetworkPath, PacketHistory, usePacketCapture } from "./PacketObservability";
+import { NetworkPath, PacketHistory, ProtectedRouteStrip, usePacketCapture } from "./PacketObservability";
 import { LiveClient, type LiveState } from "./live";
 import type {
   Asset,
@@ -541,6 +541,7 @@ export default function App() {
               <div><small>PACKET CAPTURE</small><strong>{packetCapture?.status ?? "CONNECTING"}</strong></div>
             </section>
             <SocGauges state={state} capture={packetCapture} />
+            <ProtectedRouteStrip capture={packetCapture} />
             <div className="mon-command-desk-grid">
               <div className="mon-desk-traffic">
                 <PacketHistory capture={packetCapture} compact />
@@ -606,6 +607,7 @@ export default function App() {
               setView("Incidents");
             }}
           />
+          <NetworkPath capture={packetCapture} />
           <SuricataPanel />
         )}
 
