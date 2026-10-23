@@ -3,7 +3,7 @@ import { isRecentObservation } from "./operationalTruth";
 import type { SuricataRecord, SuricataSnapshot } from "./types";
 import type { SecurityThreatAlert } from "./securityAlerts";
 
-function recordKey(item: SuricataRecord): string {
+export function recordKey(item: SuricataRecord): string {
   return [
     item.timestamp, item.signature_id ?? "", item.signature ?? "",
     item.src_ip, item.src_port ?? "", item.dst_ip, item.dst_port ?? ""
@@ -39,6 +39,7 @@ export function newSuricataThreats(
       target: row.dst_ip,
       attackClass: row.category || row.signature || "Suricata signature",
       observedAt: row.timestamp,
+      signatureId: row.signature_id,
       detector: "Suricata IDS"
     });
   }
