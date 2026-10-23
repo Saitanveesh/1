@@ -29,4 +29,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash -n tools/mon-final-console-pc2.sh
+      - run: bash -n tools/mon-final-console-pc2.sh tools/mon-final-review-backend-pc2.sh tools/mon-final-stage-pc2.sh
