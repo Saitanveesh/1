@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SecurityAlert from "./SecurityAlert";
+import AlertInvestigation from "./AlertInvestigation";
 import type { SecurityThreatAlert } from "./securityAlerts";
 import { useSuricataThreatAlerts } from "./suricataThreats";
 import {
@@ -364,6 +365,10 @@ export default function App() {
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
   const [pendingAlerts, setPendingAlerts] = useState<SecurityThreatAlert[]>([]);
+  const [focusedAlert, setFocusedAlert] = useState<SecurityThreatAlert | null>(null);
+  const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<Record<string, string>>({});
+  const [ackBusy, setAckBusy] = useState(false);
+  const [ackError, setAckError] = useState<string | null>(null);
   const seenAlertKeys = useRef(new Set<string>());
   const [operator, setOperator] = useState<OperatorPrincipal | null>(null);
   const [authState, setAuthState] = useState<"CHECKING" | "OK" | "UNAUTHENTICATED" | "DENIED">("CHECKING");
@@ -457,21 +462,74 @@ export default function App() {
 
   const ids = useSuricataThreatAlerts(authState === "OK", enqueueThreat, targetIp);
 
-  const dismissAlert = () => setPendingAlerts(current => current.slice(1));
+  useEffect(() => {
+    if (authState !== "OK") return;
+    let cancelled = false;
+    fetch("/portal/alerts/acknowledged", { credentials: "same-origin" })
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("Review state unavailable")))
+      .then((data: { records?: Array<{ key: string; acknowledged_at: string }> }) => {
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        for (const row of data.records ?? []) {
+          if (row.key.startsWith("ids:")) next[row.key] = row.acknowledged_at;
+        }
+        setAcknowledgedAlerts(next);
+      })
+      .catch(() => { /* Review state is optional; a failed write is never silently accepted. */ });
+    return () => { cancelled = true; };
+  }, [authState]);
 
   const investigateAlert = () => {
     const current = pendingAlerts[0];
-    const incident = current?.incidentId
+    if (!current) return;
+    setFocusedAlert(current);
+    setAckError(null);
+    const caseMatch = current.incidentId
       ? state.incidents.find(item => item.incident_id === current.incidentId)
       : undefined;
-    if (incident) {
-      setSelectedIncident(incident);
-      setView("Investigation");
-    } else {
-      setView(current?.key.startsWith("ids:") ? "Investigation" : "Incidents");
-    }
-    dismissAlert();
+    if (caseMatch) setSelectedIncident(caseMatch);
+    setView("Investigation");
+    setPendingAlerts(queue => queue.filter(item => item.key !== current.key));
   };
+
+  async function acknowledgeAlert() {
+    const current = pendingAlerts[0] ?? focusedAlert;
+    if (!current || ackBusy) return;
+    setAckBusy(true);
+    setAckError(null);
+    try {
+      let stamp = new Date().toISOString();
+      if (current.key.startsWith("ids:")) {
+        const response = await fetch("/portal/alerts/acknowledge", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: current.key })
+        });
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(errorBody.error ?? ("Review not saved: HTTP " + response.status));
+        }
+        const body = await response.json() as { acknowledged_at: string };
+        if (!body.acknowledged_at) throw new Error("Review timestamp missing");
+        stamp = body.acknowledged_at;
+      }
+      // MON-stream-only notification reviews are scoped to this browser
+      // session. We never claim those changed the MON case database.
+      setAcknowledgedAlerts(old => ({ ...old, [current.key]: stamp }));
+      setFocusedAlert(current);
+      const caseMatch = current.incidentId
+        ? state.incidents.find(item => item.incident_id === current.incidentId)
+        : undefined;
+      if (caseMatch) setSelectedIncident(caseMatch);
+      setView("Investigation");
+      setPendingAlerts(queue => queue.filter(item => item.key !== current.key));
+    } catch (cause) {
+      setAckError(cause instanceof Error ? cause.message : "Acknowledgment unavailable");
+    } finally {
+      setAckBusy(false);
+    }
+  }
 
   const metrics = useMemo(() => {
     const active = currentProtectedIncidents(
@@ -506,7 +564,7 @@ export default function App() {
         </div>
         <nav>
           {views.map((item) => (
-            <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>
+            <button key={item} className={view === item ? "active" : ""} onClick={() => { setView(item); if (item !== "Investigation") setFocusedAlert(null); }}>
               <span>{item}</span><small>{item === "Incidents" ? metrics.recordedOpen.length : ""}</small>
             </button>
           ))}
@@ -629,7 +687,25 @@ export default function App() {
         )}
         {view === "Investigation" && (
           <>
-          <Investigation3D
+          {focusedAlert && <AlertInvestigation
+            alert={focusedAlert}
+            snapshot={ids.snapshot}
+            capture={packetCapture}
+            acknowledgedAt={acknowledgedAlerts[focusedAlert.key] ?? null}
+            acknowledging={ackBusy}
+            error={ackError}
+            onAcknowledge={() => void acknowledgeAlert()}
+            onClose={() => { setFocusedAlert(null); setView("Overview"); }}
+            onOpenCase={focusedAlert.incidentId &&
+              state.incidents.some(item => item.incident_id === focusedAlert.incidentId)
+              ? () => {
+                const caseItem = state.incidents.find(item => item.incident_id === focusedAlert.incidentId);
+                if (caseItem) { setSelectedIncident(caseItem); setFocusedAlert(null); setView("Incidents"); }
+              } : undefined}
+          />}
+          {(!focusedAlert || (focusedAlert.incidentId && state.incidents.some(
+            item => item.incident_id === focusedAlert.incidentId
+          ))) && <Investigation3D
             incidents={state.incidents}
             executions={state.response_executions}
             audits={state.audit_records}
@@ -641,7 +717,7 @@ export default function App() {
               setSelectedIncident(incident);
               setView("Incidents");
             }}
-          />
+          />}
           <NetworkPath capture={packetCapture} />
           <SuricataPanel />
           </>
@@ -653,7 +729,9 @@ export default function App() {
           alert={pendingAlerts[0]}
           queued={pendingAlerts.length}
           onInvestigate={investigateAlert}
-          onAcknowledge={dismissAlert}
+          onAcknowledge={() => void acknowledgeAlert()}
+          acknowledging={ackBusy}
+          acknowledgeError={ackError}
         />
       )}
     </div>
