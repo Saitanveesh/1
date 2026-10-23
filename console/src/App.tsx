@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SecurityAlert from "./SecurityAlert";
 import AlertInvestigation from "./AlertInvestigation";
+import AlertCenter, { collectAlerts } from "./AlertCenter";
 import type { SecurityThreatAlert } from "./securityAlerts";
 import { useSuricataThreatAlerts } from "./suricataThreats";
 import {
@@ -10,7 +11,6 @@ import {
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import IncidentQueue from "./IncidentQueue";
-import AiAnalysis from "./AiAnalysis";
 import Investigation3D from "./Incident3D";
 import SocGauges from "./SocGauges";
 import SuricataPanel from "./SuricataPanel";
@@ -31,9 +31,12 @@ import type {
 } from "./types";
 import "./styles.css";
 
-type View = "Overview" | "Incidents" | "Investigation";
+type View = "Overview" | "Alerts" | "Incidents" | "Investigation";
 
-const views: View[] = ["Overview", "Incidents", "Investigation"];
+const views: View[] = ["Overview", "Alerts", "Incidents", "Investigation"];
+const viewLabels: Record<View, string> = {
+  Overview: "Dashboard", Alerts: "Alerts", Incidents: "Cases", Investigation: "Investigation"
+};
 
 const rank: Record<Severity, number> = {
   INFO: 0,
@@ -90,7 +93,7 @@ function IncidentTable({
       <table>
         <thead>
           <tr>
-            <th>SEV</th><th>INCIDENT</th><th>STATUS</th><th>CONF</th><th>CASE ENTITIES (UNTYPED)</th><th>LAST OBSERVED</th>
+            <th>Severity</th><th>What happened</th><th>Status</th><th>Confidence</th><th>Related addresses</th><th>Last seen</th>
           </tr>
         </thead>
         <tbody>
@@ -110,7 +113,7 @@ function IncidentTable({
               <td>{new Date(incident.last_seen).toLocaleString()}</td>
             </tr>
           ))}
-          {!incidents.length && <tr><td colSpan={6} className="empty">No recent PC-5 incidents verified. Older recorded cases remain in Incidents.</td></tr>}
+          {!incidents.length && <tr><td colSpan={6} className="empty">No new cases in the last five minutes. Earlier cases are still available.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -121,7 +124,7 @@ function FindingTable({ findings }: { findings: Finding[] }) {
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>SEV</th><th>DETECTOR</th><th>SOURCE IP</th><th>TARGET IP</th><th>CONF</th></tr></thead>
+        <thead><tr><th>Severity</th><th>Detection</th><th>Source</th><th>Destination</th><th>Confidence</th></tr></thead>
         <tbody>
           {latest(findings).slice(0, 12).map((item) => (
             <tr key={item.finding_id}>
@@ -366,6 +369,7 @@ export default function App() {
   const [view, setView] = useState<View>("Overview");
   const [pendingAlerts, setPendingAlerts] = useState<SecurityThreatAlert[]>([]);
   const [focusedAlert, setFocusedAlert] = useState<SecurityThreatAlert | null>(null);
+  const [sessionAlerts, setSessionAlerts] = useState<SecurityThreatAlert[]>([]);
   const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<Record<string, string>>({});
   const [ackBusy, setAckBusy] = useState(false);
   const [ackError, setAckError] = useState<string | null>(null);
@@ -441,6 +445,7 @@ export default function App() {
   const enqueueThreat = useCallback((incoming: SecurityThreatAlert) => {
     if (seenAlertKeys.current.has(incoming.key)) return;
     seenAlertKeys.current.add(incoming.key);
+    setSessionAlerts(current => [incoming, ...current.filter(item => item.key !== incoming.key)].slice(0, 200));
     setPendingAlerts(current => current.some(item => item.key === incoming.key)
       ? current
       : [...current, incoming].slice(-10));
@@ -461,6 +466,11 @@ export default function App() {
   }, [authState, state.connection, state.threatAlert, enqueueThreat, targetIp]);
 
   const ids = useSuricataThreatAlerts(authState === "OK", enqueueThreat, targetIp);
+  const alerts = useMemo(
+    () => collectAlerts(ids.snapshot, targetIp, sessionAlerts),
+    [ids.snapshot, targetIp, sessionAlerts]
+  );
+  const unreviewedAlerts = alerts.filter(item => !acknowledgedAlerts[item.key]);
 
   useEffect(() => {
     if (authState !== "OK") return;
@@ -479,53 +489,51 @@ export default function App() {
     return () => { cancelled = true; };
   }, [authState]);
 
-  const investigateAlert = () => {
-    const current = pendingAlerts[0];
-    if (!current) return;
-    setFocusedAlert(current);
+  function openAlert(alert: SecurityThreatAlert): void {
+    setFocusedAlert(alert);
     setAckError(null);
-    const caseMatch = current.incidentId
-      ? state.incidents.find(item => item.incident_id === current.incidentId)
+    const caseMatch = alert.incidentId
+      ? state.incidents.find(item => item.incident_id === alert.incidentId)
       : undefined;
     if (caseMatch) setSelectedIncident(caseMatch);
     setView("Investigation");
-    setPendingAlerts(queue => queue.filter(item => item.key !== current.key));
-  };
+    setPendingAlerts(queue => queue.filter(item => item.key !== alert.key));
+  }
 
-  async function acknowledgeAlert() {
-    const current = pendingAlerts[0] ?? focusedAlert;
-    if (!current || ackBusy) return;
+  async function acknowledgeAlert(alert: SecurityThreatAlert): Promise<void> {
+    if (ackBusy) return;
+    if (acknowledgedAlerts[alert.key]) {
+      openAlert(alert);
+      return;
+    }
     setAckBusy(true);
     setAckError(null);
     try {
       let stamp = new Date().toISOString();
-      if (current.key.startsWith("ids:")) {
+      if (alert.key.startsWith("ids:")) {
         const response = await fetch("/portal/alerts/acknowledge", {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: current.key })
+          body: JSON.stringify({ key: alert.key })
         });
         if (!response.ok) {
           const errorBody = await response.json().catch(() => ({})) as { error?: string };
           throw new Error(errorBody.error ?? ("Review not saved: HTTP " + response.status));
         }
-        const body = await response.json() as { acknowledged_at: string };
+        const body = await response.json() as { acknowledged_at?: string };
         if (!body.acknowledged_at) throw new Error("Review timestamp missing");
         stamp = body.acknowledged_at;
       }
-      // MON-stream-only notification reviews are scoped to this browser
-      // session. We never claim those changed the MON case database.
-      setAcknowledgedAlerts(old => ({ ...old, [current.key]: stamp }));
-      setFocusedAlert(current);
-      const caseMatch = current.incidentId
-        ? state.incidents.find(item => item.incident_id === current.incidentId)
-        : undefined;
-      if (caseMatch) setSelectedIncident(caseMatch);
-      setView("Investigation");
-      setPendingAlerts(queue => queue.filter(item => item.key !== current.key));
+      // Stream-only alerts stay browser-session-only. Acknowledgment does not
+      // change the MON case database, case status or network enforcement.
+      setAcknowledgedAlerts(old => ({ ...old, [alert.key]: stamp }));
+      openAlert(alert);
     } catch (cause) {
-      setAckError(cause instanceof Error ? cause.message : "Acknowledgment unavailable");
+      const message = cause instanceof Error ? cause.message : "Acknowledgment unavailable";
+      setAckError(message);
+      // Keep failed modal visible; no success state or suppressed alert.
+      setFocusedAlert(current => current?.key === alert.key ? current : alert);
     } finally {
       setAckBusy(false);
     }
@@ -560,12 +568,13 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <span className="mark">M</span>
-          <div><strong>MON</strong><small>SECURITY FABRIC</small></div>
+          <div><strong>MON</strong><small>Security monitoring</small></div>
         </div>
         <nav>
           {views.map((item) => (
-            <button key={item} className={view === item ? "active" : ""} onClick={() => { setView(item); if (item !== "Investigation") setFocusedAlert(null); }}>
-              <span>{item}</span><small>{item === "Incidents" ? metrics.recordedOpen.length : ""}</small>
+            <button key={item} type="button" className={view === item ? "active" : ""} aria-current={view === item ? "page" : undefined}
+              onClick={() => { setView(item); if (item !== "Investigation") setFocusedAlert(null); setAckError(null); }}>
+              <span>{viewLabels[item]}</span><small>{item === "Alerts" ? unreviewedAlerts.length || "" : item === "Incidents" ? metrics.recordedOpen.length || "" : ""}</small>
             </button>
           ))}
         </nav>
@@ -577,19 +586,26 @@ export default function App() {
               } finally {
                 window.location.reload();
               }
-            }}>SIGN OUT ↗</button>
+            }}>Sign out</button>
           )}
-          <div className={`connection ${state.connection.toLowerCase()}`}><span />{state.connection}</div>
+          <div className={`connection ${state.connection.toLowerCase()}`} role="status"><span />
+            {state.connection === "LIVE" ? "Connected" : "Connection: " + state.connection.toLowerCase()}</div>
 
         </div>
       </aside>
 
       <main>
         <header className="topbar">
-          <div><span className="eyebrow">COMMAND CENTER</span><h1>{view}</h1></div>
-          <div className="top-status">
-            <span>LIVE TRANSPORT</span><strong>{state.connection}</strong>
-            <span>LAST TRANSPORT MESSAGE</span><strong>{state.lastMessageAt ? new Date(state.lastMessageAt).toLocaleTimeString() : "—"}</strong>
+          <div><h1>{viewLabels[view]}</h1><p className="mon-topbar-description">{
+              view === "Overview" ? "Live activity and security monitoring" :
+              view === "Alerts" ? "Review detections and keep track of your decisions" :
+              view === "Incidents" ? "Recorded security cases and response history" :
+              "Inspect the evidence behind an alert or case"
+            }</p></div>
+          <div className="top-status" role="status">
+            <span className={state.connection === "LIVE" ? "mon-online-dot" : "mon-offline-dot"} />
+            <strong>{state.connection === "LIVE" ? "Live" : "Reconnecting"}</strong>
+            <small>{state.lastMessageAt ? "Updated " + new Date(state.lastMessageAt).toLocaleTimeString() : "Awaiting connection"}</small>
           </div>
         </header>
 
@@ -603,37 +619,42 @@ export default function App() {
           <div className="mon-command-desk" data-testid="mon-single-console">
             {(!protectedReady || ids.snapshot?.service_state !== "active" || packetCapture?.protected_route_check !== "MATCHES_CAPTURE_INTERFACE") && (
               <section className="mon-evidence-notice" role="status" data-testid="sensor-coverage-warning">
-                <strong>DETECTION COVERAGE NOT VERIFIED</strong>
+                <strong>Some monitoring data is unavailable</strong>
                 <span>
                   {protectedReady
-                    ? "Fresh protected-host observations available."
-                    : "PC-5 gateway capture is unconfigured, unavailable or stale. Live traffic values are withheld."}
+                    ? "Traffic monitoring is active."
+                    : "Live traffic cannot be confirmed right now. Packet counts are hidden until the sensor is ready."}
                   {" "}
                   {packetCapture?.protected_route_check === "DIFFERENT_INTERFACE"
-                    ? "PC-2's selected route to PC-5 differs from the capture interface; forwarding coverage is not verified. "
+                    ? "Traffic is using a different route than the one being monitored. "
                     : packetCapture?.protected_route_check !== "MATCHES_CAPTURE_INTERFACE"
-                      ? "PC-2 forwarding route has not been verified. "
+                      ? "The network route has not been verified. "
                       : ""}
                   {idsState === "SERVICE OFFLINE"
-                    ? "Suricata is stopped or failed; live IDS signatures cannot be trusted."
+                    ? "The detection sensor is offline."
                     : idsState === "SERVICE UNVERIFIED" || idsState === "API UNAVAILABLE"
-                      ? "Suricata health is not verified."
+                      ? "The detection sensor could not be checked."
                       : idsState === "CHECKING"
-                        ? "Checking Suricata service..."
-                        : "Suricata EVE status: " + idsState + "."}
+                        ? "Checking the detection sensor..."
+                        : "Detection data: " + idsState.toLowerCase() + "."}
                 </span>
               </section>
             )}
             <section className="mon-overview-strip" data-testid="overview-status-strip">
-              <div><small>MON API CONNECTION</small><strong>{state.connection}</strong></div>
-              <div><small>PROTECTED IP</small><strong>{targetIp ?? "UNCONFIGURED"}</strong></div>
-              <div><small>PC-5 SENSOR</small><strong>{protectedReady ? "FRESH" : "UNVERIFIED"}</strong></div>
-              <div><small>SURICATA SERVICE</small><strong>{ids.availability === "AVAILABLE" ? ids.snapshot?.service_state?.toUpperCase() ?? "UNKNOWN" : ids.availability}</strong></div>
-              <div><small>PC-5 CASES · LAST 5M</small><strong>{state.connection === "LIVE" && targetIp ? metrics.active.length : "—"}</strong></div>
-              <div><small>IDS EVIDENCE</small><strong>{idsState}</strong></div>
+              <button type="button" onClick={() => setView("Alerts")}>
+                <small>Alerts to review</small><strong>{unreviewedAlerts.length}</strong><span>View alerts →</span>
+              </button>
+              <button type="button" onClick={() => setView("Incidents")}>
+                <small>Open cases</small><strong>{metrics.recordedOpen.length}</strong><span>View cases →</span>
+              </button>
+              <div><small>Network capture</small><strong>{protectedReady ? "Online" : "Unavailable"}</strong></div>
+              <div><small>Threat detection</small><strong>{ids.snapshot?.service_state === "active" ? "Online" : "Unavailable"}</strong></div>
             </section>
             <SocGauges state={state} capture={packetCapture} ids={ids} />
-            <ProtectedRouteStrip capture={packetCapture} />
+            <details className="mon-technical-details">
+              <summary>Network details</summary>
+              <ProtectedRouteStrip capture={packetCapture} />
+            </details>
             <div className="mon-command-desk-grid">
               <div className="mon-desk-traffic">
                 <PacketHistory capture={packetCapture} compact protectedOnly />
@@ -641,21 +662,31 @@ export default function App() {
               <div className="mon-desk-incidents">
                 <section className="panel">
                   <div className="panel-head">
-                    <div><span className="eyebrow">LAST 5 MINUTES / PC-5</span><h2>Recent protected-host incidents</h2></div>
-                    <button type="button" className="mon-desk-action" onClick={() => setView("Incidents")}>VIEW ALL ↗</button>
+                    <div><h2>Recent cases</h2></div>
+                    <button type="button" className="mon-desk-action" onClick={() => setView("Incidents")}>View cases →</button>
                   </div>
                   <IncidentTable incidents={metrics.active.slice(0, 6)} />
                 </section>
                 <section className="panel">
                   <div className="panel-head">
-                    <div><span className="eyebrow">LAST 5 MINUTES / PC-5</span><h2>Recent protected-host findings</h2></div>
-                    <button type="button" className="mon-desk-action" onClick={() => setView("Investigation")}>INVESTIGATE ↗</button>
+                    <div><h2>Recent findings</h2></div>
+                    <button type="button" className="mon-desk-action" onClick={() => setView("Alerts")}>View alerts →</button>
                   </div>
                   <FindingTable findings={metrics.recentFindings.slice(0, 5)} />
                 </section>
               </div>
             </div>
           </div>
+        )}
+
+        {view === "Alerts" && (
+          <AlertCenter
+            alerts={alerts}
+            acknowledged={acknowledgedAlerts}
+            sensorReady={ids.availability === "AVAILABLE" && ids.snapshot?.service_state === "active"}
+            onOpen={openAlert}
+            onAcknowledge={item => void acknowledgeAlert(item)}
+          />
         )}
 
         {view === "Incidents" && (
@@ -694,8 +725,8 @@ export default function App() {
             acknowledgedAt={acknowledgedAlerts[focusedAlert.key] ?? null}
             acknowledging={ackBusy}
             error={ackError}
-            onAcknowledge={() => void acknowledgeAlert()}
-            onClose={() => { setFocusedAlert(null); setView("Overview"); }}
+            onAcknowledge={() => { if (focusedAlert) void acknowledgeAlert(focusedAlert); }}
+            onClose={() => { setFocusedAlert(null); setView("Alerts"); }}
             onOpenCase={focusedAlert.incidentId &&
               state.incidents.some(item => item.incident_id === focusedAlert.incidentId)
               ? () => {
@@ -718,8 +749,11 @@ export default function App() {
               setView("Incidents");
             }}
           />}
-          <NetworkPath capture={packetCapture} />
-          <SuricataPanel protectedIp={targetIp} />
+          <details className="mon-technical-details mon-investigation-details">
+            <summary>Network traffic and sensor records</summary>
+            <NetworkPath capture={packetCapture} />
+            <SuricataPanel protectedIp={targetIp} />
+          </details>
           </>
         )}
 
@@ -728,8 +762,8 @@ export default function App() {
         <SecurityAlert
           alert={pendingAlerts[0]}
           queued={pendingAlerts.length}
-          onInvestigate={investigateAlert}
-          onAcknowledge={() => void acknowledgeAlert()}
+          onInvestigate={() => { if (pendingAlerts[0]) openAlert(pendingAlerts[0]); }}
+          onAcknowledge={() => { if (pendingAlerts[0]) void acknowledgeAlert(pendingAlerts[0]); }}
           acknowledging={ackBusy}
           acknowledgeError={ackError}
         />
