@@ -87,7 +87,7 @@ class ContainmentTests(unittest.TestCase):
         good={"service_state":"active","status":"RECENT_EVE","records":[row]}
         self.assertEqual(evidence_for_block(key,"10.77.0.70",good)["signature_id"],42000503)
         for changed in (
-            {"service_state":"inactive",**good},
+            {**good,"service_state":"inactive"},
             {**good,"records":[{**row,"dst_ip":"10.77.0.1"}]},
             {**good,"records":[{**row,"src_ip":"10.77.0.60"}]},
             {**good,"records":[{**row,"signature_id":999}]},
