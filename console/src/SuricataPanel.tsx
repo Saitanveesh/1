@@ -37,17 +37,20 @@ export default function SuricataPanel() {
         <div>
           <span className="mon-eyebrow">PASSIVE NETWORK IDS / SURICATA EVE</span>
           <h2>Protocol analysis and detections</h2>
-          <p>Independent passive capture on wg0. No packets blocked or modified by this sensor.</p>
+          <p>PC-2 Suricata EVE evidence. Sensor service and actual capture interface must be checked separately; this is not proof of blocking.</p>
         </div>
         <span className="mon-tag" data-testid="suricata-status">
-          {networkError ? "UNREACHABLE" : snapshot.status.replaceAll("_", " ")}
+          {networkError ? "API UNREACHABLE"
+            : snapshot.service_state !== "active"
+              ? "SERVICE " + (snapshot.service_state || "UNVERIFIED").toUpperCase()
+              : snapshot.status.replaceAll("_", " ")}
         </span>
       </div>
       <div className="mon-ids-summary">
         <div><small>RECENT EVE RECORDS</small><strong>{snapshot.observed_events}</strong></div>
         <div><small>RULE ALERTS</small><strong>{snapshot.alerts}</strong></div>
         <div><small>LAST EVENT</small><strong>{snapshot.last_seen || "NONE"}</strong></div>
-        <div><small>MONITORING</small><strong>PASSIVE · wg0</strong></div>
+        <div><small>CAPTURE INTERFACE</small><strong>{snapshot.capture_interface || "UNVERIFIED"}</strong></div>
       </div>
       <div className="mon-ids-actions" role="group" aria-label="IDS event filters">
         <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>ALL</button>
