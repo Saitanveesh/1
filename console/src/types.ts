@@ -277,6 +277,8 @@ export interface PacketCaptureSnapshot {
   protected_host_ip?: string | null;
   protected_capture_interface?: string;
   protected_route_status?: "UNCONFIGURED" | "OBSERVED" | "NO_MATCHING_TRAFFIC";
+  protected_route_interface?: string | null;
+  protected_route_check?: "UNCONFIGURED" | "UNVERIFIED" | "MATCHES_CAPTURE_INTERFACE" | "DIFFERENT_INTERFACE";
   raw_frames?: number;
   decoded_packets?: number;
   last_packet_at?: number;
