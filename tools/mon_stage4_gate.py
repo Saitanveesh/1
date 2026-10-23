@@ -99,7 +99,7 @@ class NftGate:
             setting = item.get("set")
             if not isinstance(setting, dict):
                 continue
-            for element in setting.get("elem", []):
+            for element in (setting.get("elem") or []):
                 if isinstance(element, str):
                     value, expires = element, None
                 elif isinstance(element, dict):
