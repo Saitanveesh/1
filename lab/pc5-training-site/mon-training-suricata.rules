@@ -1,0 +1,6 @@
+# MON authorized lab. Exclusive -S Suricata signature set for fictional PC-5.
+# These rules identify suspicious/request patterns, NOT confirmed compromise.
+# No signature here represents an IPS block. Bind only to PC5 port 8085.
+alert http any any -> 10.77.0.50 8085 (msg:"MON LAB possible web directory traversal"; flow:to_server,established; http.uri.raw; content:"file="; nocase; content:".."; distance:0; within:64; classtype:web-application-attack; priority:2; sid:42000501; rev:2;)
+alert http any any -> 10.77.0.50 8085 (msg:"MON LAB SQL injection probe in notice search"; flow:to_server,established; http.uri.raw; content:"/api/notices"; nocase; content:"q="; distance:0; within:128; content:"%27"; nocase; distance:0; within:160; classtype:web-application-attack; priority:2; sid:42000502; rev:1;)
+alert http any any -> 10.77.0.50 8085 (msg:"MON LAB synthetic student IDOR request pattern"; flow:to_server,established; http.uri.raw; content:"/api/student"; nocase; content:"id=STU-1002"; distance:0; within:100; content:"viewer=STU-1001"; distance:0; within:100; classtype:attempted-recon; priority:3; sid:42000503; rev:1;)

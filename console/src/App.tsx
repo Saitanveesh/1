@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import SecurityAlert from "./SecurityAlert";
+import AlertInvestigation from "./AlertInvestigation";
+import type { SecurityThreatAlert } from "./securityAlerts";
+import { useSuricataThreatAlerts } from "./suricataThreats";
+import {
+  currentProtectedFindings, currentProtectedIncidents, idsStatus,
+  isProtectedCaptureReady, isRecentObservation
+} from "./operationalTruth";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import IncidentQueue from "./IncidentQueue";
@@ -7,7 +15,7 @@ import Investigation3D from "./Incident3D";
 import SocGauges from "./SocGauges";
 import SuricataPanel from "./SuricataPanel";
 import LoginPage from "./LoginPage";
-import { NetworkPath, PacketHistory, usePacketCapture } from "./PacketObservability";
+import { NetworkPath, PacketHistory, ProtectedRouteStrip, usePacketCapture } from "./PacketObservability";
 import { LiveClient, type LiveState } from "./live";
 import type {
   Asset,
@@ -23,13 +31,9 @@ import type {
 } from "./types";
 import "./styles.css";
 
-type View = "Overview" | "Incidents" | "Investigation" | "Network" | "AI Analysis" | "Operations";
-type OperationsArea = "Assets" | "Enforcement" | "Response" | "Audit" | "Fleet" | "Telemetry" | "Admin";
+type View = "Overview" | "Incidents" | "Investigation";
 
-const views: View[] = ["Overview", "Incidents", "Investigation", "Network", "AI Analysis", "Operations"];
-const operationsAreas: OperationsArea[] = [
-  "Assets", "Enforcement", "Response", "Audit", "Fleet", "Telemetry", "Admin"
-];
+const views: View[] = ["Overview", "Incidents", "Investigation"];
 
 const rank: Record<Severity, number> = {
   INFO: 0,
@@ -86,7 +90,7 @@ function IncidentTable({
       <table>
         <thead>
           <tr>
-            <th>SEV</th><th>INCIDENT</th><th>STATUS</th><th>CONF</th><th>ENTITIES</th><th>LAST</th>
+            <th>SEV</th><th>INCIDENT</th><th>STATUS</th><th>CONF</th><th>CASE ENTITIES (UNTYPED)</th><th>LAST OBSERVED</th>
           </tr>
         </thead>
         <tbody>
@@ -103,10 +107,10 @@ function IncidentTable({
               <td>{incident.status}</td>
               <td>{Math.round(incident.confidence * 100)}%</td>
               <td>{incident.entities?.slice(0, 3).join(", ") || "—"}</td>
-              <td>{new Date(incident.last_seen).toLocaleTimeString()}</td>
+              <td>{new Date(incident.last_seen).toLocaleString()}</td>
             </tr>
           ))}
-          {!incidents.length && <tr><td colSpan={6} className="empty">No active incidents in the current snapshot.</td></tr>}
+          {!incidents.length && <tr><td colSpan={6} className="empty">No recent PC-5 incidents verified. Older recorded cases remain in Incidents.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -117,14 +121,14 @@ function FindingTable({ findings }: { findings: Finding[] }) {
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>SEV</th><th>DETECTOR</th><th>SOURCE</th><th>TARGET</th><th>CONF</th></tr></thead>
+        <thead><tr><th>SEV</th><th>DETECTOR</th><th>SOURCE IP</th><th>TARGET IP</th><th>CONF</th></tr></thead>
         <tbody>
           {latest(findings).slice(0, 12).map((item) => (
             <tr key={item.finding_id}>
               <td><span className={`severity ${severityBand(item.severity)}`}>{item.severity}</span></td>
               <td>{item.detector_id}</td>
-              <td>{item.asset_id ?? item.src_ip ?? "—"}</td>
-              <td>{item.dst_ip ?? "—"}</td>
+              <td>{item.src_ip ?? "Unknown Source"}</td>
+              <td>{item.dst_ip ?? "Not recorded"}</td>
               <td>{Math.round(item.confidence * 100)}%</td>
             </tr>
           ))}
@@ -360,7 +364,12 @@ export default function App() {
   const tenantId = params.get("tenant") || "default";
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
-  const [operationsArea, setOperationsArea] = useState<OperationsArea>("Assets");
+  const [pendingAlerts, setPendingAlerts] = useState<SecurityThreatAlert[]>([]);
+  const [focusedAlert, setFocusedAlert] = useState<SecurityThreatAlert | null>(null);
+  const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<Record<string, string>>({});
+  const [ackBusy, setAckBusy] = useState(false);
+  const [ackError, setAckError] = useState<string | null>(null);
+  const seenAlertKeys = useRef(new Set<string>());
   const [operator, setOperator] = useState<OperatorPrincipal | null>(null);
   const [authState, setAuthState] = useState<"CHECKING" | "OK" | "UNAUTHENTICATED" | "DENIED">("CHECKING");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
@@ -429,21 +438,114 @@ export default function App() {
     };
   }, [tenantId, siteId]);
 
+  const enqueueThreat = useCallback((incoming: SecurityThreatAlert) => {
+    if (seenAlertKeys.current.has(incoming.key)) return;
+    seenAlertKeys.current.add(incoming.key);
+    setPendingAlerts(current => current.some(item => item.key === incoming.key)
+      ? current
+      : [...current, incoming].slice(-10));
+  }, []);
+
   const packetCapture = usePacketCapture(authState === "OK");
+  const targetIp = packetCapture?.protected_host_ip || null;
+
+  useEffect(() => {
+    const incoming = state.threatAlert;
+    // A new WS event is not necessarily recent or intended for this victim.
+    // Do not flash a central "live attack" for historical or unscoped events.
+    if (authState === "OK" && state.connection === "LIVE" &&
+        incoming && targetIp && incoming.target === targetIp &&
+        isRecentObservation(incoming.observedAt, Date.now(), 120_000)) {
+      enqueueThreat(incoming);
+    }
+  }, [authState, state.connection, state.threatAlert, enqueueThreat, targetIp]);
+
+  const ids = useSuricataThreatAlerts(authState === "OK", enqueueThreat, targetIp);
+
+  useEffect(() => {
+    if (authState !== "OK") return;
+    let cancelled = false;
+    fetch("/portal/alerts/acknowledged", { credentials: "same-origin" })
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("Review state unavailable")))
+      .then((data: { records?: Array<{ key: string; acknowledged_at: string }> }) => {
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        for (const row of data.records ?? []) {
+          if (row.key.startsWith("ids:")) next[row.key] = row.acknowledged_at;
+        }
+        setAcknowledgedAlerts(next);
+      })
+      .catch(() => { /* Review state is optional; a failed write is never silently accepted. */ });
+    return () => { cancelled = true; };
+  }, [authState]);
+
+  const investigateAlert = () => {
+    const current = pendingAlerts[0];
+    if (!current) return;
+    setFocusedAlert(current);
+    setAckError(null);
+    const caseMatch = current.incidentId
+      ? state.incidents.find(item => item.incident_id === current.incidentId)
+      : undefined;
+    if (caseMatch) setSelectedIncident(caseMatch);
+    setView("Investigation");
+    setPendingAlerts(queue => queue.filter(item => item.key !== current.key));
+  };
+
+  async function acknowledgeAlert() {
+    const current = pendingAlerts[0] ?? focusedAlert;
+    if (!current || ackBusy) return;
+    setAckBusy(true);
+    setAckError(null);
+    try {
+      let stamp = new Date().toISOString();
+      if (current.key.startsWith("ids:")) {
+        const response = await fetch("/portal/alerts/acknowledge", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: current.key })
+        });
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(errorBody.error ?? ("Review not saved: HTTP " + response.status));
+        }
+        const body = await response.json() as { acknowledged_at: string };
+        if (!body.acknowledged_at) throw new Error("Review timestamp missing");
+        stamp = body.acknowledged_at;
+      }
+      // MON-stream-only notification reviews are scoped to this browser
+      // session. We never claim those changed the MON case database.
+      setAcknowledgedAlerts(old => ({ ...old, [current.key]: stamp }));
+      setFocusedAlert(current);
+      const caseMatch = current.incidentId
+        ? state.incidents.find(item => item.incident_id === current.incidentId)
+        : undefined;
+      if (caseMatch) setSelectedIncident(caseMatch);
+      setView("Investigation");
+      setPendingAlerts(queue => queue.filter(item => item.key !== current.key));
+    } catch (cause) {
+      setAckError(cause instanceof Error ? cause.message : "Acknowledgment unavailable");
+    } finally {
+      setAckBusy(false);
+    }
+  }
 
   const metrics = useMemo(() => {
-    const active = state.incidents.filter((item) => item.status !== "CLOSED");
+    const active = currentProtectedIncidents(
+      state.incidents, state.findings, state.assets, targetIp
+    );
+    const recentFindings = currentProtectedFindings(state.findings, targetIp);
     const highest = active.reduce<Severity>(
       (current, item) => rank[item.severity] > rank[current] ? item.severity : current,
       "INFO"
     );
-    const attackPressure = Math.min(
-      100,
-      active.reduce((sum, item) => sum + (rank[item.severity] + 1) * item.confidence * 8, 0)
-    );
-    const critical = active.filter((item) => item.severity === "CRITICAL").length;
-    return { active, highest, attackPressure, critical };
-  }, [state.incidents]);
+    const recordedOpen = state.incidents.filter(item => item.status !== "CLOSED");
+    return { active, recentFindings, highest, recordedOpen };
+  }, [state.incidents, state.findings, state.assets, targetIp]);
+
+  const protectedReady = isProtectedCaptureReady(packetCapture);
+  const idsState = idsStatus(ids.snapshot, ids.availability);
 
   const displayedIncident = state.incidents.find(item =>
     item.incident_id === selectedIncident?.incident_id
@@ -462,8 +564,8 @@ export default function App() {
         </div>
         <nav>
           {views.map((item) => (
-            <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>
-              <span>{item}</span><small>{item === "Incidents" ? metrics.active.length : ""}</small>
+            <button key={item} className={view === item ? "active" : ""} onClick={() => { setView(item); if (item !== "Investigation") setFocusedAlert(null); }}>
+              <span>{item}</span><small>{item === "Incidents" ? metrics.recordedOpen.length : ""}</small>
             </button>
           ))}
         </nav>
@@ -487,7 +589,7 @@ export default function App() {
           <div><span className="eyebrow">COMMAND CENTER</span><h1>{view}</h1></div>
           <div className="top-status">
             <span>LIVE TRANSPORT</span><strong>{state.connection}</strong>
-            <span>LAST EVENT</span><strong>{state.lastMessageAt ? new Date(state.lastMessageAt).toLocaleTimeString() : "—"}</strong>
+            <span>LAST TRANSPORT MESSAGE</span><strong>{state.lastMessageAt ? new Date(state.lastMessageAt).toLocaleTimeString() : "—"}</strong>
           </div>
         </header>
 
@@ -499,33 +601,57 @@ export default function App() {
         )}
         {view === "Overview" && (
           <div className="mon-command-desk" data-testid="mon-single-console">
+            {(!protectedReady || ids.snapshot?.service_state !== "active" || packetCapture?.protected_route_check !== "MATCHES_CAPTURE_INTERFACE") && (
+              <section className="mon-evidence-notice" role="status" data-testid="sensor-coverage-warning">
+                <strong>DETECTION COVERAGE NOT VERIFIED</strong>
+                <span>
+                  {protectedReady
+                    ? "Fresh protected-host observations available."
+                    : "PC-5 gateway capture is unconfigured, unavailable or stale. Live traffic values are withheld."}
+                  {" "}
+                  {packetCapture?.protected_route_check === "DIFFERENT_INTERFACE"
+                    ? "PC-2's selected route to PC-5 differs from the capture interface; forwarding coverage is not verified. "
+                    : packetCapture?.protected_route_check !== "MATCHES_CAPTURE_INTERFACE"
+                      ? "PC-2 forwarding route has not been verified. "
+                      : ""}
+                  {idsState === "SERVICE OFFLINE"
+                    ? "Suricata is stopped or failed; live IDS signatures cannot be trusted."
+                    : idsState === "SERVICE UNVERIFIED" || idsState === "API UNAVAILABLE"
+                      ? "Suricata health is not verified."
+                      : idsState === "CHECKING"
+                        ? "Checking Suricata service..."
+                        : "Suricata EVE status: " + idsState + "."}
+                </span>
+              </section>
+            )}
             <section className="mon-overview-strip" data-testid="overview-status-strip">
-              <div><small>MON STATUS</small><strong>{state.connection === "LIVE" ? "ONLINE" : state.connection}</strong></div>
-              <div><small>OPEN INCIDENTS</small><strong>{metrics.active.length}</strong></div>
-              <div><small>HIGHEST SEVERITY</small><strong>{metrics.highest}</strong></div>
-              <div><small>ASSETS</small><strong>{state.assets.length}</strong></div>
-              <div><small>ATTACK PRESSURE</small><strong>{Math.round(metrics.attackPressure)}</strong></div>
-              <div><small>PACKET CAPTURE</small><strong>{packetCapture?.status ?? "CONNECTING"}</strong></div>
+              <div><small>MON API CONNECTION</small><strong>{state.connection}</strong></div>
+              <div><small>PROTECTED IP</small><strong>{targetIp ?? "UNCONFIGURED"}</strong></div>
+              <div><small>PC-5 SENSOR</small><strong>{protectedReady ? "FRESH" : "UNVERIFIED"}</strong></div>
+              <div><small>SURICATA SERVICE</small><strong>{ids.availability === "AVAILABLE" ? ids.snapshot?.service_state?.toUpperCase() ?? "UNKNOWN" : ids.availability}</strong></div>
+              <div><small>PC-5 CASES · LAST 5M</small><strong>{state.connection === "LIVE" && targetIp ? metrics.active.length : "—"}</strong></div>
+              <div><small>IDS EVIDENCE</small><strong>{idsState}</strong></div>
             </section>
-            <SocGauges state={state} capture={packetCapture} />
+            <SocGauges state={state} capture={packetCapture} ids={ids} />
+            <ProtectedRouteStrip capture={packetCapture} />
             <div className="mon-command-desk-grid">
               <div className="mon-desk-traffic">
-                <PacketHistory capture={packetCapture} compact />
+                <PacketHistory capture={packetCapture} compact protectedOnly />
               </div>
               <div className="mon-desk-incidents">
                 <section className="panel">
                   <div className="panel-head">
-                    <div><span className="eyebrow">PRIORITY QUEUE</span><h2>Active incidents</h2></div>
+                    <div><span className="eyebrow">LAST 5 MINUTES / PC-5</span><h2>Recent protected-host incidents</h2></div>
                     <button type="button" className="mon-desk-action" onClick={() => setView("Incidents")}>VIEW ALL ↗</button>
                   </div>
                   <IncidentTable incidents={metrics.active.slice(0, 6)} />
                 </section>
                 <section className="panel">
                   <div className="panel-head">
-                    <div><span className="eyebrow">LATEST DETECTION</span><h2>Recent findings</h2></div>
+                    <div><span className="eyebrow">LAST 5 MINUTES / PC-5</span><h2>Recent protected-host findings</h2></div>
                     <button type="button" className="mon-desk-action" onClick={() => setView("Investigation")}>INVESTIGATE ↗</button>
                   </div>
-                  <FindingTable findings={state.findings.slice(0, 5)} />
+                  <FindingTable findings={metrics.recentFindings.slice(0, 5)} />
                 </section>
               </div>
             </div>
@@ -534,7 +660,7 @@ export default function App() {
 
         {view === "Incidents" && (
           <div className="mon-incidents-workspace" data-testid="incident-workspace">
-            <IncidentQueue incidents={state.incidents}
+            <IncidentQueue incidents={state.incidents} findings={state.findings}
               selectedId={displayedIncident?.incident_id ?? null}
               onSelect={setSelectedIncident} />
             <div className="mon-incidents-main">
@@ -560,7 +686,26 @@ export default function App() {
           </div>
         )}
         {view === "Investigation" && (
-          <Investigation3D
+          <>
+          {focusedAlert && <AlertInvestigation
+            alert={focusedAlert}
+            snapshot={ids.snapshot}
+            capture={packetCapture}
+            acknowledgedAt={acknowledgedAlerts[focusedAlert.key] ?? null}
+            acknowledging={ackBusy}
+            error={ackError}
+            onAcknowledge={() => void acknowledgeAlert()}
+            onClose={() => { setFocusedAlert(null); setView("Overview"); }}
+            onOpenCase={focusedAlert.incidentId &&
+              state.incidents.some(item => item.incident_id === focusedAlert.incidentId)
+              ? () => {
+                const caseItem = state.incidents.find(item => item.incident_id === focusedAlert.incidentId);
+                if (caseItem) { setSelectedIncident(caseItem); setFocusedAlert(null); setView("Incidents"); }
+              } : undefined}
+          />}
+          {(!focusedAlert || (focusedAlert.incidentId && state.incidents.some(
+            item => item.incident_id === focusedAlert.incidentId
+          ))) && <Investigation3D
             incidents={state.incidents}
             executions={state.response_executions}
             audits={state.audit_records}
@@ -572,66 +717,23 @@ export default function App() {
               setSelectedIncident(incident);
               setView("Incidents");
             }}
-          />
+          />}
+          <NetworkPath capture={packetCapture} />
+          <SuricataPanel protectedIp={targetIp} />
+          </>
         )}
-        {view === "AI Analysis" && (
-          <AiAnalysis
-            incidents={state.incidents}
-            tenantId={tenantId}
-            siteId={siteId}
-            executions={state.response_executions}
-            auditRecords={state.audit_records}
-            capture={packetCapture}
-            onOpenIncident={(incident) => {
-              setSelectedIncident(incident);
-              setView("Incidents");
-            }}
-          />
-        )}
-        {view === "Network" && <>
-          <NetworkPath capture={packetCapture}
-            attackerIps={state.findings.map(f => f.src_ip).filter((ip): ip is string => !!ip)} />
-          <PacketHistory capture={packetCapture} />
-          <SuricataPanel />
 
-        </>}
-        {view === "Operations" && (
-          <div className="mon-operations" data-testid="operations-workspace">
-            <div className="mon-operations-nav" role="group" aria-label="Operations tools">
-              {operationsAreas.map(area => (
-                <button key={area} type="button"
-                  aria-pressed={operationsArea === area}
-                  onClick={() => setOperationsArea(area)}>{area}</button>
-              ))}
-            </div>
-            {operationsArea === "Telemetry" && <>
-              <TelemetryPanel state={state} />
-              <SocGauges state={state} capture={packetCapture} />
-            </>}
-            {operationsArea === "Admin" && (
-              <section className="panel full mon-admin-details" data-testid="mon-admin-debug">
-                <div className="panel-head"><div><span className="eyebrow">ADVANCED / OPERATOR ONLY</span>
-                  <h2>System diagnostics</h2></div></div>
-                <dl>
-                  <dt>Operator</dt><dd>{operator?.subject ?? "Not authenticated"}</dd>
-                  <dt>Scope</dt><dd>{tenantId} / {siteId}</dd>
-                  <dt>Snapshot sequence</dt><dd>{state.sequence}</dd>
-                  <dt>Live transport</dt><dd>{state.connection}</dd>
-                  <dt>Capture scope</dt><dd>{packetCapture?.capture_scope ?? "Unavailable"}</dd>
-                </dl>
-                <details className="mon-advanced-evidence"><summary>Raw graph identifiers (diagnostics)</summary>
-                  <AttackGraph state={state} />
-                </details>
-              </section>
-            )}
-            {operationsArea === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
-            {operationsArea === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
-            {operationsArea === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
-            {operationsArea === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
-            {operationsArea === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
-          </div>
-        )}
       </main>
+      {authState === "OK" && pendingAlerts.length > 0 && (
+        <SecurityAlert
+          alert={pendingAlerts[0]}
+          queued={pendingAlerts.length}
+          onInvestigate={investigateAlert}
+          onAcknowledge={() => void acknowledgeAlert()}
+          acknowledging={ackBusy}
+          acknowledgeError={ackError}
+        />
+      )}
     </div>
   );
 }

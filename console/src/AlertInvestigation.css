@@ -1,0 +1,27 @@
+.mon-alert-investigation { margin-bottom: 18px; padding: 22px; }
+.mon-alert-investigation-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.mon-alert-investigation-head h2 { margin: 5px 0 9px; font-size: clamp(20px,2.1vw,30px); }
+.mon-alert-investigation-head p { margin: 0 0 16px; max-width: 80ch; color: var(--text-muted, #929ba8); line-height: 1.5; }
+.mon-alert-investigation-stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+.mon-alert-investigation-stats>div { min-width: 0; padding: 14px; border: 1px solid var(--border, #303742); border-radius: 8px; }
+.mon-alert-investigation-stats small { display: block; font-size: 10px; letter-spacing: .08em; opacity: .72; margin-bottom: 8px; }
+.mon-alert-investigation-stats strong { display: block; font-size: 13px; word-break: break-word; }
+.mon-alert-investigation-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+.mon-alert-investigation-actions button { cursor: pointer; padding: 11px 15px; border: 1px solid #56627a; border-radius: 6px; background: transparent; color: inherit; font-weight: 650; }
+.mon-alert-investigation-actions button:first-child { background: #b91c1c; color: white; border-color: #b91c1c; }
+.mon-alert-investigation-actions button:disabled { opacity: .55; cursor: default; }
+.mon-alert-investigation-error { color: #f87171; font-weight: 600; }
+.mon-alert-investigation-confirmation { border-left: 3px solid #34d399; padding-left: 12px; line-height: 1.5; }
+.mon-alert-investigation-subsections { display: grid; grid-template-columns: minmax(230px,1fr) minmax(0,2fr); gap: 18px; }
+.mon-alert-investigation-subsections>div { min-width: 0; }
+.mon-alert-investigation-subsections h3 { font-size: 15px; margin: 8px 0 12px; }
+.mon-alert-investigation-subsections p { line-height: 1.5; font-size: 12px; opacity: .85; }
+.mon-alert-facts { display: grid; grid-template-columns: 115px minmax(0,1fr); gap: 10px; margin: 0; font-size: 12px; }
+.mon-alert-facts dt { opacity: .7; } .mon-alert-facts dd { margin: 0; overflow-wrap: anywhere; }
+.mon-alert-frame-scroll { overflow: auto; max-height: 310px; }
+.mon-alert-evidence-empty { color: var(--text-muted, #929ba8); }
+@media (max-width: 780px) {
+  .mon-alert-investigation-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .mon-alert-investigation-subsections { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 450px) { .mon-alert-investigation-stats { grid-template-columns: minmax(0,1fr); } }

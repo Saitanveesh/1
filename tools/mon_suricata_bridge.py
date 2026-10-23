@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -17,8 +18,10 @@ LOG_PATH = Path(
         "/home/pc-2/mon-three/suricata/eve.json",
     )
 )
-MAX_BYTES = 524288
-MAX_RECORDS = 40
+MAX_BYTES = 2097152
+MAX_RECORDS = 60
+MAX_ALERTS = 30
+MAX_OTHER = MAX_RECORDS - MAX_ALERTS
 EVENT_TYPES = {"alert", "flow", "dns", "tls", "http"}
 
 
@@ -34,16 +37,41 @@ def safe_port(value: object) -> int | None:
     return None
 
 
+SURICATA_UNIT = os.environ.get(
+    "MON_SURICATA_UNIT", "mon-suricata-passive.service"
+).strip()
+
+
+def suricata_service_state() -> str:
+    """Check the service that owns this EVE stream, not an unrelated daemon."""
+    if not SURICATA_UNIT.endswith(".service") or "/" in SURICATA_UNIT:
+        return "unknown"
+    try:
+        result = subprocess.run(
+            ["/usr/bin/systemctl", "is-active", SURICATA_UNIT],
+            check=False, capture_output=True, text=True, timeout=2,
+        )
+        state = result.stdout.strip().lower()
+        return state if state in {
+            "active", "failed", "inactive", "activating", "deactivating"
+        } else "unknown"
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+
+
 def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": "suricata-eve",
+        "service_state": suricata_service_state(),
+        "service_unit": SURICATA_UNIT,
         "status": "NOT_INSTALLED",
         "observed_events": 0,
         "alerts": 0,
         "last_seen": None,
         "records": [],
-        "capture_interface": "wg0",
-        "scope": "Passive sensor on PC2; not inline packet enforcement",
+        # The actual capture device cannot be inferred from a log file.
+        "capture_interface": os.environ.get("MON_SURICATA_CAPTURE_INTERFACE") or None,
+        "scope": "Suricata EVE on PC2; capture interface unverified unless configured",
     }
     try:
         configured = (path.parent / ".mon-passive-configured").is_file()
@@ -62,11 +90,13 @@ def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
     except (OSError, PermissionError):
         return payload
 
-    rows = data.splitlines()[-500:]
+    rows = data.splitlines()[-3000:]
     latest_ts: str | None = None
     last_created = st.st_mtime
+    recent_alerts: list[dict[str, Any]] = []
+    other_records: list[dict[str, Any]] = []
     for raw in reversed(rows):
-        if len(payload["records"]) >= MAX_RECORDS:
+        if len(recent_alerts) >= MAX_ALERTS and len(other_records) >= MAX_OTHER:
             break
         if len(raw) > 20000:
             continue
@@ -112,9 +142,17 @@ def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
                 item["bytes_toserver"] = flow.get("bytes_toserver")
                 item["bytes_toclient"] = flow.get("bytes_toclient")
                 item["flow_state"] = small(flow.get("state"), 30)
-        payload["records"].append(item)
-        if kind == "alert":
-            payload["alerts"] += 1
+        # Reserve a bounded, separate window for signature alerts. Otherwise
+        # ordinary flow telemetry crowds out high-value detections.
+        if kind == "alert" and len(recent_alerts) < MAX_ALERTS:
+            recent_alerts.append(item)
+        elif kind != "alert" and len(other_records) < MAX_OTHER:
+            other_records.append(item)
+    payload["records"] = sorted(
+        recent_alerts + other_records,
+        key=lambda item: item["timestamp"], reverse=True,
+    )
+    payload["alerts"] = len(recent_alerts)
     payload["observed_events"] = len(payload["records"])
     payload["last_seen"] = latest_ts
     if payload["records"] and time.time() - last_created <= 300:

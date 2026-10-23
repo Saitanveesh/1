@@ -15,7 +15,9 @@ import ipaddress
 import json
 import os
 import secrets
+import shutil
 import socket
+import subprocess
 import struct
 import threading
 import time
@@ -28,7 +30,20 @@ from urllib.parse import urlsplit
 
 LISTEN = ("127.0.0.1", 8088)
 INTERFACE = os.environ.get("MON_PORTAL_INTERFACE", "wg0")
+# The protected endpoint is explicit rather than a presumed lab victim.
+# Missing configuration is reported as UNCONFIGURED, never as observed traffic.
+PROTECTED_HOST_IP = os.environ.get("MON_PROTECTED_HOST_IP", "").strip()
+PROTECTED_CAPTURE_INTERFACE = os.environ.get(
+    "MON_PROTECTED_CAPTURE_INTERFACE", "wg0"
+).strip()
+if PROTECTED_HOST_IP:
+    PROTECTED_HOST_IP = str(ipaddress.ip_address(PROTECTED_HOST_IP))
+if not PROTECTED_CAPTURE_INTERFACE or PROTECTED_CAPTURE_INTERFACE == "any":
+    raise ValueError("MON_PROTECTED_CAPTURE_INTERFACE must name a real interface")
 ORIGIN = os.environ.get("MON_PORTAL_ORIGIN", "http://100.75.116.62:5173")
+ALLOWED_ORIGINS = frozenset(x.strip() for x in os.environ.get(
+    "MON_PORTAL_ALLOWED_ORIGINS", ORIGIN
+).split(",") if x.strip())
 USERNAME = os.environ.get("MON_PORTAL_USERNAME", "sai")
 VERIFIER = os.environ.get("MON_PORTAL_PASSWORD_HASH", "")
 TOKEN_FILE = Path(
@@ -42,6 +57,82 @@ AUTH_ATTEMPTS = 5
 WINDOW = 90
 METRICS_TOKEN = os.environ.get("MON_METRICS_TOKEN", "")
 
+
+def parse_selected_route_interface(route_text: str) -> str | None:
+    """Extract actual kernel-selected device from iproute2 plain-text output.
+
+    The service's minimal systemd PATH may omit /usr/sbin, and JSON support
+    differs between installed iproute2 versions. The plain text route is
+    stable: e.g. '10.77.0.50 dev wg0 src 10.77.0.1 uid 1000'.
+    """
+    words = route_text.strip().split()
+    for index, word in enumerate(words[:-1]):
+        if word == "dev":
+            candidate = words[index + 1]
+            if candidate and candidate not in ("via", "src"):
+                return candidate
+    return None
+
+
+def inspect_protected_route() -> dict:
+    """Observe the host's route without treating it as forwarded packet proof.
+
+    Return a reason if the service is unable to inspect the route; do not
+    pretend that a missing subprocess result means a routing mismatch.
+    """
+    if not PROTECTED_HOST_IP:
+        return {
+            "protected_route_interface": None,
+            "protected_route_check": "UNCONFIGURED",
+            "protected_route_reason": "protected host address not configured",
+        }
+    binary = shutil.which("ip")
+    if not binary:
+        binary = next(
+            (candidate for candidate in (
+                "/usr/sbin/ip", "/usr/bin/ip", "/sbin/ip", "/bin/ip"
+            ) if os.path.isfile(candidate) and os.access(candidate, os.X_OK)),
+            None,
+        )
+    if not binary:
+        return {
+            "protected_route_interface": None,
+            "protected_route_check": "UNVERIFIED",
+            "protected_route_reason": "iproute2 executable unavailable to portal service",
+        }
+    try:
+        result = subprocess.run(
+            [binary, "-4", "route", "get", PROTECTED_HOST_IP],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        if result.returncode:
+            return {
+                "protected_route_interface": None,
+                "protected_route_check": "UNVERIFIED",
+                "protected_route_reason": "kernel route query failed (exit " + str(result.returncode) + ")",
+            }
+        interface = parse_selected_route_interface(result.stdout)
+        if not interface:
+            return {
+                "protected_route_interface": None,
+                "protected_route_check": "UNVERIFIED",
+                "protected_route_reason": "kernel route response has no device",
+            }
+        return {
+            "protected_route_interface": interface,
+            "protected_route_check": (
+                "MATCHES_CAPTURE_INTERFACE"
+                if interface == PROTECTED_CAPTURE_INTERFACE
+                else "DIFFERENT_INTERFACE"
+            ),
+            "protected_route_reason": None,
+        }
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return {
+            "protected_route_interface": None,
+            "protected_route_check": "UNVERIFIED",
+            "protected_route_reason": "route lookup error: " + type(exc).__name__,
+        }
 
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
     salt = salt or secrets.token_bytes(16)
@@ -119,8 +210,15 @@ class FlowCapture:
         # No payload storage or historical event fabrication.
         self.recent_events: collections.deque[dict] = collections.deque(maxlen=250)
         self.recent_lab_route: collections.deque[tuple[float, dict]] = (
-            collections.deque(maxlen=180)
+            collections.deque(maxlen=4096)
         )
+        # Keep ICMP independently so ping evidence survives high-rate web flows.
+        self.recent_icmp_route: collections.deque[tuple[float, dict]] = (
+            collections.deque(maxlen=512)
+        )
+        self.protected_second_packets: collections.Counter[int] = collections.Counter()
+        self.protected_second_bytes: collections.Counter[int] = collections.Counter()
+        self.protected_second_icmp: collections.Counter[int] = collections.Counter()
         self.interface_packets: collections.Counter[str] = collections.Counter()
         self.current_start = int(time.time())
         self.error: str | None = None
@@ -196,10 +294,32 @@ class FlowCapture:
                                 "protocol": proto,
                                 "dst_port": port,
                                 "ip_bytes": length,
+                                "frame_id": self.raw_frames,
                             }
                             self.recent_events.append(event)
-                            if {src, dst} == {"10.77.0.60", "10.77.0.50"}:
-                                self.recent_lab_route.append((time.time(), event))
+                            if (
+                                PROTECTED_HOST_IP
+                                and observed_interface == PROTECTED_CAPTURE_INTERFACE
+                                and (src == PROTECTED_HOST_IP or dst == PROTECTED_HOST_IP)
+                            ):
+                                stamped = time.time()
+                                self.recent_lab_route.append((stamped, event))
+                                second = int(stamped)
+                                self.protected_second_packets[second] += 1
+                                self.protected_second_bytes[second] += length
+                                if proto in ("ICMP", "ICMPv6"):
+                                    self.protected_second_icmp[second] += 1
+                                    self.recent_icmp_route.append((stamped, event))
+                                # Bound the per-second counters even without
+                                # any browser requesting a snapshot.
+                                for bucket in (
+                                    self.protected_second_packets,
+                                    self.protected_second_bytes,
+                                    self.protected_second_icmp,
+                                ):
+                                    for old in list(bucket):
+                                        if old < second - WINDOW:
+                                            del bucket[old]
         except Exception as exc:
             self.state = "UNAVAILABLE"
             self.error = str(exc)[:200]
@@ -232,10 +352,28 @@ class FlowCapture:
             ]
             interfaces = dict(self.interface_packets.most_common(12))
             events = list(self.recent_events)[-60:][::-1]
+            observed_now = time.time()
+            route_map = {
+                event["frame_id"]: event
+                for stamped, event in (
+                    list(self.recent_lab_route) + list(self.recent_icmp_route)
+                )
+                if 0 <= observed_now - stamped <= WINDOW
+            }
             route_events = [
-                event for stamped, event in self.recent_lab_route
-                if 0 <= time.time() - stamped <= 90
-            ][::-1]
+                event for _, event in
+                sorted(route_map.items(), key=lambda item: item[0], reverse=True)
+            ][:500]
+            now_second = int(observed_now)
+            protected_samples = [
+                {
+                    "second": sec,
+                    "packets": self.protected_second_packets.get(sec, 0),
+                    "bytes": self.protected_second_bytes.get(sec, 0),
+                    "icmp_packets": self.protected_second_icmp.get(sec, 0),
+                }
+                for sec in range(now_second - WINDOW + 1, now_second + 1)
+            ] if PROTECTED_HOST_IP else []
             raw_count = self.raw_frames
             decoded_count = sum(self.packet_totals.values())
             last_packet = self.last_packet
@@ -256,8 +394,16 @@ class FlowCapture:
             "last_packet_at": last_packet,
             "capture_scope": INTERFACE,
             "observed_interfaces": interfaces,
+            "protected_host_ip": PROTECTED_HOST_IP or None,
+            "protected_capture_interface": PROTECTED_CAPTURE_INTERFACE,
+            "protected_route_status": (
+                "UNCONFIGURED" if not PROTECTED_HOST_IP
+                else "OBSERVED" if route_events else "NO_MATCHING_TRAFFIC"
+            ),
             "events": events,
             "lab_route_events": route_events,
+            "protected_route_samples": protected_samples,
+            **inspect_protected_route(),
             "packet_layer": "IP headers only; no application payload captured",
             "samples": [{k: v for k, v in row.items() if k != "flows"} for row in samples],
             "flows": top,
@@ -367,6 +513,16 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             self.reply(HTTPStatus.OK, read_suricata_eve())
+        elif path == "/portal/alerts/acknowledged":
+            if not self._session():
+                self.reply(HTTPStatus.UNAUTHORIZED, {"error": "authentication required"})
+                return
+            try:
+                from mon_alert_ack import acknowledged_alerts
+            except ImportError:
+                self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "review journal unavailable"})
+                return
+            self.reply(HTTPStatus.OK, {"records": acknowledged_alerts()})
         elif path == "/portal/session":
             self.reply(HTTPStatus.OK, {"authenticated": self._session()})
         elif path == "/portal/metrics":
@@ -385,6 +541,38 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(payload)
         else:
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
+
+    def _acknowledge_alert(self) -> None:
+        """Save a genuine EVE signature acknowledgment, not a synthetic case."""
+        if not self._session():
+            self.reply(HTTPStatus.UNAUTHORIZED, {"error": "operator session required"})
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            size = 0
+        if not 1 <= size <= 1024 or not self.headers.get(
+            "Content-Type", ""
+        ).startswith("application/json"):
+            self.reply(HTTPStatus.BAD_REQUEST, {"error": "invalid acknowledgment"})
+            return
+        try:
+            data = json.loads(self.rfile.read(size))
+            key = data.get("key")
+            if not isinstance(key, str):
+                raise ValueError("invalid alert key")
+            from mon_suricata_bridge import read_suricata_eve
+            from mon_alert_ack import acknowledge_eve_alert
+            result = acknowledge_eve_alert(
+                key, read_suricata_eve(), PROTECTED_HOST_IP or None
+            )
+        except (ValueError, TypeError, AttributeError) as exc:
+            self.reply(HTTPStatus.CONFLICT, {"error": str(exc)[:160]})
+            return
+        except (OSError, ImportError):
+            self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "review journal unavailable"})
+            return
+        self.reply(HTTPStatus.OK, {"success": True, **result})
 
     def _ai_investigate(self) -> None:
         """Authorized, on-demand local inference; NEVER calls enforcement APIs."""
@@ -449,14 +637,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in ("/portal/login", "/portal/logout", "/portal/ai/investigate"):
+        if path not in ("/portal/login", "/portal/logout", "/portal/ai/investigate", "/portal/alerts/acknowledge"):
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
-        if self.headers.get("Origin") != ORIGIN:
+        if self.headers.get("Origin") not in ALLOWED_ORIGINS:
             self.reply(HTTPStatus.FORBIDDEN, {"error": "origin denied"})
             return
         if path == "/portal/ai/investigate":
             self._ai_investigate()
+            return
+        if path == "/portal/alerts/acknowledge":
+            self._acknowledge_alert()
             return
         if path == "/portal/logout":
             self.reply(

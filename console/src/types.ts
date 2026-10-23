@@ -263,6 +263,7 @@ export interface PacketEvent {
   protocol: string;
   dst_port: number | null;
   ip_bytes: number;
+  frame_id?: number;
 }
 
 export interface PacketCaptureSnapshot {
@@ -272,6 +273,12 @@ export interface PacketCaptureSnapshot {
   observed_interfaces?: Record<string, number>;
   events?: PacketEvent[];
   lab_route_events?: PacketEvent[];
+  protected_route_samples?: Array<PacketSample & { icmp_packets: number }>;
+  protected_host_ip?: string | null;
+  protected_capture_interface?: string;
+  protected_route_status?: "UNCONFIGURED" | "OBSERVED" | "NO_MATCHING_TRAFFIC";
+  protected_route_interface?: string | null;
+  protected_route_check?: "UNCONFIGURED" | "UNVERIFIED" | "MATCHES_CAPTURE_INTERFACE" | "DIFFERENT_INTERFACE";
   raw_frames?: number;
   decoded_packets?: number;
   last_packet_at?: number;
@@ -309,6 +316,7 @@ export interface SuricataRecord {
 
 export interface SuricataSnapshot {
   source: "suricata-eve";
+  service_state?: "active" | "failed" | "inactive" | "activating" | "deactivating" | "unknown";
   status: "NOT_INSTALLED" | "CONFIGURED_NO_EVE" | "NO_RECENT_EVENTS" | "RECENT_EVE";
   observed_events: number;
   alerts: number;

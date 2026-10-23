@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { PacketCaptureSnapshot, PacketFlow } from "./types";
+import type { PacketCaptureSnapshot } from "./types";
+import { selectProtectedRoute } from "./routeEvidence";
+import { isProtectedCaptureReady } from "./operationalTruth";
 
 const COUNT = 90;
 const WIDTH = 1000;
@@ -61,10 +63,14 @@ export function trailingPacketRate(samples: number[], seconds = 5): number[] {
   });
 }
 
-export function PacketHistory({ capture, compact = false }: { capture: PacketCaptureSnapshot | null; compact?: boolean }) {
+export function PacketHistory({ capture, compact = false, protectedOnly = false }: {
+  capture: PacketCaptureSnapshot | null;
+  compact?: boolean;
+  protectedOnly?: boolean;
+}) {
   const [display, setDisplay] = useState<"average" | "raw">("average");
+  const samples = protectedOnly ? (capture?.protected_route_samples ?? []) : (capture?.samples ?? []);
   const { raw, smoothed, ceiling, total } = useMemo(() => {
-    const samples = capture?.samples ?? [];
     const bySecond = new Map(samples.map(row => [row.second, row.packets]));
     const end = samples.at(-1)?.second ?? 0;
     const raw = Array.from({ length: COUNT }, (_, index) =>
@@ -77,9 +83,11 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
       ceiling: Math.max(1, ...raw, ...smoothed),
       total: raw.reduce((sum, current) => sum + current, 0)
     };
-  }, [capture]);
-  const capturing = capture?.status === "CAPTURING";
-  const lastFive = capture?.samples.slice(-5) ?? [];
+  }, [samples]);
+  const capturing = protectedOnly
+    ? isProtectedCaptureReady(capture)
+    : capture?.status === "CAPTURING";
+  const lastFive = samples.slice(-5);
   const recentPackets = lastFive.reduce((sum, row) => sum + row.packets, 0);
   const recentBytes = lastFive.reduce((sum, row) => sum + row.bytes, 0);
   const pps = recentPackets / Math.max(1, lastFive.length);
@@ -89,27 +97,34 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
   const interfaces = Object.entries(capture?.observed_interfaces ?? {})
     .sort((a, b) => b[1] - a[1]).map(([name]) => name);
   const scope = capture?.capture_scope ?? "wg0";
+  const protectedRoute = selectProtectedRoute(capture);
   const events = capture?.events ?? [];
-  const lastPacket = capture?.last_packet_at
-    ? new Date(capture.last_packet_at * 1000).toLocaleTimeString()
-    : "none recorded";
+  const lastPacket = protectedOnly
+    ? protectedRoute.lastSeen ? new Date(protectedRoute.lastSeen).toLocaleTimeString() : "none recorded"
+    : capture?.last_packet_at
+      ? new Date(capture.last_packet_at * 1000).toLocaleTimeString()
+      : "none recorded";
   return (
     <section className={"mon-panel mon-traffic-panel" + (compact ? " mon-traffic-compact" : "")} data-testid="live-packet-history">
       <div className="mon-panel-heading">
         <div>
           <span className="mon-eyebrow">NETWORK / MEASURED IP HEADERS</span>
-          <h2>Live network traffic</h2>
-          <p>Scope: {scope === "any" ? "PC2 host interfaces" : scope} · one-second measurements · 90-second window</p>
+          <h2>{protectedOnly ? "Live PC-5 gateway traffic" : "Live network traffic"}</h2>
+          <p>{protectedOnly
+            ? "Filtered: " + (capture?.protected_host_ip || "PC-5 address not configured") +
+              " on " + protectedRoute.captureInterface + " · observed IP frames per second"
+            : "Scope: " + (scope === "any" ? "ALL PC2 host interfaces (background included)" : scope) +
+              " · one-second measurements · 90-second window"}</p>
         </div>
         <span className={"mon-tag " + (capturing ? "mon-tag-active" : "")}>
           <span className="mon-dot" />{capture?.status ?? "CONNECTING"}
         </span>
       </div>
       <div className="mon-flow-metrics">
-        <div><span>PACKETS / LAST 5S</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
+        <div><span>{protectedOnly ? "IP FRAMES / LAST 5S" : "PACKETS / LAST 5S"}</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
         <div><span>MEASURED PACKETS / S (5S AVG)</span><strong>{capturing ? pps.toFixed(2) : "—"}</strong></div>
         <div><span>BYTES / LAST 5S</span><strong>{capturing ? human(recentBytes) : "—"}</strong></div>
-        <div><span>90-SECOND PACKETS</span><strong>{capturing ? human(total) : "—"}</strong></div>
+        <div><span>{protectedOnly ? "90-SECOND IP FRAMES" : "90-SECOND PACKETS"}</span><strong>{capturing ? human(total) : "—"}</strong></div>
       </div>
       <div className="mon-chart-control">
         <span>{display === "average" ? "BLACK: 5-second trailing average · GRAY: raw 1-second counts" : "BLACK: raw captured packets per second"}</span>
@@ -140,11 +155,19 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
             {index === 89 ? "NOW" : "-" + (89 - index) + "s"}
           </text>)}
           {!capturing && <text x={WIDTH / 2} y="125" textAnchor="middle"
-            className="mon-chart-empty">{capture?.error ?? "NO MEASURED PACKETS"}</text>}
+            className="mon-chart-empty">{protectedOnly && !capture?.protected_host_ip
+              ? "PC-5 ADDRESS NOT CONFIGURED"
+              : protectedOnly && !capture?.protected_route_samples
+                ? "TARGET-SCOPED SENSOR COUNTERS UNAVAILABLE"
+                : capture?.error ?? "NO MEASURED PACKETS"}</text>}
         </svg>
       </div>
       <div className="mon-chart-footer">
-        <span>RAW FRAMES {capture?.raw_frames ?? "—"} · DECODED IP {capture?.decoded_packets ?? "—"} · LAST PACKET {lastPacket}</span>
+        <span>{protectedOnly
+          ? "PC-5 MATCHING FRAMES " + protectedRoute.observedFrames + " · ICMP " +
+            protectedRoute.icmpFrames + " · LAST MATCH " + lastPacket
+          : "RAW FRAMES " + (capture?.raw_frames ?? "—") + " · DECODED IP " +
+            (capture?.decoded_packets ?? "—") + " · LAST PACKET " + lastPacket}</span>
         <span>Observed interfaces: {interfaces.join(", ") || scope}</span>
       </div>
       {!compact && <div className="mon-flow-section" data-testid="real-network-event-log">
@@ -174,116 +197,133 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
           </table>
         </div>
       </div>}
-      {compact && <p className="mon-compact-network-hint">Full packet log and protocol analysis are available in Network.</p>}
-      <p className="mon-packet-caveat">5S RATE is a calculated average of measured one-second samples, never a packet generator. PC2 cannot observe traffic that bypasses PC2. Forwarded packets seen on multiple interfaces may appear more than once.</p>
+      {compact && <p className="mon-compact-network-hint">{protectedOnly
+        ? "Only packets matching the configured protected IP on the selected tunnel are charted. ICMP/ping is included; no synthetic traffic."
+        : "PC2 aggregate traffic includes unrelated hosts. Protected PC5 traffic is reported separately below."}</p>}
+      <p className="mon-packet-caveat">5S RATE averages measured one-second frames, not generated traffic. PC-2 cannot inspect traffic that bypasses its interfaces; forwarded packets can appear on both RX and TX. An IP frame is not a verified end-to-end packet.</p>
     </section>
   );
 }
 
-function protocol(flow: PacketFlow): string {
-  return flow.protocol + (flow.dst_port == null ? "" : ":" + flow.dst_port);
+
+export function ProtectedRouteStrip({ capture }: { capture: PacketCaptureSnapshot | null }) {
+  const route = selectProtectedRoute(capture);
+  const fresh = isProtectedCaptureReady(capture);
+  return (
+    <section className="mon-protected-strip" data-testid="pc5-protected-strip">
+      <div>
+        <small>PROTECTED SITE · TUNNEL CAPTURE</small>
+        <strong>{route.configured ? "PC-5 gateway traffic" : "Victim IP not configured"}</strong>
+      </div>
+      <div><small>TARGET IP</small><strong>{route.target ?? "UNCONFIGURED"}</strong></div>
+      <div><small>OBSERVED PEER</small><strong>{fresh ? route.peer ?? "Not observed" : "UNVERIFIED"}</strong></div>
+      <div><small>IP FRAMES · 90S</small><strong>{fresh ? route.observedFrames : "NO DATA"}</strong></div>
+      <div><small>ICMP FRAMES · 90S</small><strong>{fresh ? route.icmpFrames : "NO DATA"}</strong></div>
+      <div><small>CAPTURE PATH</small><strong>{route.captureInterface}</strong></div>
+      <div><small>PC-2 SELECTED ROUTE</small><strong>{capture?.protected_route_interface ?? "UNVERIFIED"}</strong></div>
+      <p>
+        {route.configured
+          ? fresh
+            ? "Only observed packets involving PC-5 on the selected tunnel. IP frame counts are not unique end-to-end packets."
+            : "PC-5 is configured but the scoped sensor has not delivered a current measurement. Counters are withheld."
+          : "Set MON_PROTECTED_HOST_IP on the PC-2 portal service to enable evidence-based route monitoring."}
+        {" Route check: " + (capture?.protected_route_check ?? "UNVERIFIED") +
+          ". A matching route is not proof of end-to-end forwarded PC-6 traffic."}
+      </p>
+    </section>
+  );
 }
 
-export function NetworkPath({
-  capture, attackerIps
-}: {
-  capture: PacketCaptureSnapshot | null;
-  attackerIps: string[];
-}) {
-  const measured = capture?.status === "CAPTURING";
-  const source = attackerIps.includes("10.77.0.60") ? "10.77.0.60" :
-    (attackerIps.find(ip => ip !== "10.77.0.1") ?? "10.77.0.60");
-  const flows = capture?.flows ?? [];
-  const target = "10.77.0.50";
-  const now = Date.parse(capture?.observed_at ?? "");
-  const recent = (capture?.lab_route_events ?? capture?.events ?? []).filter(event =>
-    ((event.src_ip === source && event.dst_ip === target) ||
-     (event.src_ip === target && event.dst_ip === source)) &&
-    Number.isFinite(Date.parse(event.timestamp)) &&
-    now - Date.parse(event.timestamp) >= 0 &&
-    now - Date.parse(event.timestamp) <= 90000
-  );
-  const active = measured && recent.some(event =>
-    now - Date.parse(event.timestamp) <= 5000
-  );
-  const recentBytes = recent.reduce((sum, event) => sum + event.ip_bytes, 0);
-  const lastMatch = recent.length ? new Date(recent[0].timestamp).toLocaleTimeString() : null;
+export function NetworkPath({ capture }: { capture: PacketCaptureSnapshot | null }) {
+  const route = selectProtectedRoute(capture);
   const observedIfaces = Object.keys(capture?.observed_interfaces ?? {});
-
+  const status = !route.configured ? "TARGET UNCONFIGURED"
+    : !route.events.length ? "NO MATCHING TUNNEL FRAMES"
+    : route.active && route.observedBothDirections ? "RECENT RX/TX OBSERVED"
+    : route.active ? "RECENT CAPTURE OBSERVED"
+    : "RECENT FRAME HISTORY";
+  const peerLabel = route.peer ?? "Unknown Source";
   return (
     <section className="mon-panel mon-topology-panel" data-testid="network-path">
       <div className="mon-panel-heading">
         <div>
-          <span className="mon-eyebrow">EVIDENCE-BACKED ROUTE RECONSTRUCTION</span>
-          <h2>Attacker / Router / Protected endpoint</h2>
-          <p>The verified lab forwarding path is drawn separately from live packet observations.</p>
+          <span className="mon-eyebrow">PROTECTED WEB SERVER / CAPTURED IP FRAMES</span>
+          <h2>Observed traffic toward PC-5</h2>
+          <p>PC-2 is the intended gateway. Interface capture alone does not prove the forwarding rule or successful IPS enforcement.</p>
         </div>
-        <span className="mon-tag">{active ? "TRAFFIC OBSERVED NOW" : recent.length ? "RECENT MATCH" : "NO MATCHING RECENT PACKETS"}</span>
+        <span className="mon-tag">{status}</span>
       </div>
       <div className="mon-topology-canvas">
         <svg viewBox="0 0 1040 265" role="img"
-          aria-label="Three computer lab topology: PC6, via PC2 gateway, to PC5">
+          aria-label="Observed peer and configured PC-5 endpoint through intended PC-2 gateway">
           <defs>
             <marker id="mon-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
               <path d="M0 0 L0 6 L9 3 Z" fill="currentColor" />
             </marker>
           </defs>
-          <path className={"mon-route" + (active ? " mon-route-active" : "")}
+          <path className={"mon-route" + (route.active ? " mon-route-active" : "")}
             d="M260 167 H403" markerEnd="url(#mon-arrow)" />
-          <path className={"mon-route" + (active ? " mon-route-active" : "")}
+          <path className={"mon-route" + (route.active ? " mon-route-active" : "")}
             d="M637 167 H782" markerEnd="url(#mon-arrow)" />
-          {active && <>
-            <circle cx="260" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg1" />
-            <circle cx="637" cy="167" r="5" className="mon-traffic-pulse mon-pulse-leg2" />
-          </>}
+          {route.active && <circle cx="260" cy="167" r="5"
+            className="mon-traffic-pulse mon-pulse-leg1" />}
           <rect className="mon-node mon-node-attacker" x="26" y="93" width="234" height="152" rx="4" />
-          <text className="mon-node-label mon-inverse" x="45" y="122">01 / OBSERVED SOURCE</text>
-          <text className="mon-node-title mon-inverse" x="45" y="165">PC6 · Lab source</text>
-          <text className="mon-node-ip mon-inverse" x="45" y="196">{source}</text>
-          <text className="mon-node-info mon-inverse" x="45" y="223">Test source · normal or attack traffic</text>
+          <text className="mon-node-label mon-inverse" x="45" y="122">01 / OBSERVED PEER</text>
+          <text className="mon-node-title mon-inverse" x="45" y="165">Unverified identity</text>
+          <text className="mon-node-ip mon-inverse" x="45" y="196">{peerLabel}</text>
+          <text className="mon-node-info mon-inverse" x="45" y="223">Observed IP · not assumed PC-6</text>
 
           <rect className="mon-node" x="404" y="93" width="233" height="152" rx="4" />
-          <text className="mon-node-label" x="423" y="122">02 / ROUTE + RESPONSE</text>
-          <text className="mon-node-title" x="423" y="165">PC2 · MON Router</text>
-          <text className="mon-node-ip" x="423" y="196">10.77.0.1</text>
-          <text className="mon-node-info" x="423" y="223">WireGuard · nftables</text>
+          <text className="mon-node-label" x="423" y="122">02 / CAPTURE GATEWAY</text>
+          <text className="mon-node-title" x="423" y="165">PC-2 · MON gateway</text>
+          <text className="mon-node-ip" x="423" y="196">{route.captureInterface}</text>
+          <text className="mon-node-info" x="423" y="223">Inline forwarding not yet proven</text>
 
           <rect className="mon-node" x="783" y="93" width="231" height="152" rx="4" />
-          <text className="mon-node-label" x="802" y="122">03 / PROTECTED SYSTEM</text>
-          <text className="mon-node-title" x="802" y="165">PC5 · Linux Host</text>
-          <text className="mon-node-ip" x="802" y="196">10.77.0.50</text>
-          <text className="mon-node-info" x="802" y="223">SSH · endpoint collector</text>
+          <text className="mon-node-label" x="802" y="122">03 / PROTECTED TARGET</text>
+          <text className="mon-node-title" x="802" y="165">PC-5 · Web server</text>
+          <text className="mon-node-ip" x="802" y="196">{route.target ?? "Not configured"}</text>
+          <text className="mon-node-info" x="802" y="223">Actual address from portal config</text>
 
-          <text className="mon-link-label" x="332" y="140" textAnchor="middle">TUNNEL</text>
-          <text className="mon-link-label" x="710" y="140" textAnchor="middle">FORWARDED</text>
-
+          <text className="mon-link-label" x="332" y="140" textAnchor="middle">OBSERVED</text>
+          <text className="mon-link-label" x="710" y="140" textAnchor="middle">INTENDED ROUTE</text>
         </svg>
       </div>
       <div className="mon-route-observations" data-testid="route-observation-summary">
         <span>CAPTURE: {capture?.status ?? "CONNECTING"}</span>
-        <span data-testid="route-count">PC6 ↔ PC5: {recent.length} observed IP packets · {human(recentBytes)} IP bytes (90s)</span>
-        <span>LAST SEEN: {lastMatch ?? "NOT OBSERVED"}</span>
-        <span>INTERFACES: {observedIfaces.join(", ") || capture?.capture_scope || "UNKNOWN"}</span>
+        <span data-testid="route-count">PC-5: {route.observedFrames} matching frame observations · {human(route.observedBytes)} IP bytes (90s)</span>
+        <span>ICMP: {route.icmpFrames} observed frames</span>
+        <span>RX/TX ON CAPTURE IFACE: {route.observedBothDirections ? "BOTH" : "NOT BOTH"}</span>
+        <span>LAST SEEN: {route.lastSeen ? new Date(route.lastSeen).toLocaleTimeString() : "NOT OBSERVED"}</span>
+        <span>INTERFACES ON PC2: {observedIfaces.join(", ") || capture?.capture_scope || "UNKNOWN"}</span>
       </div>
       <div className="mon-flow-section">
         <div className="mon-panel-heading mon-panel-heading-small">
-          <h3>Active network conversations <span>10-SECOND WINDOW</span></h3>
-          <span>{flows.length} measured flows</span>
+          <h3>Recorded PC-5 conversations <span>90-SECOND WINDOW · SENSOR FRAMES</span></h3>
+          <span>{route.events.length} captured frames</span>
         </div>
         <div className="mon-flow-table-wrapper">
           <table className="mon-flow-table">
-            <thead><tr><th>SOURCE</th><th>DESTINATION</th><th>TRANSPORT</th><th>PACKETS</th><th>BYTES</th></tr></thead>
+            <thead><tr><th>TIME</th><th>INTERFACE</th><th>DIRECTION</th><th>SOURCE</th><th>DESTINATION</th><th>PROTOCOL</th><th>IP BYTES</th></tr></thead>
             <tbody>
-              {flows.slice(0, 15).map((flow, index) => <tr key={index}>
-                <td>{flow.src_ip}</td><td>{flow.dst_ip}</td>
-                <td>{protocol(flow)}{flow.src_ip === "10.77.0.60" && flow.dst_ip === "10.77.0.50" &&
-                  flow.protocol === "ICMP" ? " · EXPECTED-BASELINE" : ""}</td>
-                <td>{human(flow.packets)}</td><td>{human(flow.bytes)}</td>
-              </tr>)}
-              {!flows.length && <tr>
-                <td colSpan={5} className="mon-flow-empty">
-                  {measured ? "No IP conversations observed during this aggregation window" :
-                    "Capture unavailable · no invented network conversations"}
+              {route.events.slice(0, 50).map((event, index) => (
+                <tr key={event.timestamp + ":" + index}>
+                  <td>{new Date(event.timestamp).toLocaleTimeString()}</td>
+                  <td>{event.interface}</td>
+                  <td>{event.direction.toUpperCase()}</td>
+                  <td>{event.src_ip}</td>
+                  <td>{event.dst_ip}</td>
+                  <td>{event.protocol}{event.dst_port == null ? "" : ":" + event.dst_port}</td>
+                  <td>{event.ip_bytes}</td>
+                </tr>
+              ))}
+              {!route.events.length && <tr>
+                <td colSpan={7} className="mon-flow-empty">
+                  {!route.configured
+                    ? "No protected IP configured. MON will not invent a victim or attacker address."
+                    : capture?.status !== "CAPTURING"
+                      ? "Sensor is unavailable: inspect portal capture permissions and interface."
+                      : "No matching traffic reached this capture interface in the last 90 seconds. Verify the network route to PC-5."}
                 </td>
               </tr>}
             </tbody>

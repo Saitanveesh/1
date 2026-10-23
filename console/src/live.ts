@@ -1,4 +1,5 @@
 import { fetchSnapshot, liveWebSocketUrl } from "./api";
+import { selectSecurityAlert, type SecurityThreatAlert } from "./securityAlerts";
 import type {
   Asset,
   AuditRecord,
@@ -18,6 +19,7 @@ export interface LiveState extends LiveSnapshot {
   connection: ConnectionState;
   lastMessageAt?: string;
   droppedMessages: number;
+  threatAlert?: SecurityThreatAlert;
 }
 
 export class LiveClient {
@@ -120,10 +122,12 @@ export class LiveClient {
       return;
     }
 
+    const threatAlert = selectSecurityAlert(envelope, this.state);
     const common = {
       sequence: Math.max(this.state.sequence, envelope.sequence),
       lastMessageAt: envelope.emitted_at,
-      connection: "LIVE" as const
+      connection: "LIVE" as const,
+      ...(threatAlert ? { threatAlert } : {})
     };
 
     if (envelope.kind === "stream.heartbeat") {

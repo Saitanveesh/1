@@ -1,0 +1,46 @@
+name: MON Batch 1 frontend validation
+on:
+  push:
+    branches:
+      - feature/mon-batch1-live-security-alert-20261023
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm test -- --run
+
+  portal-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: bash -n tools/mon-batch1-fix-pc2.sh tools/mon-batch1-complete-pc2.sh lab/pc5-training-site/install-pc5.sh lab/pc5-training-site/upgrade-pc5.sh
+      - run: python -m py_compile tools/mon-lab-portal.py tools/mon_alert_ack.py tools/mon_suricata_bridge.py lab/pc5-training-site/server.py
+      - run: python -m unittest discover -s lab/pc5-training-site -p "test_*.py"
+
+  suricata-signatures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install passive Suricata validator
+        run: sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq suricata
+      - name: Validate PC5 lab HTTP signature syntax
+        run: |
+          mkdir -p /tmp/mon-suricata-ci
+          sudo suricata -T -c /etc/suricata/suricata.yaml -S lab/pc5-training-site/mon-training-suricata.rules -l /tmp/mon-suricata-ci --init-errors-fatal

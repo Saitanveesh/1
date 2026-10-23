@@ -1,0 +1,2 @@
+MON LAB CANARY: training-only file. No real accounts, credentials, or private information.
+This response demonstrates an out-of-webroot file read within the confined lab directory.
