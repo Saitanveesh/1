@@ -117,7 +117,7 @@ export function situationReport(
     "Real personal data loss: not applicable; victim records are fictional training fixtures.",
     "Limits: server write does not prove client receipt. A kernel block and cumulative drop counter " +
       "do not establish which physical machine was responsible or prove every connection was stopped.",
-  ].join("\\n");
+  ].join("\n");
 }
 
 function phrase(category: string): string {
