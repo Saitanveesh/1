@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -36,16 +37,33 @@ def safe_port(value: object) -> int | None:
     return None
 
 
+def suricata_service_state() -> str:
+    """Report actual systemd state; an EVE log existing is not sensor health."""
+    try:
+        result = subprocess.run(
+            ["/usr/bin/systemctl", "is-active", "suricata.service"],
+            check=False, capture_output=True, text=True, timeout=2,
+        )
+        state = result.stdout.strip().lower()
+        return state if state in {
+            "active", "failed", "inactive", "activating", "deactivating"
+        } else "unknown"
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+
+
 def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": "suricata-eve",
+        "service_state": suricata_service_state(),
         "status": "NOT_INSTALLED",
         "observed_events": 0,
         "alerts": 0,
         "last_seen": None,
         "records": [],
-        "capture_interface": "wg0",
-        "scope": "Passive sensor on PC2; not inline packet enforcement",
+        # The actual capture device cannot be inferred from a log file.
+        "capture_interface": os.environ.get("MON_SURICATA_CAPTURE_INTERFACE") or None,
+        "scope": "Suricata EVE on PC2; capture interface unverified unless configured",
     }
     try:
         configured = (path.parent / ".mon-passive-configured").is_file()
