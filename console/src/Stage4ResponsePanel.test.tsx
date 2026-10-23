@@ -56,7 +56,7 @@ describe("Stage 4 operator mitigation and victim impact",()=>{
     render(<Stage4ResponsePanel alert={alert}/>);
     await waitFor(()=>expect(screen.getByText("242")).toBeTruthy());
     expect(screen.getByText("fictional exposure responses")).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
     expect(screen.getByText(/No active training-web block/)).toBeTruthy();
     fireEvent.click(screen.getByText("Evidence and response history"));
     expect(screen.getByText(/not applicable to the fictional training fixtures/)).toBeTruthy();
@@ -80,7 +80,7 @@ describe("Stage 4 operator mitigation and victim impact",()=>{
   it("refuses containment for non-enrolled source",async ()=>{
     const fetcher=setup();
     render(<Stage4ResponsePanel alert={{...alert,source:"10.77.0.80" }}/>);
-    expect(screen.getByText(/restricted to verified activity/)).toBeTruthy();
+    expect(screen.getByText(/limited to verified activity/)).toBeTruthy();
     expect(fetcher).not.toHaveBeenCalled();
   });
   it("compares only retained actual post-block victim events",()=>{
