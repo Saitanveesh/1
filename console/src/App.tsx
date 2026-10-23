@@ -30,6 +30,7 @@ import type {
   Severity
 } from "./types";
 import "./styles.css";
+import "./FinalConsole.css";
 
 type View = "Overview" | "Alerts" | "Incidents" | "Investigation";
 
