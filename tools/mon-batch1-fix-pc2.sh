@@ -133,7 +133,7 @@ MON_SURICATA_UNIT=mon-suricata-passive.service
 EOF
 chmod 0600 "$ENVFILE"
 sudo mkdir -p /etc/systemd/system/mon-three-lab-portal.service.d
-printf '[Service]\nEnvironmentFile=%s\n' "$ENVFILE" | sudo tee "$DROPIN" >/dev/null
+printf '[Unit]\nAfter=mon-batch1-overlay-routes.service\nWants=mon-batch1-overlay-routes.service\n[Service]\nEnvironmentFile=%s\n' "$ENVFILE" | sudo tee "$DROPIN" >/dev/null
 sudo tee "$IDSUNIT" >/dev/null <<EOF
 [Unit]
 Description=MON passive Suricata IDS on wg0 (non-inline)
@@ -157,10 +157,12 @@ EOF
 sudo tee "$ROUTEUNIT" >/dev/null <<EOF
 [Unit]
 Description=MON known overlay peer host routes (no nftables changes)
-After=network-online.target
+After=network-online.target wg-quick@wg0.service
 Wants=network-online.target
 [Service]
 Type=oneshot
+Restart=on-failure
+RestartSec=10
 ExecStart=/usr/bin/test -d /sys/class/net/wg0
 ExecStart=$IPBIN route replace $SITE/32 dev wg0
 ExecStart=$IPBIN route replace $PEER/32 dev wg0
@@ -230,6 +232,8 @@ if ! sudo systemctl is-active --quiet suricata.service; then
   sudo systemctl disable suricata.service >/dev/null 2>&1 || true
   sudo systemctl reset-failed suricata.service || true
 fi
+tar -czf "$ROOT/mon-batch1-pc5-site.tar.gz" -C "$STAGE/lab" pc5-training-site
+log "PC-5 training archive: $ROOT/mon-batch1-pc5-site.tar.gz"
 log "Live frontend: http://100.75.116.62:5174/?tenant=mon-lab&site=site-a"
 log "Actual PC5 frames and alerts appear only when traffic crosses wg0."
 log "Suricata is passive IDS, NOT confirmed IPS. Forwarding requires PC6/PC5 test."
