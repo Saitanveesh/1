@@ -207,6 +207,64 @@ and MON displays that evidence.
 
 Never discard recent incidents just to roll back UI styling.
 
+
+## Data-integrity correction (October 23, 2026)
+
+The original V5.3 dashboard displayed several values as if they were
+live attack evidence even though they represented something else:
+
+| Old label | Actual source | Corrected presentation |
+|---|---|---|
+| Attack Pressure | Arbitrary formula based on stored incident severity and confidence | Removed; no synthetic threat-intensity score |
+| MON ONLINE | Frontend MON websocket state | `MON API CONNECTION`, not security sensor health |
+| Open Incidents / Highest Severity | Stored cases including unresolved October 11 events | Overview uses only last-five-minute cases evidenced against the configured PC-5 asset; all history remains under Incidents |
+| Packet Rate / Bandwidth gauges | AF_PACKET PC-2 aggregate host interfaces | PC-5-only IP frame and byte rates from `protected_route_samples` on the selected tunnel |
+| Detection Findings | Stored MON findings | Recent PC-5-targeted findings shown only when recorded within five minutes |
+| Suricata monitoring | EVE file exists even while service is failed | Show `systemctl is-active suricata.service` state via bridge; no active-IDS claim for an inactive service |
+
+No recent captured evidence means **NO DATA**, not zero. Real zero is
+permitted only if the target-scoped sensor is healthy and its current
+rolling measurement window contains zero matches.
+
+The source labels in the incident queue, investigation view, and network
+topology must not treat an arbitrary `incident.entities` IP as an
+attacker address: only explicit source-address evidence supports that
+attribution.
+
+The red alert modal requires a **new** event, current timestamp, a
+verified PC-5 target, and (for Suricata) an active Suricata service.
+A past event replayed after reconnection must not produce a live alert.
+An IDS alert is evidence of a signature match, not proof of a blocked
+attack.
+
+### Known PC-2 problems confirmed in the October 23 diagnostics
+
+- `suricata.service` failed because its AF_PACKET startup attempted the
+  absent interface `eth0`.
+- Its default ruleset path was missing; rule-based alerting cannot be
+  claimed until at least one validated signature is loaded.
+- `ip route get 10.77.0.50` selected the physical LAN gateway
+  (`via 10.5.112.1 dev enp128s31f6`) rather than `wg0`.
+- PC-5 actually has `wg0 = 10.77.0.50/32`.
+- The route between PC-6, PC-2 and PC-5 has **not** yet been shown to
+  traverse the intended capture/enforcement interface during a live test.
+
+Do not invent route evidence or claim a working IPS because a WebSocket
+is connected or because AF_PACKET captures some PC-2 packets.
+
+### Verification before promotion
+
+From PC-2, verify `systemctl is-active suricata`, the loaded
+Suricata interface and rules, the status of the protected endpoint in
+`/portal/flows`, and `ip route get 10.77.0.50`. From PC-6,
+inspect `ip route get 10.77.0.50`. Observe an authorized five-echo
+ICMP test with simultaneous PC-2 capture. Compare the displayed
+90-second PC-5 IP/ICMP count against capture evidence; the count is
+per-interface IP **frames**, not end-to-end packets.
+
+An all-interface capture and a healthy MON API alone are **not**
+acceptance criteria for IDS/IPS or victim-site coverage.
+
 ## Acceptance
 
 - PC-5 IP is read from configuration, not hardcoded.
