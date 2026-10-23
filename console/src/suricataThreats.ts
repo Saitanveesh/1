@@ -10,6 +10,26 @@ export function recordKey(item: SuricataRecord): string {
   ].join("|");
 }
 
+/** Convert an actual Suricata signature into a reviewable alert.
+ * This does not announce historical rows as new live attacks.
+ */
+export function alertFromSuricata(row: SuricataRecord): SecurityThreatAlert | null {
+  if (row.event_type !== "alert" ||
+      (row.severity !== 1 && row.severity !== 2 && row.severity !== 3) ||
+      !row.src_ip || !row.dst_ip || !row.timestamp) return null;
+  return {
+    key: "ids:" + recordKey(row),
+    title: row.signature || "Security rule matched",
+    severity: row.severity === 1 ? "CRITICAL" : row.severity === 2 ? "HIGH" : "MEDIUM",
+    source: row.src_ip,
+    target: row.dst_ip,
+    attackClass: row.category || row.signature || "Network detection",
+    observedAt: row.timestamp,
+    signatureId: row.signature_id,
+    detector: "Suricata IDS"
+  };
+}
+
 export function newSuricataThreats(
   snapshot: SuricataSnapshot,
   seen: Set<string>,
@@ -29,19 +49,8 @@ export function newSuricataThreats(
         !protectedIp ||
         row.dst_ip !== protectedIp ||
         !isRecentObservation(row.timestamp, now, 120_000)) continue;
-    // Suricata signature priority: 1 critical, 2 high, 3 medium.
-    if (row.severity !== 1 && row.severity !== 2 && row.severity !== 3) continue;
-    result.push({
-      key: "ids:" + key,
-      title: row.signature || "Suricata signature match",
-      severity: row.severity === 1 ? "CRITICAL" : row.severity === 2 ? "HIGH" : "MEDIUM",
-      source: row.src_ip || "Unknown Source",
-      target: row.dst_ip,
-      attackClass: row.category || row.signature || "Suricata signature",
-      observedAt: row.timestamp,
-      signatureId: row.signature_id,
-      detector: "Suricata IDS"
-    });
+    const item = alertFromSuricata(row);
+    if (item) result.push(item);
   }
   return result;
 }
