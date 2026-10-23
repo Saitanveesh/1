@@ -17,6 +17,7 @@ PORTAL="$TOOLS/mon-lab-portal.py"
 BRANCH=feature/mon-stage4-containment-impact-20261023
 REPO=https://github.com/Saitanveesh/1.git
 GATE_UNIT=/etc/systemd/system/mon-stage4-gate.service
+GATE_BIN=/usr/local/libexec/mon-stage4-gate.py
 PORTAL_SERVICE=mon-three-lab-portal.service
 FRONTEND_SERVICE=mon-three-console-v2.service
 STAGE=""
@@ -41,6 +42,8 @@ restore(){
     done
     if [[ -f "$BACKUP/gate-unit" ]]; then sudo cp -a "$BACKUP/gate-unit" "$GATE_UNIT" || true
     else sudo rm -f "$GATE_UNIT" || true; fi
+    if [[ -f "$BACKUP/gate-binary" ]]; then sudo cp -a "$BACKUP/gate-binary" "$GATE_BIN" || true
+    else sudo rm -f "$GATE_BIN" || true; fi
     sudo systemctl daemon-reload || true
     sudo systemctl restart "$PORTAL_SERVICE" || true
     sudo systemctl restart "$FRONTEND_SERVICE" || true
@@ -103,6 +106,7 @@ for name in mon_stage4_gate.py mon_stage4_bridge.py; do
   [[ ! -f "$TOOLS/$name" ]] || cp -a "$TOOLS/$name" "$BACKUP/$name"
 done
 [[ ! -f "$GATE_UNIT" ]] || sudo cp -a "$GATE_UNIT" "$BACKUP/gate-unit"
+[[ ! -f "$GATE_BIN" ]] || sudo cp -a "$GATE_BIN" "$BACKUP/gate-binary"
 sha256sum "$BACKUP/frontend.tar.gz" "$BACKUP/mon-lab-portal.py" > "$BACKUP/SHA256SUMS"
 log "Original operator console and portal saved at $BACKUP"
 
@@ -110,6 +114,9 @@ TOUCHED=1
 cp -a "$STAGE/tools/mon-lab-portal.py" "$PORTAL"
 cp -a "$STAGE/tools/mon_stage4_gate.py" "$TOOLS/mon_stage4_gate.py"
 cp -a "$STAGE/tools/mon_stage4_bridge.py" "$TOOLS/mon_stage4_bridge.py"
+# Root must never execute a mutable user-owned script from ~/mon-three.
+sudo install -d -o root -g root -m 0755 /usr/local/libexec
+sudo install -o root -g root -m 0755 "$STAGE/tools/mon_stage4_gate.py" "$GATE_BIN"
 
 # Root capability is isolated to an AF_UNIX-only process with a hard-coded
 # destination/port/source whitelist. The HTTP portal itself gets NO nft rights.
@@ -123,9 +130,9 @@ Wants=network-online.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/home/pc-2/mon-three/tools
+WorkingDirectory=/usr/local/libexec
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/python3 /home/pc-2/mon-three/tools/mon_stage4_gate.py
+ExecStart=/usr/bin/python3 /usr/local/libexec/mon-stage4-gate.py
 Restart=on-failure
 RestartSec=3
 RuntimeDirectory=mon-stage4
@@ -134,7 +141,7 @@ NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_NET_ADMIN
 AmbientCapabilities=CAP_NET_ADMIN
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes
