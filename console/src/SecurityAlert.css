@@ -66,3 +66,5 @@
 @media(prefers-reduced-motion:reduce) {
   .mon-threat-overlay { backdrop-filter:none; }
 }
+
+.mon-threat-shield svg,.mon-threat-siren svg { width:30px;height:30px;display:block; }
