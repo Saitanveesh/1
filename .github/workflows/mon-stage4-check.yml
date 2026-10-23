@@ -37,3 +37,4 @@ jobs:
       - run: python3 -m compileall -q tools/mon_stage4_gate.py tools/mon_stage4_bridge.py tools/mon-lab-portal.py lab/pc5-training-site/server.py lab/pc5-training-site/mon_stage4_impact.py
       - run: PYTHONPATH=tools python3 -m unittest discover -s tools -p test_mon_stage4.py -v
       - run: python3 -m unittest discover -s lab/pc5-training-site -p 'test_*.py' -v
+      - run: bash -n tools/mon-stage4-pc2.sh lab/pc5-training-site/stage4-upgrade-pc5.sh
