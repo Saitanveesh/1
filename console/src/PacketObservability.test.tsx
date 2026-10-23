@@ -6,6 +6,7 @@ import {
 import type { PacketCaptureSnapshot } from "./types";
 
 const observedAt = new Date().toISOString();
+const epoch = Math.floor(Date.parse(observedAt) / 1000);
 const routeEvent = {
   timestamp: new Date(Date.now() - 2000).toISOString(), interface: "wg0",
   direction: "inbound" as const, src_ip: "10.77.0.60",
@@ -17,15 +18,16 @@ const capture: PacketCaptureSnapshot = {
   sample_interval_seconds: 1, capture_window_seconds: 90,
   direction: "inbound and outbound", packet_layer: "IP",
   protected_host_ip: "10.77.0.50", protected_capture_interface: "wg0",
+  protected_route_check:"MATCHES_CAPTURE_INTERFACE",
   samples: [
-    { second: 10, packets: 1, bytes: 84 },
-    { second: 11, packets: 0, bytes: 0 },
-    { second: 12, packets: 2, bytes: 168 }
+    { second: epoch - 2, packets: 1, bytes: 84 },
+    { second: epoch - 1, packets: 0, bytes: 0 },
+    { second: epoch, packets: 2, bytes: 168 }
   ],
   protected_route_samples: [
-    { second: 10, packets: 0, bytes: 0, icmp_packets: 0 },
-    { second: 11, packets: 1, bytes: 84, icmp_packets: 1 },
-    { second: 12, packets: 1, bytes: 84, icmp_packets: 1 }
+    { second: epoch - 2, packets: 0, bytes: 0, icmp_packets: 0 },
+    { second: epoch - 1, packets: 1, bytes: 84, icmp_packets: 1 },
+    { second: epoch, packets: 1, bytes: 84, icmp_packets: 1 }
   ],
   events: [
     routeEvent,
