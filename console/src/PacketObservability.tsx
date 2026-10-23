@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PacketCaptureSnapshot } from "./types";
 import { selectProtectedRoute } from "./routeEvidence";
+import { isProtectedCaptureReady } from "./operationalTruth";
 
 const COUNT = 90;
 const WIDTH = 1000;
@@ -83,9 +84,9 @@ export function PacketHistory({ capture, compact = false, protectedOnly = false 
       total: raw.reduce((sum, current) => sum + current, 0)
     };
   }, [samples]);
-  const capturing = capture?.status === "CAPTURING" &&
-    (!protectedOnly || (Boolean(capture.protected_host_ip) &&
-      Array.isArray(capture.protected_route_samples)));
+  const capturing = protectedOnly
+    ? isProtectedCaptureReady(capture)
+    : capture?.status === "CAPTURING";
   const lastFive = samples.slice(-5);
   const recentPackets = lastFive.reduce((sum, row) => sum + row.packets, 0);
   const recentBytes = lastFive.reduce((sum, row) => sum + row.bytes, 0);
@@ -207,6 +208,7 @@ export function PacketHistory({ capture, compact = false, protectedOnly = false 
 
 export function ProtectedRouteStrip({ capture }: { capture: PacketCaptureSnapshot | null }) {
   const route = selectProtectedRoute(capture);
+  const fresh = isProtectedCaptureReady(capture);
   return (
     <section className="mon-protected-strip" data-testid="pc5-protected-strip">
       <div>
@@ -214,13 +216,15 @@ export function ProtectedRouteStrip({ capture }: { capture: PacketCaptureSnapsho
         <strong>{route.configured ? "PC-5 gateway traffic" : "Victim IP not configured"}</strong>
       </div>
       <div><small>TARGET IP</small><strong>{route.target ?? "UNCONFIGURED"}</strong></div>
-      <div><small>OBSERVED PEER</small><strong>{route.peer ?? "Unknown Source"}</strong></div>
-      <div><small>IP FRAMES · 90S</small><strong>{route.observedFrames}</strong></div>
-      <div><small>ICMP FRAMES · 90S</small><strong>{route.icmpFrames}</strong></div>
+      <div><small>OBSERVED PEER</small><strong>{fresh ? route.peer ?? "Not observed" : "UNVERIFIED"}</strong></div>
+      <div><small>IP FRAMES · 90S</small><strong>{fresh ? route.observedFrames : "NO DATA"}</strong></div>
+      <div><small>ICMP FRAMES · 90S</small><strong>{fresh ? route.icmpFrames : "NO DATA"}</strong></div>
       <div><small>CAPTURE PATH</small><strong>{route.captureInterface}</strong></div>
       <p>
         {route.configured
-          ? "Only observed packets involving the configured PC-5 address on the selected tunnel. IP frame counts are not unique end-to-end packets."
+          ? fresh
+            ? "Only observed packets involving PC-5 on the selected tunnel. IP frame counts are not unique end-to-end packets."
+            : "PC-5 is configured but the scoped sensor has not delivered a current measurement. Counters are withheld."
           : "Set MON_PROTECTED_HOST_IP on the PC-2 portal service to enable evidence-based route monitoring."}
       </p>
     </section>
