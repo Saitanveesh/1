@@ -53,8 +53,7 @@ On the MON gateway computer, log in as `pc-2` and run:
 
 ```bash
 cd ~/mon-three-code
-git fetch --no-tags https://github.com/Saitanveesh/1.git \\
-  refs/heads/feature/mon-final-console-20261023
+git fetch --no-tags https://github.com/Saitanveesh/1.git refs/heads/feature/mon-final-console-20261023
 git show FETCH_HEAD:tools/mon-final-stage-pc2.sh > /tmp/mon-final-stage-pc2.sh
 
 # Applies only the missing acknowledgment backend support (if necessary)
