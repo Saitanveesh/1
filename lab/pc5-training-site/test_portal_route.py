@@ -74,5 +74,12 @@ class RouteCheckTests(unittest.TestCase):
         self.assertIn("failed", status["protected_route_reason"])
 
 
+    def test_pc2_portal_service_keeps_sandbox_and_allows_route_netlink(self):
+        script = (pathlib.Path(__file__).resolve().parents[2] /
+                  "tools" / "mon-batch1-fix-pc2.sh").read_text()
+        self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_PACKET AF_NETLINK", script)
+        self.assertIn("RestrictAddressFamilies=\\nRestrictAddressFamilies=", script)
+
+
 if __name__ == "__main__":
     unittest.main()
