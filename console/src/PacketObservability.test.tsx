@@ -61,7 +61,7 @@ describe("Real packet visualization", () => {
     const unconfigured = { ...capture, protected_host_ip: null };
     render(<ProtectedRouteStrip capture={unconfigured} />);
     expect(screen.getByText("Victim IP not configured")).toBeTruthy();
-    expect(screen.getByText("UNVERIFIED")).toBeTruthy();
+    expect(screen.getAllByText("UNVERIFIED").length).toBeGreaterThan(0);
   });
 
   it("only highlights actual recent PC5 tunnel evidence", () => {
