@@ -3,6 +3,7 @@ import type { Finding, Incident, LiveEnvelope, Severity } from "./types";
 export interface SecurityThreatAlert {
   key: string;
   incidentId?: string;
+  signatureId?: number;
   title: string;
   severity: Severity;
   source: string;
