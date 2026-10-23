@@ -12,7 +12,7 @@ const routeEvent = {
   dst_ip: "10.77.0.50", protocol: "ICMP", dst_port: null, ip_bytes: 84
 };
 const capture: PacketCaptureSnapshot = {
-  source: "linux-af_packet", interface: "any", status: "CAPTURING",
+  source: "linux-af_packet", interface: "any", capture_scope: "any", status: "CAPTURING",
   error: null, observed_at: observedAt,
   sample_interval_seconds: 1, capture_window_seconds: 90,
   direction: "inbound and outbound", packet_layer: "IP",
@@ -94,7 +94,7 @@ describe("Honest chart aggregation and event data", () => {
   it("shows observed packet metadata, without manufactured entries", () => {
     render(<PacketHistory capture={capture} />);
     const panel = screen.getByTestId("real-network-event-log");
-    expect(within(panel).getByText("wg0")).toBeTruthy();
+    expect(within(panel).getAllByText("wg0").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("inbound").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("10.77.0.60").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("10.77.0.50").length).toBeGreaterThan(0);
