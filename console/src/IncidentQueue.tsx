@@ -5,7 +5,7 @@ function incidentSource(incident: Incident): string {
   return incident.entities.find(value =>
     /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value)
   ) ?? incident.entities.find(value => value.startsWith("linux-host:")) ??
-    "Source not resolved";
+    "Unknown Source";
 }
 
 export default function IncidentQueue({
