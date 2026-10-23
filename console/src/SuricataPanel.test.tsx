@@ -10,7 +10,7 @@ afterEach(() => {
 it("presents only actual Suricata EVE metadata and rule alerts", async () => {
   const request = vi.fn().mockResolvedValue({
     ok: true, json: async () => ({
-      source: "suricata-eve", status: "RECENT_EVE", observed_events: 2,
+      source: "suricata-eve", status: "RECENT_EVE", service_state: "active", observed_events: 2,
       alerts: 1, last_seen: "2026-10-11T12:00:00Z",
       records: [
         { event_type: "alert", timestamp: "2026-10-11T12:00:00Z",
