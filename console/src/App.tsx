@@ -544,7 +544,7 @@ export default function App() {
             <ProtectedRouteStrip capture={packetCapture} />
             <div className="mon-command-desk-grid">
               <div className="mon-desk-traffic">
-                <PacketHistory capture={packetCapture} compact />
+                <PacketHistory capture={packetCapture} compact protectedOnly />
               </div>
               <div className="mon-desk-incidents">
                 <section className="panel">
