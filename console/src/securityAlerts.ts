@@ -40,7 +40,7 @@ function fromIncident(incident: Incident, finding: Finding | undefined, key: str
   };
 }
 
-function fromFinding(finding: Finding): SecurityThreatAlert {
+export function alertFromFinding(finding: Finding): SecurityThreatAlert {
   return {
     key: "finding:" + finding.finding_id,
     title: finding.title,
@@ -83,7 +83,7 @@ export function selectSecurityAlert(
       qualifies(item.severity) &&
       !previous.findings.some(old => old.finding_id === item.finding_id)
     ).sort((a, b) => rank[b.severity] - rank[a.severity])[0];
-    return finding ? fromFinding(finding) : null;
+    return finding ? alertFromFinding(finding) : null;
   }
 
   if (envelope.kind === "incident.updated") {
