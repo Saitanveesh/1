@@ -594,6 +594,7 @@ export default function App() {
           </div>
         )}
         {view === "Investigation" && (
+          <>
           <Investigation3D
             incidents={state.incidents}
             executions={state.response_executions}
@@ -609,6 +610,7 @@ export default function App() {
           />
           <NetworkPath capture={packetCapture} />
           <SuricataPanel />
+          </>
         )}
 
       </main>
