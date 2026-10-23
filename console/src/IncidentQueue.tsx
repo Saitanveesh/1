@@ -1,17 +1,22 @@
 import "./IncidentWorkspace.css";
-import type { Incident } from "./types";
+import type { Finding, Incident } from "./types";
 
-function incidentSource(incident: Incident): string {
-  return incident.entities.find(value =>
-    /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value)
-  ) ?? incident.entities.find(value => value.startsWith("linux-host:")) ??
-    "Unknown Source";
+function incidentSource(incident: Incident, findings: Finding[]): string {
+  // Incident.entities can contain the victim. A generic IP is NOT evidence
+  // of an attacker/source address; require a corresponding finding.src_ip.
+  const source = findings.find(finding =>
+    Boolean(finding.src_ip) &&
+    incident.detector_ids.includes(finding.detector_id) &&
+    incident.entities.includes(finding.src_ip!)
+  );
+  return source?.src_ip || "Unknown Source";
 }
 
 export default function IncidentQueue({
-  incidents, selectedId, onSelect
+  incidents, findings = [], selectedId, onSelect
 }: {
   incidents: Incident[];
+  findings?: Finding[];
   selectedId: string | null;
   onSelect: (incident: Incident) => void;
 }) {
@@ -37,7 +42,7 @@ export default function IncidentQueue({
               <span>{Math.round(incident.confidence * 100)}% confidence</span>
             </span>
             <strong>{incident.title}</strong>
-            <span className="mon-case-queue-source">{incidentSource(incident)}</span>
+            <span className="mon-case-queue-source">{incidentSource(incident, findings)}</span>
             <time dateTime={incident.last_seen}>Last seen {new Date(incident.last_seen).toLocaleString()}</time>
           </button>
         </article>
