@@ -107,6 +107,7 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
   const [mitigation, setMitigation] = useState<MitigationStatus | null>(null);
   const [impact, setImpact] = useState<VictimImpact | null>(null);
   const [mitigationError, setMitigationError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [impactError, setImpactError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"block" | "release" | null>(null);
@@ -115,6 +116,7 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
   const [result, setResult] = useState<string | null>(null);
   const [lastRead, setLastRead] = useState<string | null>(null);
   const [trialStart, setTrialStart] = useState<string | null>(null);
+  useEffect(() => { setTrialStart(null); setActionError(null); }, [alert.key]);
   const since = trialStart ?? alert.observedAt;
 
   const refresh = useCallback(async (cancelled: () => boolean = () => false) => {
@@ -149,7 +151,7 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
     if (!confirmAction || !agreed || busy) return;
     setBusy(true);
     setResult(null);
-    setMitigationError(null);
+    setActionError(null);
     try {
       const action = confirmAction;
       const response = await changeBlock(action, alert, duration);
@@ -161,7 +163,7 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
       setAgreed(false);
       await refresh();
     } catch (cause) {
-      setMitigationError(cause instanceof Error ? cause.message : "Action failed");
+      setActionError(cause instanceof Error ? cause.message : "Action failed");
       await refresh();
     } finally {
       setBusy(false);
@@ -229,6 +231,7 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
             <p>Temporary block for {alert.source} → {alert.target}:8085.</p></div>
         </div>
         {mitigationError && <p className="mon-stage4-error" role="alert">{mitigationError}</p>}
+        {actionError && <p className="mon-stage4-error" role="alert">Action not confirmed: {actionError}</p>}
         <div className="mon-stage4-state" role="status">
           <span className={"mon-stage4-indicator " + (mitigation?.active ? "blocked" : "clear")} />
           <strong>{mitigation?.active ? "Temporary firewall block active" :
