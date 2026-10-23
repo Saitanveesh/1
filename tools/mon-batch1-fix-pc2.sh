@@ -86,6 +86,22 @@ python3 -m py_compile "$STAGE/tools/mon-lab-portal.py" "$STAGE/tools/mon_suricat
 mkdir -p "$STAGE/suri-logs"
 sudo "$SURIBIN" -T -c /etc/suricata/suricata.yaml -S "$STAGE/lab/pc5-training-site/mon-training-suricata.rules" -l "$STAGE/suri-logs" --init-errors-fatal || fail "Suricata config/rule invalid"
 log "Validated source $REV, frontend tests and Suricata rule"
+# Validate route introspection using the same PC2 Python interpreter before
+# touching a running service. The previous release failed at this precise
+# point because JSON iproute2 parsing returned UNVERIFIED.
+MON_ROUTE_STAGE="$STAGE/tools/mon-lab-portal.py" \
+MON_PROTECTED_HOST_IP="$SITE" \
+MON_PROTECTED_CAPTURE_INTERFACE=wg0 python3 - <<'PY'
+import importlib.util, os
+module_path = os.environ["MON_ROUTE_STAGE"]
+spec = importlib.util.spec_from_file_location("mon_batch1_route_preflight", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(module)
+result = module.inspect_protected_route()
+print("PREDEPLOY ROUTE CHECK:", result, flush=True)
+assert result["protected_route_check"] == "MATCHES_CAPTURE_INTERFACE", result
+PY
 
 BACKUP="$(mktemp -d "$ROOT/batch1-rollback.XXXXXXXX")"
 tar -czf "$BACKUP/console.tar.gz" --exclude='console-v2/node_modules' -C "$ROOT" console-v2
@@ -194,7 +210,11 @@ token=(root/"identity/operator.jwt").read_text().strip()
 req=urllib.request.Request("http://127.0.0.1:8088/portal/flows",headers={"Cookie":"mon_session="+token})
 with urllib.request.urlopen(req,timeout=5) as r: data=json.load(r)
 assert data.get("protected_host_ip")=="10.77.0.50",data.get("protected_host_ip")
-assert data.get("protected_route_check")=="MATCHES_CAPTURE_INTERFACE",data.get("protected_route_check")
+assert data.get("protected_route_check")=="MATCHES_CAPTURE_INTERFACE", {
+    "status":data.get("protected_route_check"),
+    "interface":data.get("protected_route_interface"),
+    "reason":data.get("protected_route_reason"),
+}
 assert data.get("protected_capture_interface")=="wg0",data.get("protected_capture_interface")
 print("Target route and real PC5 capture selection VERIFIED")
 PY
