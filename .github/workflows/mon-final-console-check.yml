@@ -1,0 +1,32 @@
+name: MON final console validation
+
+on:
+  push:
+    branches:
+      - 'feature/mon-final-console-*'
+  pull_request:
+    paths:
+      - 'console/**'
+      - '.github/workflows/mon-final-console-check.yml'
+  workflow_dispatch:
+
+jobs:
+  console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm test -- --run
+
+  guarded-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n tools/mon-final-console-pc2.sh tools/mon-final-review-backend-pc2.sh tools/mon-final-stage-pc2.sh

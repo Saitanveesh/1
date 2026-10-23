@@ -44,7 +44,7 @@ describe("Real packet visualization", () => {
   it("still labels global host counters as unfiltered PC2 traffic", () => {
     render(<PacketHistory capture={capture} />);
     const panel = screen.getByTestId("live-packet-history");
-    expect(within(panel).getByText("PACKETS / LAST 5S")).toBeTruthy();
+    expect(within(panel).getByText("Packets · last 5s")).toBeTruthy();
     expect(within(panel).getByText("252")).toBeTruthy();
     expect(within(panel).getByText(/ALL PC2 host interfaces/)).toBeTruthy();
   });
@@ -53,8 +53,8 @@ describe("Real packet visualization", () => {
     render(<PacketHistory capture={capture} compact protectedOnly />);
     const panel = screen.getByTestId("live-packet-history");
     expect(panel.className).toContain("mon-traffic-compact");
-    expect(within(panel).getByText("Live PC-5 gateway traffic")).toBeTruthy();
-    expect(within(panel).getByText("IP FRAMES / LAST 5S")).toBeTruthy();
+    expect(within(panel).getByText("Live traffic")).toBeTruthy();
+    expect(within(panel).getByText("Frames · last 5s")).toBeTruthy();
     expect(within(panel).getByText("168")).toBeTruthy();
     expect(screen.queryByTestId("real-network-event-log")).toBeNull();
   });

@@ -23,9 +23,9 @@ export default function IncidentQueue({
   const rows = [...incidents].sort((a, b) => b.last_seen.localeCompare(a.last_seen));
   return <aside className="mon-case-queue" data-testid="incident-case-queue">
     <header className="mon-case-queue-head">
-      <span>CASE QUEUE</span>
-      <h2>Recorded cases <b>{rows.length}</b></h2>
-      <p>Historical records are retained. OPEN means unresolved, not that an attack is occurring now.</p>
+      
+      <h2>Security cases <b>{rows.length}</b></h2>
+      <p>Cases can remain open after activity stops. Select one to review the evidence.</p>
     </header>
     <div className="mon-case-queue-list">
       {rows.map(incident =>
@@ -43,7 +43,7 @@ export default function IncidentQueue({
             </span>
             <strong>{incident.title}</strong>
             <span className="mon-case-queue-source">{incidentSource(incident, findings)}</span>
-            <time dateTime={incident.last_seen}>Last seen {new Date(incident.last_seen).toLocaleString()}</time>
+            <time dateTime={incident.last_seen}>Updated {new Date(incident.last_seen).toLocaleString()}</time>
           </button>
         </article>
       )}

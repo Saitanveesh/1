@@ -108,11 +108,11 @@ export function PacketHistory({ capture, compact = false, protectedOnly = false 
     <section className={"mon-panel mon-traffic-panel" + (compact ? " mon-traffic-compact" : "")} data-testid="live-packet-history">
       <div className="mon-panel-heading">
         <div>
-          <span className="mon-eyebrow">NETWORK / MEASURED IP HEADERS</span>
-          <h2>{protectedOnly ? "Live PC-5 gateway traffic" : "Live network traffic"}</h2>
+          <span className="mon-eyebrow">Traffic monitor</span>
+          <h2>{protectedOnly ? "Live traffic" : "Network traffic"}</h2>
           <p>{protectedOnly
-            ? "Filtered: " + (capture?.protected_host_ip || "PC-5 address not configured") +
-              " on " + protectedRoute.captureInterface + " · observed IP frames per second"
+            ? "Protected address: " + (capture?.protected_host_ip || "PC-5 address not configured") +
+              " on " + protectedRoute.captureInterface + " · observed frames per second"
             : "Scope: " + (scope === "any" ? "ALL PC2 host interfaces (background included)" : scope) +
               " · one-second measurements · 90-second window"}</p>
         </div>
@@ -121,16 +121,16 @@ export function PacketHistory({ capture, compact = false, protectedOnly = false 
         </span>
       </div>
       <div className="mon-flow-metrics">
-        <div><span>{protectedOnly ? "IP FRAMES / LAST 5S" : "PACKETS / LAST 5S"}</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
-        <div><span>MEASURED PACKETS / S (5S AVG)</span><strong>{capturing ? pps.toFixed(2) : "—"}</strong></div>
-        <div><span>BYTES / LAST 5S</span><strong>{capturing ? human(recentBytes) : "—"}</strong></div>
-        <div><span>{protectedOnly ? "90-SECOND IP FRAMES" : "90-SECOND PACKETS"}</span><strong>{capturing ? human(total) : "—"}</strong></div>
+        <div><span>{protectedOnly ? "Frames · last 5s" : "Packets · last 5s"}</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
+        <div><span>Average / second</span><strong>{capturing ? pps.toFixed(2) : "—"}</strong></div>
+        <div><span>Bytes · last 5s</span><strong>{capturing ? human(recentBytes) : "—"}</strong></div>
+        <div><span>{protectedOnly ? "Frames · last 90s" : "Packets · last 90s"}</span><strong>{capturing ? human(total) : "—"}</strong></div>
       </div>
       <div className="mon-chart-control">
-        <span>{display === "average" ? "BLACK: 5-second trailing average · GRAY: raw 1-second counts" : "BLACK: raw captured packets per second"}</span>
+        <span>{display === "average" ? "Smoothed 5-second rate and recorded 1-second values" : "Recorded frames per second"}</span>
         <div className="mon-graph-switch" aria-label="Packet chart calculation">
-          <button type="button" aria-pressed={display === "average"} onClick={() => setDisplay("average")}>5S RATE</button>
-          <button type="button" aria-pressed={display === "raw"} onClick={() => setDisplay("raw")}>RAW 1S</button>
+          <button type="button" aria-pressed={display === "average"} onClick={() => setDisplay("average")}>5s average</button>
+          <button type="button" aria-pressed={display === "raw"} onClick={() => setDisplay("raw")}>Raw 1s</button>
         </div>
       </div>
       <div className="mon-chart-frame">
@@ -172,7 +172,7 @@ export function PacketHistory({ capture, compact = false, protectedOnly = false 
       </div>
       {!compact && <div className="mon-flow-section" data-testid="real-network-event-log">
         <div className="mon-panel-heading mon-panel-heading-small">
-          <h3>Recent network observations <span>REAL IP METADATA · NOT SIMULATED</span></h3>
+          <h3>Recent network observations</h3>
           <span>{events.length} recent records · volatile buffer</span>
         </div>
         <div className="mon-flow-table-wrapper">
@@ -198,7 +198,7 @@ export function PacketHistory({ capture, compact = false, protectedOnly = false 
         </div>
       </div>}
       {compact && <p className="mon-compact-network-hint">{protectedOnly
-        ? "Only packets matching the configured protected IP on the selected tunnel are charted. ICMP/ping is included; no synthetic traffic."
+        ? "Recorded traffic for the monitored destination. No synthetic packets are included."
         : "PC2 aggregate traffic includes unrelated hosts. Protected PC5 traffic is reported separately below."}</p>}
       <p className="mon-packet-caveat">5S RATE averages measured one-second frames, not generated traffic. PC-2 cannot inspect traffic that bypasses its interfaces; forwarded packets can appear on both RX and TX. An IP frame is not a verified end-to-end packet.</p>
     </section>
@@ -247,9 +247,9 @@ export function NetworkPath({ capture }: { capture: PacketCaptureSnapshot | null
     <section className="mon-panel mon-topology-panel" data-testid="network-path">
       <div className="mon-panel-heading">
         <div>
-          <span className="mon-eyebrow">PROTECTED WEB SERVER / CAPTURED IP FRAMES</span>
-          <h2>Observed traffic toward PC-5</h2>
-          <p>PC-2 is the intended gateway. Interface capture alone does not prove the forwarding rule or successful IPS enforcement.</p>
+          <span className="mon-eyebrow">Network path</span>
+          <h2>Observed connections</h2>
+          <p>This diagram uses network observations; it does not prove a request was blocked.</p>
         </div>
         <span className="mon-tag">{status}</span>
       </div>

@@ -373,8 +373,8 @@ export default function Investigation3D({
     [investigation, executions, audits, capture]);
   return <section className="mon3d-page" data-testid="investigation-3d">
     <header className="mon3d-casebar">
-      <div><span>MON / INVESTIGATION STUDIO</span><h2>Incident Reconstruction</h2></div>
-      <label>SELECT CASE
+      <div><h2>Case diagram</h2></div>
+      <label>Choose a case
         <select aria-label="Choose incident reconstruction" value={id}
           onChange={e => setChoice(e.target.value)}>
           {!cases.length && <option value="">No incidents</option>}
@@ -385,11 +385,11 @@ export default function Investigation3D({
       {id && <button type="button" onClick={() => {
         const item = cases.find(c => c.incident_id === id);
         if (item) onOpen(item);
-      }}>OPEN CASE ↗</button>}
+      }}>Open case →</button>}
     </header>
-    {!cases.length && <p className="mon3d-empty">No incident records are available to reconstruct.</p>}
+    {!cases.length && <p className="mon3d-empty">No cases are available yet.</p>}
     {error && <p role="alert" className="mon3d-empty">{error}</p>}
-    {id && !error && !model && <p className="mon3d-empty" role="status">Loading MON evidence…</p>}
+    {id && !error && !model && <p className="mon3d-empty" role="status">Loading case details…</p>}
     {model && investigation && <IncidentEventFlow investigation={investigation} responses={executions} compact />}
     {model && <IncidentFlowMap key={id} model={model} capture={capture} />}
   </section>;
