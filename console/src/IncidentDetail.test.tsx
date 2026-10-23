@@ -50,11 +50,11 @@ describe("IncidentDetail", () => {
       <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
     );
     await waitFor(() => expect(screen.getByTestId("incident-event-chain")).toBeTruthy());
-    fireEvent.click(screen.getByRole("tab", { name: /EVIDENCE/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Evidence/i }));
     await waitFor(() => expect(screen.getAllByTestId("evidence-item")).toHaveLength(1));
     expect(screen.getByTestId("affected-identity").textContent).toContain("8 failed logons for root");
     expect(screen.getByText("No resolved assets.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: /RESPONSE/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Response/i }));
     expect(screen.getByText("No enforcement point is bound to the affected assets.")).toBeTruthy();
     expect(screen.getByText("No response recorded for this incident.")).toBeTruthy();
   });
@@ -114,8 +114,8 @@ describe("IncidentDetail", () => {
     render(
       <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
     );
-    await waitFor(() => expect(screen.getByRole("tab", { name: /RESPONSE/ })).toBeTruthy());
-    fireEvent.click(screen.getByRole("tab", { name: /RESPONSE/ }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /Response/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("tab", { name: /Response/i }));
     await waitFor(() => expect(screen.getByDisplayValue("203.0.113.50")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "PLAN BLOCK" }));
     await waitFor(() => expect(screen.getByTestId("planned-response").textContent).toContain("REQUIRE_APPROVAL"));
@@ -159,8 +159,8 @@ describe("IncidentDetail", () => {
       <IncidentDetail incident={incident} tenantId="t" siteId="s" executions={[]} auditRecords={[]} />
     );
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: /RESPONSE/ })).toBeTruthy());
-    fireEvent.click(screen.getByRole("tab", { name: /RESPONSE/ }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /Response/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("tab", { name: /Response/i }));
     await waitFor(() => expect(screen.getByDisplayValue("10.77.0.60")).toBeTruthy());
   });
 
