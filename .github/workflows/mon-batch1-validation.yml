@@ -43,6 +43,4 @@ jobs:
       - name: Validate PC5 lab HTTP signature syntax
         run: |
           mkdir -p /tmp/mon-suricata-ci
-          sudo suricata -T -c /etc/suricata/suricata.yaml \\
-            -S lab/pc5-training-site/mon-training-suricata.rules \\
-            -l /tmp/mon-suricata-ci --init-errors-fatal
+          sudo suricata -T -c /etc/suricata/suricata.yaml -S lab/pc5-training-site/mon-training-suricata.rules -l /tmp/mon-suricata-ci --init-errors-fatal
