@@ -139,6 +139,10 @@ class Handler(BaseHTTPRequestHandler):
             "response_bytes_written": self._bytes_written,
         }
         print(json.dumps(record), flush=True)
+        # Monitoring queries are control-plane reads, not attacker/victim traffic.
+        # Never inflate impact totals by recording requests for the report itself.
+        if route == "/api/impact":
+            return
         try:
             append_event(
                 self.client_address[0], route, int(status), self._bytes_written,
