@@ -533,8 +533,10 @@ export default function App() {
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Acknowledgment unavailable";
       setAckError(message);
-      // Keep failed modal visible; no success state or suppressed alert.
+      // A failed notification stays open for retry. An inbox failure opens
+      // the chosen evidence record with the server error visible.
       setFocusedAlert(current => current?.key === alert.key ? current : alert);
+      if (!pendingAlerts.some(item => item.key === alert.key)) setView("Investigation");
     } finally {
       setAckBusy(false);
     }
@@ -759,7 +761,7 @@ export default function App() {
         )}
 
       </main>
-      {authState === "OK" && pendingAlerts.length > 0 && (
+      {authState === "OK" && view === "Overview" && pendingAlerts.length > 0 && (
         <SecurityAlert
           alert={pendingAlerts[0]}
           queued={pendingAlerts.length}
