@@ -6,6 +6,7 @@ import type { PacketCaptureSnapshot } from "./types";
 import type { IdsObservation } from "./suricataThreats";
 
 const now = new Date().toISOString();
+const epoch = Math.floor(Date.parse(now) / 1000);
 const state = {
   connection: "LIVE", findings: [{ finding_id:"historical",last_seen:"2026-10-11T00:00:00Z" }],
   incidents: [{ incident_id:"old",severity:"HIGH",status:"OPEN",
@@ -16,8 +17,9 @@ const observed: PacketCaptureSnapshot = {
   observed_at:now, error:null, sample_interval_seconds:1,
   capture_window_seconds:90, direction:"inbound and outbound",packet_layer:"IP",
   protected_host_ip:"10.77.0.50",protected_capture_interface:"wg0",
-  samples:[{second:1,packets:5000,bytes:500000}],
-  protected_route_samples:[{second:1,packets:2,bytes:168,icmp_packets:2}],
+  protected_route_check:"MATCHES_CAPTURE_INTERFACE",
+  samples:[{second:epoch,packets:5000,bytes:500000}],
+  protected_route_samples:[{second:epoch,packets:2,bytes:168,icmp_packets:2}],
   flows:[]
 };
 const idsOffline: IdsObservation = {
