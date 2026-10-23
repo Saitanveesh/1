@@ -49,17 +49,28 @@ export function selectProtectedRoute(
   const lastSeen = events[0]?.timestamp ?? null;
   const observedBothDirections =
     directions.has("inbound") && directions.has("outbound");
+  const samples = configured ? (capture?.protected_route_samples ?? []) : [];
+  const observedFrames = samples.length
+    ? samples.reduce((sum, item) => sum + item.packets, 0)
+    : events.length;
+  const observedBytes = samples.length
+    ? samples.reduce((sum, item) => sum + item.bytes, 0)
+    : events.reduce((sum, item) => sum + item.ip_bytes, 0);
+  const icmpFrames = samples.length
+    ? samples.reduce((sum, item) => sum + item.icmp_packets, 0)
+    : events.filter(event =>
+      event.protocol === "ICMP" || event.protocol === "ICMPv6").length;
   return {
     configured, target, captureInterface: iface, peer, events, flows,
     // AF_PACKET may see forwarded packets twice; counts are frame
-    // observations, not deduplicated end-to-end packets.
-    observedFrames: events.length,
-    observedBytes: events.reduce((sum, event) => sum + event.ip_bytes, 0),
-    icmpFrames: events.filter(event =>
-      event.protocol === "ICMP" || event.protocol === "ICMPv6").length,
+    // observations, not deduplicated end-to-end packets. Use the full
+    // per-second counters instead of the bounded event-table sample.
+    observedFrames, observedBytes, icmpFrames,
     observedBothDirections,
     active: capture?.status === "CAPTURING" &&
-      events.some(event => now - Date.parse(event.timestamp) <= 5000),
+      (samples.length
+        ? samples.slice(-5).some(item => item.packets > 0)
+        : events.some(event => now - Date.parse(event.timestamp) <= 5000)),
     lastSeen
   };
 }
