@@ -38,3 +38,5 @@
 .mon-alerts-empty button{background:#1b4769;border:0;color:white;border-radius:8px;padding:10px 15px;cursor:pointer}
 .mon-alerts-footnote{font-size:12px;color:#697b8b;line-height:1.6;padding:8px 4px}
 @media(max-width:800px){.mon-alerts-page{padding:0 12px}.mon-alerts-intro{align-items:start;flex-direction:column}.mon-alert-row-main{flex-wrap:wrap}.mon-alert-row-state{margin-left:auto}.mon-alert-row-actions{width:100%}.mon-alert-row-actions button{flex:1}.mon-alerts-toolbar{gap:12px}}
+
+.mon-alert-row-unavailable{align-self:center;max-width:170px;color:#8d744c;font-size:11px;line-height:1.5;text-align:right}
