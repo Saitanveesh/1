@@ -56,3 +56,7 @@
 .mon-stage4-table-wrap th,.mon-stage4-table-wrap td{padding:10px;border-bottom:1px solid #e7edf2;text-align:left;font-size:11px}
 @media(max-width:1020px){.mon-stage4-cols{grid-template-columns:1fr}}
 @media(max-width:510px){.mon-stage4-totals{grid-template-columns:1fr 1fr}.mon-stage4-card{padding:13px}}
+
+.mon-stage4-kernel-counter{margin:10px 0 16px;padding:12px 13px;border:1px solid #d9e6ef;background:#f5f9fc;border-radius:8px;display:flex;gap:10px;align-items:center}
+.mon-stage4-kernel-counter strong{color:#234d6a;font-size:21px;font-weight:760}
+.mon-stage4-kernel-counter span{color:#637c8c;font-size:11px;line-height:1.45}
