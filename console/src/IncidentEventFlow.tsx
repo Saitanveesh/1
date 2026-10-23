@@ -21,14 +21,14 @@ export function buildIncidentSteps(investigation: IncidentInvestigation, respons
     .sort((a, b) => (b.requested_at ?? "").localeCompare(a.requested_at ?? ""))[0];
   const steps: FlowStep[] = [
     {
-      stage: "01 / SOURCE",
+      stage: "Source",
       name: source ?? "Source unconfirmed",
       detail: source ? "Source IP recorded in an incident finding" : "No source address attached to this case",
       timestamp: null,
       state: "recorded"
     },
     {
-      stage: "02 / TARGET + EVIDENCE",
+      stage: "Affected device",
       name: target?.display_name ?? "Target unresolved",
       detail: evidence ? evidence.summary + " · " + evidence.source :
         "MON has not attached endpoint evidence",
@@ -36,7 +36,7 @@ export function buildIncidentSteps(investigation: IncidentInvestigation, respons
       state: "observed"
     },
     {
-      stage: "03 / DETECTION",
+      stage: "Detection",
       name: finding?.detector_id ?? "No detector record",
       detail: finding ? finding.title :
         "No detector finding available for the selected case",
@@ -44,7 +44,7 @@ export function buildIncidentSteps(investigation: IncidentInvestigation, respons
       state: "derived"
     },
     {
-      stage: "04 / RESPONSE",
+      stage: "Response",
       name: response ? response.plan.request.action + " · " + response.status : "No response recorded",
       detail: response ?
         "MON response state; see Response tab for approvals, actions and rollback" :
@@ -67,15 +67,15 @@ export default function IncidentEventFlow({
   return <section className={"mon-event-chain" + (compact ? " is-compact" : "")}
     data-testid="incident-event-chain" aria-label="Recorded incident sequence">
     <header>
-      <div><small>INCIDENT EXPLAINER / EVIDENCE-BASED</small>
-        <h3>How this incident unfolded</h3></div>
+      <div><small>Recorded activity</small>
+        <h3>What happened in this case</h3></div>
       <span>Recorded case sequence, not a verified packet-hop trace</span>
     </header>
     <div className="mon-event-chain-steps">
       {steps.map((step, index) =>
         <div className="mon-event-chain-step" key={step.stage}>
           <span className="mon-event-chain-stage">{step.stage}</span>
-          <strong>{step.name}</strong>
+          <strong>{step.stage === "Detection" && investigation.findings.length ? investigation.findings[0].title : step.name}</strong>
           <p>{step.detail}</p>
           <time>{step.timestamp
             ? new Date(step.timestamp).toLocaleString() : "Time not recorded"}</time>
