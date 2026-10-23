@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import SecurityAlert from "./SecurityAlert";
+import type { SecurityThreatAlert } from "./securityAlerts";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import IncidentQueue from "./IncidentQueue";
@@ -23,13 +25,9 @@ import type {
 } from "./types";
 import "./styles.css";
 
-type View = "Overview" | "Incidents" | "Investigation" | "Network" | "AI Analysis" | "Operations";
-type OperationsArea = "Assets" | "Enforcement" | "Response" | "Audit" | "Fleet" | "Telemetry" | "Admin";
+type View = "Overview" | "Incidents" | "Investigation";
 
-const views: View[] = ["Overview", "Incidents", "Investigation", "Network", "AI Analysis", "Operations"];
-const operationsAreas: OperationsArea[] = [
-  "Assets", "Enforcement", "Response", "Audit", "Fleet", "Telemetry", "Admin"
-];
+const views: View[] = ["Overview", "Incidents", "Investigation"];
 
 const rank: Record<Severity, number> = {
   INFO: 0,
@@ -360,7 +358,8 @@ export default function App() {
   const tenantId = params.get("tenant") || "default";
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
-  const [operationsArea, setOperationsArea] = useState<OperationsArea>("Assets");
+  const [pendingAlerts, setPendingAlerts] = useState<SecurityThreatAlert[]>([]);
+  const seenAlertKeys = useRef(new Set<string>());
   const [operator, setOperator] = useState<OperatorPrincipal | null>(null);
   const [authState, setAuthState] = useState<"CHECKING" | "OK" | "UNAUTHENTICATED" | "DENIED">("CHECKING");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
@@ -428,6 +427,32 @@ export default function App() {
       cancelled = true;
     };
   }, [tenantId, siteId]);
+
+  useEffect(() => {
+    const incoming = state.threatAlert;
+    if (authState !== "OK" || state.connection !== "LIVE" || !incoming) return;
+    if (seenAlertKeys.current.has(incoming.key)) return;
+    seenAlertKeys.current.add(incoming.key);
+    setPendingAlerts(current => current.some(item => item.key === incoming.key)
+      ? current
+      : [...current, incoming].slice(-10));
+  }, [authState, state.connection, state.threatAlert]);
+
+  const dismissAlert = () => setPendingAlerts(current => current.slice(1));
+
+  const investigateAlert = () => {
+    const current = pendingAlerts[0];
+    const incident = current?.incidentId
+      ? state.incidents.find(item => item.incident_id === current.incidentId)
+      : undefined;
+    if (incident) {
+      setSelectedIncident(incident);
+      setView("Investigation");
+    } else {
+      setView("Incidents");
+    }
+    dismissAlert();
+  };
 
   const packetCapture = usePacketCapture(authState === "OK");
 
@@ -574,64 +599,16 @@ export default function App() {
             }}
           />
         )}
-        {view === "AI Analysis" && (
-          <AiAnalysis
-            incidents={state.incidents}
-            tenantId={tenantId}
-            siteId={siteId}
-            executions={state.response_executions}
-            auditRecords={state.audit_records}
-            capture={packetCapture}
-            onOpenIncident={(incident) => {
-              setSelectedIncident(incident);
-              setView("Incidents");
-            }}
-          />
-        )}
-        {view === "Network" && <>
-          <NetworkPath capture={packetCapture}
-            attackerIps={state.findings.map(f => f.src_ip).filter((ip): ip is string => !!ip)} />
-          <PacketHistory capture={packetCapture} />
-          <SuricataPanel />
 
-        </>}
-        {view === "Operations" && (
-          <div className="mon-operations" data-testid="operations-workspace">
-            <div className="mon-operations-nav" role="group" aria-label="Operations tools">
-              {operationsAreas.map(area => (
-                <button key={area} type="button"
-                  aria-pressed={operationsArea === area}
-                  onClick={() => setOperationsArea(area)}>{area}</button>
-              ))}
-            </div>
-            {operationsArea === "Telemetry" && <>
-              <TelemetryPanel state={state} />
-              <SocGauges state={state} capture={packetCapture} />
-            </>}
-            {operationsArea === "Admin" && (
-              <section className="panel full mon-admin-details" data-testid="mon-admin-debug">
-                <div className="panel-head"><div><span className="eyebrow">ADVANCED / OPERATOR ONLY</span>
-                  <h2>System diagnostics</h2></div></div>
-                <dl>
-                  <dt>Operator</dt><dd>{operator?.subject ?? "Not authenticated"}</dd>
-                  <dt>Scope</dt><dd>{tenantId} / {siteId}</dd>
-                  <dt>Snapshot sequence</dt><dd>{state.sequence}</dd>
-                  <dt>Live transport</dt><dd>{state.connection}</dd>
-                  <dt>Capture scope</dt><dd>{packetCapture?.capture_scope ?? "Unavailable"}</dd>
-                </dl>
-                <details className="mon-advanced-evidence"><summary>Raw graph identifiers (diagnostics)</summary>
-                  <AttackGraph state={state} />
-                </details>
-              </section>
-            )}
-            {operationsArea === "Fleet" && <FleetPanel tenantId={tenantId} siteId={siteId} />}
-            {operationsArea === "Assets" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">IDENTITY</span><h2>Observed assets</h2></div><span className="mono">{state.assets.length} assets</span></div><AssetTable assets={state.assets} /></section>}
-            {operationsArea === "Enforcement" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">CONTROL SURFACES</span><h2>Enforcement inventory</h2></div><span className="mono">{state.enforcement_points.length} points / {state.enforcement_bindings.length} bindings</span></div><EnforcementTable points={state.enforcement_points} bindings={state.enforcement_bindings} /></section>}
-            {operationsArea === "Response" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">POLICY-GATED</span><h2>Response executions</h2></div><span className="mono">{state.response_executions.length} records</span></div><ResponseTable executions={state.response_executions} /></section>}
-            {operationsArea === "Audit" && <section className="panel full"><div className="panel-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>Recorded actions</h2></div><span className="mono">{state.audit_records.length} records</span></div><AuditTable records={state.audit_records} /></section>}
-          </div>
-        )}
       </main>
+      {authState === "OK" && pendingAlerts.length > 0 && (
+        <SecurityAlert
+          alert={pendingAlerts[0]}
+          queued={pendingAlerts.length}
+          onInvestigate={investigateAlert}
+          onAcknowledge={dismissAlert}
+        />
+      )}
     </div>
   );
 }
