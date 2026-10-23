@@ -33,7 +33,7 @@ function fromIncident(incident: Incident, finding: Finding | undefined, key: str
     title: incident.title,
     severity: incident.severity,
     source: finding?.src_ip || "Unknown Source",
-    target: finding?.dst_ip || finding?.asset_id || incident.affected_asset_ids[0] || "Unresolved target",
+    target: finding?.dst_ip || "Unresolved target (no destination IP evidence)",
     attackClass: finding?.detector_id || incident.detector_ids[0] || "Security anomaly",
     observedAt: incident.last_seen,
     detector: finding?.detector_id || incident.detector_ids[0] || "MON detection"
@@ -46,7 +46,7 @@ function fromFinding(finding: Finding): SecurityThreatAlert {
     title: finding.title,
     severity: finding.severity,
     source: finding.src_ip || "Unknown Source",
-    target: finding.dst_ip || finding.asset_id || "Unresolved target",
+    target: finding.dst_ip || "Unresolved target (no destination IP evidence)",
     attackClass: finding.detector_id,
     observedAt: finding.last_seen,
     detector: finding.detector_id
