@@ -263,6 +263,7 @@ export interface PacketEvent {
   protocol: string;
   dst_port: number | null;
   ip_bytes: number;
+  frame_id?: number;
 }
 
 export interface PacketCaptureSnapshot {
@@ -272,6 +273,7 @@ export interface PacketCaptureSnapshot {
   observed_interfaces?: Record<string, number>;
   events?: PacketEvent[];
   lab_route_events?: PacketEvent[];
+  protected_route_samples?: Array<PacketSample & { icmp_packets: number }>;
   protected_host_ip?: string | null;
   protected_capture_interface?: string;
   protected_route_status?: "UNCONFIGURED" | "OBSERVED" | "NO_MATCHING_TRAFFIC";
