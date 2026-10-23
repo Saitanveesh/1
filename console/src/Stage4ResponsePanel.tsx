@@ -93,6 +93,33 @@ export function impactAfterBlock(impact: VictimImpact | null,
   };
 }
 
+export function situationReport(
+  alert: SecurityThreatAlert, impact: VictimImpact | null,
+  mitigation: MitigationStatus | null
+): string {
+  return [
+    "MON | Final situation report",
+    "Generated from the currently returned sensor/application records.",
+    "Alert: " + alert.title,
+    "Source address: " + alert.source,
+    "Victim address: " + alert.target,
+    "Detected: " + alert.observedAt,
+    "Firewall source block: " + (!mitigation ? "unverified" :
+      mitigation.active ? "present in kernel" : "no active block"),
+    "Kernel rule drops (all lab sources combined): " +
+      (mitigation?.dropped_packets_total == null ? "unavailable" : mitigation.dropped_packets_total),
+    "Victim application evidence: " + (!impact ? "unavailable" : "observed"),
+    "Requests observed by victim: " + (impact?.observed_requests ?? "unavailable"),
+    "Fictional exposure responses: " + (impact?.fictional_exposure_responses ?? "unavailable"),
+    "Fictional records returned: " + (impact?.fictional_records_in_responses ?? "unavailable"),
+    "Server-written fictional response bytes: " + (impact?.fictional_response_bytes_written ?? "unavailable"),
+    "Latest fictional exposure: " + (impact?.last_fictional_exposure_at ?? "none observed"),
+    "Real personal data loss: not applicable; victim records are fictional training fixtures.",
+    "Limits: server write does not prove client receipt. A kernel block and cumulative drop counter " +
+      "do not establish which physical machine was responsible or prove every connection was stopped.",
+  ].join("\\n");
+}
+
 function phrase(category: string): string {
   switch (category) {
     case "fictional_canary": return "Training document exposed";
@@ -117,6 +144,7 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
   const [agreed, setAgreed] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [lastRead, setLastRead] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<string | null>(null);
   const [trialStart, setTrialStart] = useState<string | null>(null);
   useEffect(() => { setTrialStart(null); setActionError(null); }, [alert.key]);
   const since = trialStart ?? alert.observedAt;
@@ -184,9 +212,19 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
       <div><h3>Protect the application</h3>
         <p>See what the website returned, then decide whether to stop further requests from this source.</p>
       </div>
-      <button type="button" onClick={() => void refresh()} disabled={busy || !knownSource}>Refresh evidence</button>
+      <div className="mon-stage4-head-actions">
+        <button type="button" onClick={() => void refresh()} disabled={busy || !knownSource}>Refresh evidence</button>
+        <button type="button" onClick={async () => {
+          try {
+            if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+            await navigator.clipboard.writeText(situationReport(alert, impact, mitigation));
+            setCopyState("Situation report copied.");
+          } catch { setCopyState("Clipboard is unavailable in this browser."); }
+        }}>Copy situation report</button>
+      </div>
     </header>
 
+    {copyState && <p role="status" className="mon-stage4-copy-state">{copyState}</p>}
     {!knownSource ? <p className="mon-stage4-boundary">
       This containment view is limited to verified activity directed at the protected training website from its enrolled test attackers. No firewall action is available for this alert.
     </p> : <div className="mon-stage4-cols">
