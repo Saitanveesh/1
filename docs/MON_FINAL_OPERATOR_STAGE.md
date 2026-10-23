@@ -53,27 +53,38 @@ On the MON gateway computer, log in as `pc-2` and run:
 
 ```bash
 cd ~/mon-three-code
-git fetch --no-tags https://github.com/Saitanveesh/1.git \
+git fetch --no-tags https://github.com/Saitanveesh/1.git \\
   refs/heads/feature/mon-final-console-20261023
-git show FETCH_HEAD:tools/mon-final-console-pc2.sh \
-  > /tmp/mon-final-console-pc2.sh
+git show FETCH_HEAD:tools/mon-final-stage-pc2.sh > /tmp/mon-final-stage-pc2.sh
 
-# Read-only health, staged production build and all frontend tests:
-bash /tmp/mon-final-console-pc2.sh --check
-
-# Apply frontend files only. Takes backup and auto-rolls back on failure:
-bash /tmp/mon-final-console-pc2.sh --apply
+# Applies only the missing acknowledgment backend support (if necessary)
+# then tests, backs up and deploys the frontend:
+bash /tmp/mon-final-stage-pc2.sh --apply
 ```
 
-Both modes check the existing `mon-three-console-v2.service` and
+If you only want to check the already-installed backend and frontend first,
+use `--check`. It can refuse the frontend check if the review endpoint has
+not yet been installed; `--apply` handles that dependency without
+reinstalling MON or WireGuard.
+
+The orchestrator calls two guarded, individually rollback-safe scripts:
+`tools/mon-final-review-backend-pc2.sh` checks or adds the authenticated
+review endpoint (restarting only the portal service if necessary), then
+`tools/mon-final-console-pc2.sh` builds and tests the final UI and
+restarts only the console frontend.
+
+
+The frontend checks the existing `mon-three-console-v2.service` and
 `http://127.0.0.1:5174/` before installing anything. The installer stages
 the exact GitHub revision, builds the console, and runs the test suite before
 it writes to the running frontend. It backs up the existing `console-v2`
 tree (except reusable `node_modules`) inside a private
 `~/mon-three/mon-final-rollback.*` folder.
 
-It updates **only** `~/mon-three/console-v2/` and restarts
-`mon-three-console-v2.service`. No WireGuard service is restarted.
+The frontend updates **only** `~/mon-three/console-v2/` and restarts
+`mon-three-console-v2.service`. The optional review backend updates only
+`~/mon-three/tools/mon-lab-portal.py`, the local review journal module and a
+restricted service override. No WireGuard or Suricata service is restarted.
 
 Once the output reports success, open:
 
