@@ -41,6 +41,9 @@ if PROTECTED_HOST_IP:
 if not PROTECTED_CAPTURE_INTERFACE or PROTECTED_CAPTURE_INTERFACE == "any":
     raise ValueError("MON_PROTECTED_CAPTURE_INTERFACE must name a real interface")
 ORIGIN = os.environ.get("MON_PORTAL_ORIGIN", "http://100.75.116.62:5173")
+ALLOWED_ORIGINS = frozenset(x.strip() for x in os.environ.get(
+    "MON_PORTAL_ALLOWED_ORIGINS", ORIGIN
+).split(",") if x.strip())
 USERNAME = os.environ.get("MON_PORTAL_USERNAME", "sai")
 VERIFIER = os.environ.get("MON_PORTAL_PASSWORD_HASH", "")
 TOKEN_FILE = Path(
@@ -510,6 +513,16 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             self.reply(HTTPStatus.OK, read_suricata_eve())
+        elif path == "/portal/alerts/acknowledged":
+            if not self._session():
+                self.reply(HTTPStatus.UNAUTHORIZED, {"error": "authentication required"})
+                return
+            try:
+                from mon_alert_ack import acknowledged_alerts
+            except ImportError:
+                self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "review journal unavailable"})
+                return
+            self.reply(HTTPStatus.OK, {"records": acknowledged_alerts()})
         elif path == "/portal/session":
             self.reply(HTTPStatus.OK, {"authenticated": self._session()})
         elif path == "/portal/metrics":
@@ -528,6 +541,38 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(payload)
         else:
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
+
+    def _acknowledge_alert(self) -> None:
+        """Save a genuine EVE signature acknowledgment, not a synthetic case."""
+        if not self._session():
+            self.reply(HTTPStatus.UNAUTHORIZED, {"error": "operator session required"})
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            size = 0
+        if not 1 <= size <= 1024 or not self.headers.get(
+            "Content-Type", ""
+        ).startswith("application/json"):
+            self.reply(HTTPStatus.BAD_REQUEST, {"error": "invalid acknowledgment"})
+            return
+        try:
+            data = json.loads(self.rfile.read(size))
+            key = data.get("key")
+            if not isinstance(key, str):
+                raise ValueError("invalid alert key")
+            from mon_suricata_bridge import read_suricata_eve
+            from mon_alert_ack import acknowledge_eve_alert
+            result = acknowledge_eve_alert(
+                key, read_suricata_eve(), PROTECTED_HOST_IP or None
+            )
+        except (ValueError, TypeError, AttributeError) as exc:
+            self.reply(HTTPStatus.CONFLICT, {"error": str(exc)[:160]})
+            return
+        except (OSError, ImportError):
+            self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "review journal unavailable"})
+            return
+        self.reply(HTTPStatus.OK, {"success": True, **result})
 
     def _ai_investigate(self) -> None:
         """Authorized, on-demand local inference; NEVER calls enforcement APIs."""
@@ -592,14 +637,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in ("/portal/login", "/portal/logout", "/portal/ai/investigate"):
+        if path not in ("/portal/login", "/portal/logout", "/portal/ai/investigate", "/portal/alerts/acknowledge"):
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
-        if self.headers.get("Origin") != ORIGIN:
+        if self.headers.get("Origin") not in ALLOWED_ORIGINS:
             self.reply(HTTPStatus.FORBIDDEN, {"error": "origin denied"})
             return
         if path == "/portal/ai/investigate":
             self._ai_investigate()
+            return
+        if path == "/portal/alerts/acknowledge":
+            self._acknowledge_alert()
             return
         if path == "/portal/logout":
             self.reply(
