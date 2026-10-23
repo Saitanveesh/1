@@ -47,3 +47,27 @@ it("does not fabricate IDS alerts before a real sensor has been installed", asyn
   await waitFor(() => expect(screen.getByText(/Suricata IDS not yet installed/))
     .toBeTruthy());
 });
+
+it("does not mix unrelated PC2 EVE traffic into the protected PC5 IDS panel", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      source: "suricata-eve", status: "RECENT_EVE", service_state: "active",
+      observed_events: 2, alerts: 2, last_seen: new Date().toISOString(),
+      records: [
+        { event_type: "alert", timestamp: new Date().toISOString(),
+          src_ip: "10.77.0.60", dst_ip: "10.77.0.50", src_port: 50000,
+          dst_port: 8085, signature: "MON LAB PC5 signature", protocol: "TCP", application: "http" },
+        { event_type: "alert", timestamp: new Date().toISOString(),
+          src_ip: "172.17.0.3", dst_ip: "10.5.112.136", src_port: 50001,
+          dst_port: 8080, signature: "Unrelated host event", protocol: "TCP", application: "http" }
+      ]
+    })
+  }));
+  render(<SuricataPanel protectedIp="10.77.0.50" />);
+  await waitFor(() => expect(screen.getByText("MON LAB PC5 signature")).toBeTruthy());
+  expect(screen.queryByText("Unrelated host event")).toBeNull();
+  const panel = screen.getByTestId("suricata-ids-panel");
+  expect(within(panel).getByText("1")).toBeTruthy();
+  expect(within(panel).getByText("PROTECTED-HOST EVE ROWS")).toBeTruthy();
+});
