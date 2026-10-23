@@ -214,7 +214,7 @@ export default function IncidentDetail({
     <section className="panel full" data-testid="incident-detail">
       <div className="panel-head">
         <div>
-          <span className="eyebrow">INCIDENT INVESTIGATION</span>
+          <span className="eyebrow">Case details</span>
           <h2 data-testid="incident-detail-title">{incident.title}</h2>
         </div>
         <div className="mon-incident-actions">
@@ -223,37 +223,40 @@ export default function IncidentDetail({
           </span>
           {onOpen3D && <button type="button" className="control-button"
             data-testid="open-3d-investigation" onClick={() => onOpen3D(incident)}>
-            RECONSTRUCT IN 3D ↗
+            View network diagram →
           </button>}
         </div>
       </div>
       {error && <div className="empty" role="alert">{error}</div>}
       {!error && !investigation && <div className="empty">Loading investigation…</div>}
       {investigation && (
-        <section className="mon-ai-compact" data-testid="ai-incident-panel">
-          <span className="mon-ai-compact-label">LOCAL AI</span>
+        <details className="mon-optional-analysis">
+          <summary>Optional case summary</summary>
+          <section className="mon-ai-compact" data-testid="ai-incident-panel">
+          <span className="mon-ai-compact-label">Optional summary</span>
           <div className="mon-ai-compact-text">
-            <strong>{aiResult?.headline ?? "What happened? Analyze this incident using verified evidence."}</strong>
+            <strong>{aiResult?.headline ?? "Read an optional summary of this case."}</strong>
             {aiResult && <span>{aiResult.assessment} · Check: {aiResult.next_check}</span>}
             {aiError && <span role="alert">{aiError}</span>}
-            {aiBusy && <span role="status">Analyzing MON evidence locally…</span>}
+            {aiBusy && <span role="status">Preparing the summary…</span>}
           </div>
           <button type="button" className="control-button" data-testid="analyze-with-ai"
             disabled={aiBusy} onClick={() => void handleAiAnalysis()}>
-            {aiBusy ? "ANALYZING…" : aiResult ? "REANALYZE" : "ANALYZE"}
+            {aiBusy ? "Preparing…" : aiResult ? "Refresh summary" : "Generate summary"}
           </button>
-          {aiResult && <span className="mon-ai-compact-meta">{aiResult.evidence_count} MON records · {aiResult.model}</span>}
-        </section>
+          {aiResult && <span className="mon-ai-compact-meta">{aiResult.evidence_count} records considered · Confirm against the evidence below</span>}
+          </section>
+        </details>
       )}
       {investigation && <>
         <IncidentEventFlow investigation={investigation} responses={related} compact />
         <div className="mon-case-tabs" role="tablist" aria-label="Incident case sections">
           <button type="button" role="tab" aria-selected={caseTab === "events"}
-            onClick={() => setCaseTab("events")}>TIMELINE <span>{moments.length}</span></button>
+            onClick={() => setCaseTab("events")}>Timeline <span>{moments.length}</span></button>
           <button type="button" role="tab" aria-selected={caseTab === "evidence"}
-            onClick={() => setCaseTab("evidence")}>EVIDENCE <span>{investigation.evidence.length}</span></button>
+            onClick={() => setCaseTab("evidence")}>Evidence <span>{investigation.evidence.length}</span></button>
           <button type="button" role="tab" aria-selected={caseTab === "response"}
-            onClick={() => setCaseTab("response")}>RESPONSE <span>{related.length}</span></button>
+            onClick={() => setCaseTab("response")}>Response <span>{related.length}</span></button>
         </div>
       </>}
       {investigation && caseTab === "events" && (
@@ -265,18 +268,18 @@ export default function IncidentDetail({
           />
           <div className="mon-case-inspector">
             <div className="aiwb-section-top"><div>
-              <span className="aiwb-kicker">CASE FILE / EVIDENCE</span>
+              <span className="aiwb-kicker">Selected event</span>
               <h3>Selected event</h3>
             </div></div>
             {selectedMoment ? (
               <div className="aiwb-selected-detail" data-testid="incident-selected-event">
                 <span className="aiwb-detail-kind">{selectedMoment.kind}</span>
                 <h4>{selectedMoment.headline}</h4>
-                <div className="aiwb-detail-pair"><span>TIMESTAMP</span><strong>{selectedMoment.timestamp ?? "Not recorded"}</strong></div>
-                <div className="aiwb-detail-pair"><span>RECORD ID</span><code>{selectedMoment.reference}</code></div>
-                <div className="aiwb-detail-pair"><span>ORIGIN</span><strong>{selectedMoment.description}</strong></div>
+                <div className="aiwb-detail-pair"><span>Time</span><strong>{selectedMoment.timestamp ?? "Not recorded"}</strong></div>
+                <div className="aiwb-detail-pair"><span>Record</span><code>{selectedMoment.reference}</code></div>
+                <div className="aiwb-detail-pair"><span>Details</span><strong>{selectedMoment.description}</strong></div>
               </div>
-            ) : <p className="empty">No timestamped evidence returned.</p>}
+            ) : <p className="empty">No timestamped events are available.</p>}
           </div>
         </div>
       )}
