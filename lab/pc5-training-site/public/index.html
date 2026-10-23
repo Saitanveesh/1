@@ -1,33 +1,111 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Campus Gateway | MON Training Lab</title>
-<style>
-:root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#243243;background:#f7f9fc}
-*{box-sizing:border-box}body{margin:0}.ribbon{height:8px;background:#922c3c}
-header{background:#fff;border-bottom:1px solid #e1e5ec;padding:18px max(5vw,20px);display:flex;align-items:center;justify-content:space-between;gap:20px}
-.mark{display:flex;align-items:center;gap:13px;font-weight:800;letter-spacing:.04em}
-.seal{height:48px;width:48px;display:grid;place-items:center;border:2px solid #922c3c;border-radius:50%;color:#922c3c;font-size:24px}
-nav{font-size:13px;color:#485567}nav span{margin-left:24px}main{max-width:1100px;margin:0 auto;padding:42px 24px}
-.hero{background:linear-gradient(115deg,#172f4e,#294c6e);padding:65px 54px;border-radius:4px;color:#fff}
-.tag{letter-spacing:.18em;font-size:11px;font-weight:700;color:#e9a9b3}
-h1{font-size:clamp(32px,5vw,54px);max-width:720px;margin:14px 0;font-weight:650;line-height:1.12}
-.hero p{line-height:1.6;color:#dde7f3;max-width:600px}
-.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:25px 0}
-article{background:#fff;border:1px solid #dde3ea;padding:27px;min-height:170px}
-article small{letter-spacing:.12em;color:#922c3c;font-weight:700}h2{font-size:19px;margin:12px 0}
-article p{font-size:14px;line-height:1.65;color:#526173}
-footer{padding:25px 5vw;color:#627084;border-top:1px solid #d7dde5;font-size:12px}
-.lab{background:#fff2ec;border:1px solid #f3c6ab;padding:12px 18px;color:#77472e;font-size:12px;margin-bottom:22px}
-@media(max-width:680px){header{display:block}nav{margin-top:12px}nav span{margin-left:0;margin-right:12px}.hero{padding:40px 25px}.cards{grid-template-columns:1fr}}
-</style></head>
-<body><div class="ribbon"></div>
-<header><div class="mark"><div class="seal">C</div><div>CAMPUS GATEWAY<br><small style="font-weight:400;letter-spacing:0">College Information Portal</small></div></div><nav><span>Academics</span><span>Announcements</span><span>Departments</span></nav></header>
-<main><div class="lab">MON LAB TRAINING WEBSITE — FICTIONAL INSTITUTION. NO REAL STUDENT OR COLLEGE ACCOUNTS.</div>
-<section class="hero"><div class="tag">STUDENT INFORMATION & SERVICES</div><h1>Connecting students, learning and opportunity.</h1><p>Welcome to the campus training portal. This isolated laboratory application demonstrates monitored web traffic and security detections.</p></section>
-<section class="cards">
-<article><small>01 / UNIVERSITY</small><h2>Academic Departments</h2><p>Explore fictional engineering programs, laboratories and research initiatives.</p></article>
-<article><small>02 / NOTICES</small><h2>Campus Announcements</h2><p>Term schedules, mock examination notices and fictional student events.</p></article>
-<article><small>03 / LIBRARY</small><h2>Student Resources</h2><p><a href="/download?file=public-notice.txt">Download the public campus notice</a>.</p></article>
-</section></main><footer>MON authorized training environment · All content is fictional · PC-5 local web server</footer>
-</body></html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="color-scheme" content="light"/>
+  <title>Campus Gateway — MON Lab</title>
+  <link rel="stylesheet" href="/app.css"/>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="topline"></div>
+  <header class="site-header">
+    <div class="identity">
+      <div class="seal">CG</div>
+      <div><strong>Campus Gateway</strong><small>Student Services · Fictional University</small></div>
+    </div>
+    <nav aria-label="Training sections">
+      <a href="#announcements">Announcements</a>
+      <a href="#students">Student Directory</a>
+      <a href="#documents">Documents</a>
+      <a href="#account">Sign In</a>
+    </nav>
+    <span class="tag">OFFLINE LAB</span>
+  </header>
+  <main>
+    <section class="notice-banner" role="note">
+      <strong>MON authorized cyber range.</strong> This is a fictional institution using deliberately insecure workflows and synthetic records only. Never use real passwords or private data.
+    </section>
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="overline">ACADEMIC INFORMATION SYSTEM · TRAINING INSTANCE</span>
+        <h1>Your campus, connected.</h1>
+        <p>Search notices, view student records and manage your mock campus resources. Every request is captured as real HTTP traffic on the authorized lab network.</p>
+        <div class="hero-actions">
+          <a class="primary" href="#announcements">Explore campus notices <span aria-hidden="true">↗</span></a>
+          <a class="secondary" href="#documents">View documents</a>
+        </div>
+      </div>
+      <div class="hero-panel" aria-label="Fictional institution statistics">
+        <span>STUDENT SERVICES</span>
+        <strong>2026–27</strong>
+        <p>Mock academic portal</p>
+        <div class="hero-divider"></div>
+        <div class="hero-kpis"><div><b>04</b><small>Training records</small></div><div><b>03</b><small>Web exercises</small></div></div>
+      </div>
+    </section>
+    <section class="section-title">
+      <div><span class="overline">STUDENT PORTAL</span><h2>Explore campus services</h2></div>
+      <p>These functional modules are intentionally scoped to fake data and PC-5. Read the results to understand what the backend returns.</p>
+    </section>
+    <div class="exercise-grid">
+      <section class="exercise" id="announcements">
+        <div class="exercise-head"><span class="num">01</span><span class="status">READ-ONLY SQL DATABASE</span></div>
+        <h3>Announcements and notices</h3>
+        <p>Search simulated campus notices. The backing query is deliberately not parameterized for a SQL-injection training exercise.</p>
+        <form id="notice-form">
+          <label for="notice-query">Search notices</label>
+          <div class="input-line"><input id="notice-query" name="q" value="timetable" maxlength="160" autocomplete="off"/><button type="submit">SEARCH</button></div>
+        </form>
+        <pre id="notice-result" class="result" aria-live="polite">Submit a search to view a real server response.</pre>
+        <div class="exercise-caption">Fixture database exists only in memory. No actual college database or files are connected.</div>
+      </section>
+      <section class="exercise" id="students">
+        <div class="exercise-head"><span class="num">02</span><span class="status">ACCESS-CONTROL TEST</span></div>
+        <h3>Student information</h3>
+        <p>View a synthetic student profile. The service incorrectly trusts a claimed viewer without checking ownership (IDOR).</p>
+        <form id="student-form">
+          <label for="viewer-id">Viewer identity (claimed)</label>
+          <select id="viewer-id"><option value="STU-1001">STU-1001 · Aarya</option><option value="STU-1002">STU-1002 · Rohan</option></select>
+          <label for="student-id">Requested record</label>
+          <select id="student-id"><option value="STU-1001">STU-1001 · Aarya</option><option value="STU-1002">STU-1002 · Rohan</option><option value="STU-1003">STU-1003 · Kavya</option></select>
+          <button type="submit" class="wide">OPEN RECORD</button>
+        </form>
+        <pre id="student-result" class="result" aria-live="polite">Only fictional student records are available.</pre>
+        <div class="exercise-caption">IDs and profile details are fabricated specifically for this isolated lab.</div>
+      </section>
+      <section class="exercise" id="documents">
+        <div class="exercise-head"><span class="num">03</span><span class="status">DOCUMENT SERVICE TEST</span></div>
+        <h3>Campus document center</h3>
+        <p>The legacy document reader has a deliberate directory validation mistake. It can access only a fake canary inside this site directory.</p>
+        <div class="doc-actions">
+          <button id="traversal-normal" type="button">READ PUBLIC NOTICE</button>
+          <button id="traversal-test" type="button" class="outline">LAB CANARY TEST</button>
+        </div>
+        <pre id="download-result" class="result" aria-live="polite">Choose a document to view the response.</pre>
+        <div class="exercise-caption">A path outside the training tree, including the host's /etc/passwd, is denied.</div>
+      </section>
+      <section class="exercise" id="account">
+        <div class="exercise-head"><span class="num">04</span><span class="status">TOY LOGIN / REQUEST LOG</span></div>
+        <h3>Portal sign-in</h3>
+        <p>Generate actual HTTP login successes and failures for traffic and application-log observation. These are not real institutional credentials.</p>
+        <form id="login-form">
+          <label for="login-name">Training username</label>
+          <input id="login-name" value="demo.student" autocomplete="off"/>
+          <label for="login-password">Training password</label>
+          <input id="login-password" type="password" placeholder="Synthetic password" autocomplete="off"/>
+          <button type="submit" class="wide">SIGN IN TO DEMO</button>
+        </form>
+        <pre id="login-result" class="result" aria-live="polite">Toy identity responses only. No sessions are issued.</pre>
+        <div class="exercise-caption">Per-source request limits prevent unbounded traffic generation.</div>
+      </section>
+    </div>
+    <section class="lab-footer">
+      <div><span class="overline">MON / DEFENSIVE TELEMETRY</span><h2>Watch traffic in the SOC.</h2><p>Requests from PC-6 to this site should traverse PC-2's WireGuard gateway. Detection requires actual Suricata EVE evidence; traffic volume alone is not an attack.</p></div>
+      <div class="lab-footer-meta">LAB HOST <strong>PC-5</strong><br/>BIND <strong>10.77.0.50:8085</strong><br/>DATA <strong>100% SYNTHETIC</strong></div>
+    </section>
+  </main>
+  <footer>Campus Gateway / Fictional Student Services · MON isolated training environment · Not associated with any real university</footer>
+</body>
+</html>
