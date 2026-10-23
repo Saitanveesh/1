@@ -147,6 +147,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(status, (PUBLIC / "index.html").read_bytes(), "text/html; charset=utf-8")
             elif path == "/app.js":
                 self.respond(status, (PUBLIC / "app.js").read_bytes(), "application/javascript; charset=utf-8")
+            elif path == "/app.css":
+                self.respond(status, (PUBLIC / "app.css").read_bytes(), "text/css; charset=utf-8")
             elif path == "/health":
                 self.json_reply(status, {"status": "READY", "training": True, "version": 2})
             elif path == "/api/notices":
