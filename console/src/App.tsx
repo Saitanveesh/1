@@ -487,7 +487,7 @@ export default function App() {
   }, [state.incidents, state.findings, state.assets, targetIp]);
 
   const protectedReady = isProtectedCaptureReady(packetCapture);
-  const idsState = idsStatus(ids.snapshot, ids.availability === "AVAILABLE");
+  const idsState = idsStatus(ids.snapshot, ids.availability);
 
   const displayedIncident = state.incidents.find(item =>
     item.incident_id === selectedIncident?.incident_id
