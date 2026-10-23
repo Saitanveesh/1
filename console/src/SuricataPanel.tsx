@@ -6,7 +6,7 @@ const idle: SuricataSnapshot = {
   alerts: 0, last_seen: null, records: []
 };
 
-export default function SuricataPanel() {
+export default function SuricataPanel({ protectedIp }: { protectedIp?: string | null }) {
   const [snapshot, setSnapshot] = useState<SuricataSnapshot>(idle);
   const [networkError, setNetworkError] = useState(false);
   const [filter, setFilter] = useState<"all" | "alert" | "flow">("all");
@@ -28,16 +28,20 @@ export default function SuricataPanel() {
     return () => { closed = true; window.clearInterval(interval); };
   }, []);
 
-  const rows = useMemo(() => snapshot.records.filter(
+  const scoped = useMemo(() => snapshot.records.filter(record =>
+    !protectedIp || record.src_ip === protectedIp || record.dst_ip === protectedIp
+  ), [snapshot.records, protectedIp]);
+  const rows = useMemo(() => scoped.filter(
     record => filter === "all" || record.event_type === filter
-  ), [snapshot.records, filter]);
+  ), [scoped, filter]);
+  const alertCount = scoped.filter(record => record.event_type === "alert").length;
   return (
     <section className="mon-panel mon-ids-panel" data-testid="suricata-ids-panel">
       <div className="mon-panel-heading">
         <div>
           <span className="mon-eyebrow">PASSIVE NETWORK IDS / SURICATA EVE</span>
           <h2>Protocol analysis and detections</h2>
-          <p>PC-2 Suricata EVE evidence. Sensor service and actual capture interface must be checked separately; this is not proof of blocking.</p>
+          <p>{protectedIp ? "Only EVE records with source or destination " + protectedIp + "." : "Unfiltered EVE view; target address has not been set."} Sensor service and actual capture interface must be checked separately. No block is implied.</p>
         </div>
         <span className="mon-tag" data-testid="suricata-status">
           {networkError ? "API UNREACHABLE"
@@ -47,8 +51,8 @@ export default function SuricataPanel() {
         </span>
       </div>
       <div className="mon-ids-summary">
-        <div><small>RECENT EVE RECORDS</small><strong>{snapshot.observed_events}</strong></div>
-        <div><small>RULE ALERTS</small><strong>{snapshot.alerts}</strong></div>
+        <div><small>{protectedIp ? "PROTECTED-HOST EVE ROWS" : "UNFILTERED EVE ROWS"}</small><strong>{scoped.length}</strong></div>
+        <div><small>{protectedIp ? "PROTECTED-HOST RULE ALERTS" : "UNFILTERED RULE ALERTS"}</small><strong>{alertCount}</strong></div>
         <div><small>LAST EVENT</small><strong>{snapshot.last_seen || "NONE"}</strong></div>
         <div><small>CAPTURE INTERFACE</small><strong>{snapshot.capture_interface || "UNVERIFIED"}</strong></div>
       </div>
