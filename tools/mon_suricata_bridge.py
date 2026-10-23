@@ -37,11 +37,18 @@ def safe_port(value: object) -> int | None:
     return None
 
 
+SURICATA_UNIT = os.environ.get(
+    "MON_SURICATA_UNIT", "mon-suricata-passive.service"
+).strip()
+
+
 def suricata_service_state() -> str:
-    """Report actual systemd state; an EVE log existing is not sensor health."""
+    """Check the service that owns this EVE stream, not an unrelated daemon."""
+    if not SURICATA_UNIT.endswith(".service") or "/" in SURICATA_UNIT:
+        return "unknown"
     try:
         result = subprocess.run(
-            ["/usr/bin/systemctl", "is-active", "suricata.service"],
+            ["/usr/bin/systemctl", "is-active", SURICATA_UNIT],
             check=False, capture_output=True, text=True, timeout=2,
         )
         state = result.stdout.strip().lower()
@@ -56,6 +63,7 @@ def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": "suricata-eve",
         "service_state": suricata_service_state(),
+        "service_unit": SURICATA_UNIT,
         "status": "NOT_INSTALLED",
         "observed_events": 0,
         "alerts": 0,
