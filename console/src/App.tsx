@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SecurityAlert from "./SecurityAlert";
 import type { SecurityThreatAlert } from "./securityAlerts";
 import { useSuricataThreatAlerts } from "./suricataThreats";
+import {
+  currentProtectedFindings, currentProtectedIncidents, idsStatus,
+  isProtectedCaptureReady, isRecentObservation
+} from "./operationalTruth";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import IncidentQueue from "./IncidentQueue";
@@ -85,7 +89,7 @@ function IncidentTable({
       <table>
         <thead>
           <tr>
-            <th>SEV</th><th>INCIDENT</th><th>STATUS</th><th>CONF</th><th>ENTITIES</th><th>LAST</th>
+            <th>SEV</th><th>INCIDENT</th><th>STATUS</th><th>CONF</th><th>CASE ENTITIES (UNTYPED)</th><th>LAST OBSERVED</th>
           </tr>
         </thead>
         <tbody>
@@ -102,10 +106,10 @@ function IncidentTable({
               <td>{incident.status}</td>
               <td>{Math.round(incident.confidence * 100)}%</td>
               <td>{incident.entities?.slice(0, 3).join(", ") || "—"}</td>
-              <td>{new Date(incident.last_seen).toLocaleTimeString()}</td>
+              <td>{new Date(incident.last_seen).toLocaleString()}</td>
             </tr>
           ))}
-          {!incidents.length && <tr><td colSpan={6} className="empty">No active incidents in the current snapshot.</td></tr>}
+          {!incidents.length && <tr><td colSpan={6} className="empty">No recent PC-5 incidents verified. Older recorded cases remain in Incidents.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -116,14 +120,14 @@ function FindingTable({ findings }: { findings: Finding[] }) {
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr><th>SEV</th><th>DETECTOR</th><th>SOURCE</th><th>TARGET</th><th>CONF</th></tr></thead>
+        <thead><tr><th>SEV</th><th>DETECTOR</th><th>SOURCE IP</th><th>TARGET IP</th><th>CONF</th></tr></thead>
         <tbody>
           {latest(findings).slice(0, 12).map((item) => (
             <tr key={item.finding_id}>
               <td><span className={`severity ${severityBand(item.severity)}`}>{item.severity}</span></td>
               <td>{item.detector_id}</td>
-              <td>{item.asset_id ?? item.src_ip ?? "—"}</td>
-              <td>{item.dst_ip ?? "—"}</td>
+              <td>{item.src_ip ?? "Unknown Source"}</td>
+              <td>{item.dst_ip ?? "Not recorded"}</td>
               <td>{Math.round(item.confidence * 100)}%</td>
             </tr>
           ))}
@@ -437,14 +441,21 @@ export default function App() {
       : [...current, incoming].slice(-10));
   }, []);
 
+  const packetCapture = usePacketCapture(authState === "OK");
+  const targetIp = packetCapture?.protected_host_ip || null;
+
   useEffect(() => {
     const incoming = state.threatAlert;
-    if (authState === "OK" && state.connection === "LIVE" && incoming) {
+    // A new WS event is not necessarily recent or intended for this victim.
+    // Do not flash a central "live attack" for historical or unscoped events.
+    if (authState === "OK" && state.connection === "LIVE" &&
+        incoming && targetIp && incoming.target === targetIp &&
+        isRecentObservation(incoming.observedAt, Date.now(), 120_000)) {
       enqueueThreat(incoming);
     }
-  }, [authState, state.connection, state.threatAlert, enqueueThreat]);
+  }, [authState, state.connection, state.threatAlert, enqueueThreat, targetIp]);
 
-  useSuricataThreatAlerts(authState === "OK", enqueueThreat);
+  const ids = useSuricataThreatAlerts(authState === "OK", enqueueThreat, targetIp);
 
   const dismissAlert = () => setPendingAlerts(current => current.slice(1));
 
@@ -462,21 +473,21 @@ export default function App() {
     dismissAlert();
   };
 
-  const packetCapture = usePacketCapture(authState === "OK");
-
   const metrics = useMemo(() => {
-    const active = state.incidents.filter((item) => item.status !== "CLOSED");
+    const active = currentProtectedIncidents(
+      state.incidents, state.findings, state.assets, targetIp
+    );
+    const recentFindings = currentProtectedFindings(state.findings, targetIp);
     const highest = active.reduce<Severity>(
       (current, item) => rank[item.severity] > rank[current] ? item.severity : current,
       "INFO"
     );
-    const attackPressure = Math.min(
-      100,
-      active.reduce((sum, item) => sum + (rank[item.severity] + 1) * item.confidence * 8, 0)
-    );
-    const critical = active.filter((item) => item.severity === "CRITICAL").length;
-    return { active, highest, attackPressure, critical };
-  }, [state.incidents]);
+    const recordedOpen = state.incidents.filter(item => item.status !== "CLOSED");
+    return { active, recentFindings, highest, recordedOpen };
+  }, [state.incidents, state.findings, state.assets, targetIp]);
+
+  const protectedReady = isProtectedCaptureReady(packetCapture);
+  const idsState = idsStatus(ids.snapshot, ids.availability === "AVAILABLE");
 
   const displayedIncident = state.incidents.find(item =>
     item.incident_id === selectedIncident?.incident_id
@@ -496,7 +507,7 @@ export default function App() {
         <nav>
           {views.map((item) => (
             <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>
-              <span>{item}</span><small>{item === "Incidents" ? metrics.active.length : ""}</small>
+              <span>{item}</span><small>{item === "Incidents" ? metrics.recordedOpen.length : ""}</small>
             </button>
           ))}
         </nav>
@@ -520,7 +531,7 @@ export default function App() {
           <div><span className="eyebrow">COMMAND CENTER</span><h1>{view}</h1></div>
           <div className="top-status">
             <span>LIVE TRANSPORT</span><strong>{state.connection}</strong>
-            <span>LAST EVENT</span><strong>{state.lastMessageAt ? new Date(state.lastMessageAt).toLocaleTimeString() : "—"}</strong>
+            <span>LAST TRANSPORT MESSAGE</span><strong>{state.lastMessageAt ? new Date(state.lastMessageAt).toLocaleTimeString() : "—"}</strong>
           </div>
         </header>
 
@@ -533,14 +544,14 @@ export default function App() {
         {view === "Overview" && (
           <div className="mon-command-desk" data-testid="mon-single-console">
             <section className="mon-overview-strip" data-testid="overview-status-strip">
-              <div><small>MON STATUS</small><strong>{state.connection === "LIVE" ? "ONLINE" : state.connection}</strong></div>
-              <div><small>OPEN INCIDENTS</small><strong>{metrics.active.length}</strong></div>
-              <div><small>HIGHEST SEVERITY</small><strong>{metrics.highest}</strong></div>
-              <div><small>ASSETS</small><strong>{state.assets.length}</strong></div>
-              <div><small>ATTACK PRESSURE</small><strong>{Math.round(metrics.attackPressure)}</strong></div>
-              <div><small>PACKET CAPTURE</small><strong>{packetCapture?.status ?? "CONNECTING"}</strong></div>
+              <div><small>MON API CONNECTION</small><strong>{state.connection}</strong></div>
+              <div><small>PROTECTED IP</small><strong>{targetIp ?? "UNCONFIGURED"}</strong></div>
+              <div><small>PC-5 SENSOR</small><strong>{protectedReady ? "FRESH" : "UNVERIFIED"}</strong></div>
+              <div><small>SURICATA SERVICE</small><strong>{ids.availability === "AVAILABLE" ? ids.snapshot?.service_state?.toUpperCase() ?? "UNKNOWN" : ids.availability}</strong></div>
+              <div><small>PC-5 CASES · LAST 5M</small><strong>{state.connection === "LIVE" && targetIp ? metrics.active.length : "—"}</strong></div>
+              <div><small>IDS EVIDENCE</small><strong>{idsState}</strong></div>
             </section>
-            <SocGauges state={state} capture={packetCapture} />
+            <SocGauges state={state} capture={packetCapture} ids={ids} />
             <ProtectedRouteStrip capture={packetCapture} />
             <div className="mon-command-desk-grid">
               <div className="mon-desk-traffic">
@@ -549,17 +560,17 @@ export default function App() {
               <div className="mon-desk-incidents">
                 <section className="panel">
                   <div className="panel-head">
-                    <div><span className="eyebrow">PRIORITY QUEUE</span><h2>Active incidents</h2></div>
+                    <div><span className="eyebrow">LAST 5 MINUTES / PC-5</span><h2>Recent protected-host incidents</h2></div>
                     <button type="button" className="mon-desk-action" onClick={() => setView("Incidents")}>VIEW ALL ↗</button>
                   </div>
                   <IncidentTable incidents={metrics.active.slice(0, 6)} />
                 </section>
                 <section className="panel">
                   <div className="panel-head">
-                    <div><span className="eyebrow">LATEST DETECTION</span><h2>Recent findings</h2></div>
+                    <div><span className="eyebrow">LAST 5 MINUTES / PC-5</span><h2>Recent protected-host findings</h2></div>
                     <button type="button" className="mon-desk-action" onClick={() => setView("Investigation")}>INVESTIGATE ↗</button>
                   </div>
-                  <FindingTable findings={state.findings.slice(0, 5)} />
+                  <FindingTable findings={metrics.recentFindings.slice(0, 5)} />
                 </section>
               </div>
             </div>
