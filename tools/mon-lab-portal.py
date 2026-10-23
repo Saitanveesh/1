@@ -26,7 +26,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 LISTEN = ("127.0.0.1", 8088)
 INTERFACE = os.environ.get("MON_PORTAL_INTERFACE", "wg0")
@@ -523,6 +523,28 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "review journal unavailable"})
                 return
             self.reply(HTTPStatus.OK, {"records": acknowledged_alerts()})
+        elif path in ("/portal/stage4/mitigation", "/portal/stage4/impact"):
+            if not self._session():
+                self.reply(HTTPStatus.UNAUTHORIZED, {"error": "operator session required"})
+                return
+            try:
+                from mon_stage4_bridge import mitigation_status, victim_impact
+                query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+                source = query.get("source", [""])[0]
+                if path.endswith("mitigation"):
+                    result = mitigation_status(source)
+                else:
+                    result = victim_impact(source, query.get("since", [None])[0])
+            except (ValueError, KeyError, TypeError) as exc:
+                self.reply(HTTPStatus.BAD_REQUEST, {"error": str(exc)[:160]})
+                return
+            except (ImportError, OSError, TimeoutError, ConnectionError) as exc:
+                self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {
+                    "error": "Stage 4 evidence source unavailable",
+                    "component": "mitigation" if path.endswith("mitigation") else "victim",
+                })
+                return
+            self.reply(HTTPStatus.OK, result)
         elif path == "/portal/session":
             self.reply(HTTPStatus.OK, {"authenticated": self._session()})
         elif path == "/portal/metrics":
@@ -573,6 +595,49 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "review journal unavailable"})
             return
         self.reply(HTTPStatus.OK, {"success": True, **result})
+
+    def _stage4_action(self, action: str) -> None:
+        if not self._session():
+            self.reply(HTTPStatus.UNAUTHORIZED, {"error": "operator session required"})
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            size = 0
+        if not 1 <= size <= 1024 or not self.headers.get("Content-Type", "").startswith("application/json"):
+            self.reply(HTTPStatus.BAD_REQUEST, {"error": "Invalid containment request"})
+            return
+        try:
+            data = json.loads(self.rfile.read(size))
+            if not isinstance(data, dict):
+                raise ValueError("Invalid action")
+            from mon_stage4_bridge import mitigation_action
+            source = data.get("source")
+            key = data.get("alert_key")
+            duration = data.get("duration_seconds", 120)
+            verified = False
+            snapshot = None
+            if action == "block":
+                from mon_suricata_bridge import read_suricata_eve
+                snapshot = read_suricata_eve()
+                capture = FLOW.snapshot()
+                verified = (capture.get("status") == "CAPTURING" and
+                            capture.get("protected_host_ip") == "10.77.0.50" and
+                            capture.get("protected_capture_interface") == "wg0" and
+                            capture.get("protected_route_check") == "MATCHES_CAPTURE_INTERFACE")
+            result = mitigation_action(
+                action, source, signature_key=key, ttl=duration,
+                snapshot=snapshot, route_verified=verified
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            self.reply(HTTPStatus.CONFLICT, {"error": str(exc)[:160]})
+            return
+        except (ImportError, OSError, TimeoutError, ConnectionError):
+            self.reply(HTTPStatus.SERVICE_UNAVAILABLE, {
+                "error": "Firewall or audit service unavailable; inspect current status before retrying"
+            })
+            return
+        self.reply(HTTPStatus.OK, result)
 
     def _ai_investigate(self) -> None:
         """Authorized, on-demand local inference; NEVER calls enforcement APIs."""
@@ -637,11 +702,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in ("/portal/login", "/portal/logout", "/portal/ai/investigate", "/portal/alerts/acknowledge"):
+        if path not in ("/portal/login", "/portal/logout", "/portal/ai/investigate",
+                         "/portal/alerts/acknowledge", "/portal/stage4/block", "/portal/stage4/release"):
             self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
         if self.headers.get("Origin") not in ALLOWED_ORIGINS:
             self.reply(HTTPStatus.FORBIDDEN, {"error": "origin denied"})
+            return
+        if path == "/portal/stage4/block":
+            self._stage4_action("block")
+            return
+        if path == "/portal/stage4/release":
+            self._stage4_action("release")
             return
         if path == "/portal/ai/investigate":
             self._ai_investigate()
