@@ -138,6 +138,8 @@ def mitigation_status(source: str) -> dict:
         "active": bool(result["active"]),
         "expires_in_seconds": result.get("expires_in_seconds"),
         "enforcement": result["enforcement"],
+        "dropped_packets_total": result.get("dropped_packets_total"),
+        "dropped_bytes_total": result.get("dropped_bytes_total"),
         "audit": recent_audit(source),
         "scope": "PC-2 forwarding only; source to PC-5 TCP/8085; no other ports blocked",
     }
