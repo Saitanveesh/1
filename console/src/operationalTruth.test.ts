@@ -67,9 +67,9 @@ describe("truthful live metrics", () => {
     const snapshot = {
       status:"RECENT_EVE",service_state:"failed"
     } as SuricataSnapshot;
-    expect(idsStatus(snapshot,true)).toBe("SERVICE OFFLINE");
-    expect(idsStatus({ ...snapshot,service_state:"active" },true))
+    expect(idsStatus(snapshot,"AVAILABLE")).toBe("SERVICE OFFLINE");
+    expect(idsStatus({ ...snapshot,service_state:"active" },"AVAILABLE"))
       .toBe("EVE OBSERVED");
-    expect(idsStatus(snapshot,false)).toBe("API UNAVAILABLE");
+    expect(idsStatus(snapshot,"UNAVAILABLE")).toBe("API UNAVAILABLE");
   });
 });
