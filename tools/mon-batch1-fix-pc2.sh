@@ -149,7 +149,10 @@ MON_SURICATA_UNIT=mon-suricata-passive.service
 EOF
 chmod 0600 "$ENVFILE"
 sudo mkdir -p /etc/systemd/system/mon-three-lab-portal.service.d
-printf '[Unit]\nAfter=mon-batch1-overlay-routes.service\nWants=mon-batch1-overlay-routes.service\n[Service]\nEnvironmentFile=%s\n' "$ENVFILE" | sudo tee "$DROPIN" >/dev/null
+# The original portal unit restricts socket families and omits AF_NETLINK.
+# RTM_GETROUTE uses AF_NETLINK even when 'ip route get' is unprivileged.
+# Keep all original allowed families, add only the required kernel route API.
+printf '[Unit]\nAfter=mon-batch1-overlay-routes.service\nWants=mon-batch1-overlay-routes.service\n[Service]\nEnvironmentFile=%s\nRestrictAddressFamilies=\nRestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_PACKET AF_NETLINK\n' "$ENVFILE" | sudo tee "$DROPIN" >/dev/null
 sudo tee "$IDSUNIT" >/dev/null <<EOF
 [Unit]
 Description=MON passive Suricata IDS on wg0 (non-inline)
@@ -192,6 +195,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable mon-batch1-overlay-routes.service mon-suricata-passive.service >/dev/null
 sudo systemctl restart mon-suricata-passive.service
 sudo systemctl restart mon-three-lab-portal.service
+# Expose sandbox policy in installer diagnostics; the live portal now
+# has AF_NETLINK available for read-only kernel route queries.
+log "Portal address families: $(sudo systemctl show mon-three-lab-portal.service -p RestrictAddressFamilies --value)"
 sudo systemctl restart mon-three-console-v2.service
 for attempt in 1 2 3 4 5 6 7 8; do
   if sudo systemctl is-active --quiet mon-suricata-passive.service &&
