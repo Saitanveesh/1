@@ -11,8 +11,8 @@ interface FlowStep {
 export function buildIncidentSteps(investigation: IncidentInvestigation, responses: ResponseExecution[]): FlowStep[] {
   const incident = investigation.incident;
   const finding = investigation.findings.find(item => item.src_ip) ?? investigation.findings[0];
-  const source = finding?.src_ip ??
-    incident.entities.find(item => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(item));
+  // Do not infer a source from untyped incident entities.
+  const source = finding?.src_ip ?? null;
   const target = investigation.affected_assets[0];
   const evidence = investigation.evidence.find(item => item.source.includes("journal")) ??
     investigation.evidence[0];
