@@ -17,6 +17,7 @@ import os
 import socket
 import socketserver
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -66,7 +67,9 @@ class NftGate:
             raise RuntimeError("Cannot verify dedicated firewall table: " + (result.stderr or "")[:180])
         body = result.stdout or ""
         # Never adopt or delete a table that looks different.
-        if (f"set {SET}" not in body or f"chain {CHAIN}" not in body or
+        if (body.count("set ") != 1 or body.count("chain ") != 1 or
+            body.count("counter") != 1 or
+            f"set {SET}" not in body or f"chain {CHAIN}" not in body or
             f"ip saddr @{SET}" not in body or f"ip daddr {VICTIM}" not in body or
             f"tcp dport {PORT}" not in body or "hook forward" not in body or
             'iifname "wg0"' not in body or 'oifname "wg0"' not in body):
@@ -113,6 +116,20 @@ class NftGate:
                     active[value] = expires
         return active
 
+    def _counters(self) -> tuple[int | None, int | None]:
+        try:
+            chain = self._run(["-j", "list", "chain", "inet", TABLE, CHAIN])
+            for obj in json.loads(chain.stdout).get("nftables", []):
+                for expr in obj.get("rule", {}).get("expr", []):
+                    counter = expr.get("counter") if isinstance(expr, dict) else None
+                    if isinstance(counter, dict):
+                        packets, size = counter.get("packets"), counter.get("bytes")
+                        if type(packets) is int and type(size) is int and packets >= 0 and size >= 0:
+                            return packets, size
+        except (ValueError, OSError, RuntimeError, KeyError, TypeError):
+            pass
+        return None, None
+
     def status(self, source: str) -> dict:
         validate_source(source)
         if not self._existing():
@@ -120,8 +137,11 @@ class NftGate:
                     "enforcement": "UNAVAILABLE"}
         record = self._run(["-j", "list", "set", "inet", TABLE, SET])
         members = self._members(json.loads(record.stdout))
+        packets, size = self._counters()
         return {"source": source, "active": source in members,
                 "expires_in_seconds": members.get(source),
+                "dropped_packets_total": packets,
+                "dropped_bytes_total": size,
                 "enforcement": "KERNEL_RULE_PRESENT" if source in members else "NO_RULE"}
 
     def block(self, source: str, ttl: int) -> dict:
@@ -150,6 +170,7 @@ class NftGate:
 
 
 GATE = NftGate()
+GATE_MUTEX = threading.Lock()
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -166,11 +187,14 @@ class Handler(socketserver.StreamRequestHandler):
             if action == "health":
                 result = {"ready": True, "scope": "PC5 training web port only"}
             elif action == "status":
-                result = GATE.status(validate_source(req.get("source")))
+                with GATE_MUTEX:
+                    result = GATE.status(validate_source(req.get("source")))
             elif action == "block":
-                result = GATE.block(validate_source(req.get("source")), validate_ttl(req.get("ttl")))
+                with GATE_MUTEX:
+                    result = GATE.block(validate_source(req.get("source")), validate_ttl(req.get("ttl")))
             elif action == "release":
-                result = GATE.release(validate_source(req.get("source")))
+                with GATE_MUTEX:
+                    result = GATE.release(validate_source(req.get("source")))
             else:
                 raise ValueError("Unsupported action")
             answer = {"ok": True, **result}
