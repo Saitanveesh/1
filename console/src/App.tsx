@@ -568,7 +568,7 @@ export default function App() {
 
         {view === "Incidents" && (
           <div className="mon-incidents-workspace" data-testid="incident-workspace">
-            <IncidentQueue incidents={state.incidents}
+            <IncidentQueue incidents={state.incidents} findings={state.findings}
               selectedId={displayedIncident?.incident_id ?? null}
               onSelect={setSelectedIncident} />
             <div className="mon-incidents-main">
