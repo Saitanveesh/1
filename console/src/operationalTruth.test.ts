@@ -45,10 +45,25 @@ describe("truthful live metrics", () => {
     expect(isProtectedCaptureReady(capture,now)).toBe(false);
     expect(isProtectedCaptureReady({ ...capture,protected_host_ip:"10.77.0.50" },now))
       .toBe(false); // stale > 12s
+    const observed_at = "2026-10-23T09:59:59Z";
     expect(isProtectedCaptureReady({
-      ...capture,protected_host_ip:"10.77.0.50",
-      observed_at:"2026-10-23T09:59:59Z"
+      ...capture,protected_host_ip:"10.77.0.50",observed_at,
+      protected_route_check:"MATCHES_CAPTURE_INTERFACE",
+      sample_interval_seconds:1,
+      protected_route_samples:[{second:Math.floor(Date.parse(observed_at)/1000),packets:25,bytes:2000,icmp_packets:0}]
     },now)).toBe(true);
+    expect(isProtectedCaptureReady({
+      ...capture,protected_host_ip:"10.77.0.50",observed_at,
+      protected_route_check:"DIFFERENT_INTERFACE",
+      sample_interval_seconds:1,
+      protected_route_samples:[{second:Math.floor(Date.parse(observed_at)/1000),packets:25,bytes:2000,icmp_packets:0}]
+    },now)).toBe(false);
+    expect(isProtectedCaptureReady({
+      ...capture,protected_host_ip:"10.77.0.50",observed_at,
+      protected_route_check:"MATCHES_CAPTURE_INTERFACE",
+      sample_interval_seconds:1,
+      protected_route_samples:[{second:1,packets:25,bytes:2000,icmp_packets:0}]
+    },now)).toBe(false);
   });
   it("does not classify historical OPEN cases as live attacks", () => {
     const historical = { ...incident,last_seen:old };
