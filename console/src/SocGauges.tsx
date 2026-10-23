@@ -1,57 +1,69 @@
 import type { LiveState } from "./live";
 import type { PacketCaptureSnapshot } from "./types";
+import type { IdsObservation } from "./suricataThreats";
+import { isProtectedCaptureReady, isRecentObservation } from "./operationalTruth";
 import "./SocGauges.css";
 
-interface GaugeProps { name: string; display: string; percent: number | null; foot: string; }
-function Gauge({ name, display, percent, foot }: GaugeProps) {
-  const bounded = percent === null ? 0 : Math.min(100, Math.max(0, percent));
-  return <article className="mon-gauge">
+function Metric({
+  name, display, foot
+}: { name: string; display: string; foot: string }) {
+  return <article className="mon-truth-metric">
     <div className="mon-gauge-name">{name}</div>
-    <div className="mon-gauge-ring" style={{
-      background: "conic-gradient(#101010 0 " + (bounded * .0075) +
-        "turn, #dedede " + (bounded * .0075) + "turn .75turn, transparent .75turn 1turn)"
-    }}>
-      <div className="mon-gauge-center"><strong>{display}</strong></div>
-    </div>
+    <strong className="mon-truth-value">{display}</strong>
     <small>{foot}</small>
   </article>;
 }
 
 export default function SocGauges({
-  state, capture
-}: { state: LiveState; capture: PacketCaptureSnapshot | null }) {
-  const samples = capture?.samples.slice(-5) ?? [];
-  const packets = samples.reduce((n, s) => n + s.packets, 0);
-  const bytes = samples.reduce((n, s) => n + s.bytes, 0);
-  const count = samples.length || 1;
-  const pps = packets / count;
-  const bps = bytes / count;
-  const incidents = state.incidents.filter(r => r.status !== "CLOSED");
-  const verifiedCapture = capture?.status === "CAPTURING";
-  const alerts = state.findings.length;
+  state, capture, ids
+}: {
+  state: LiveState;
+  capture: PacketCaptureSnapshot | null;
+  ids: IdsObservation;
+}) {
+  const verified = isProtectedCaptureReady(capture);
+  const samples = verified ? (capture?.protected_route_samples ?? []) : [];
+  const lastFive = samples.slice(-5);
+  const pps = lastFive.reduce((sum, item) => sum + item.packets, 0) / 5;
+  const bps = lastFive.reduce((sum, item) => sum + item.bytes, 0) / 5;
+  const icmp = samples.reduce((sum, item) => sum + item.icmp_packets, 0);
+  const idsReady = ids.availability === "AVAILABLE" &&
+    ids.snapshot?.service_state === "active";
+  const currentAlerts = idsReady
+    ? (ids.snapshot?.records ?? []).filter(row =>
+        row.event_type === "alert" &&
+        row.dst_ip === capture?.protected_host_ip &&
+        isRecentObservation(row.timestamp, Date.now(), 120_000)).length
+    : null;
+  const scope = capture?.protected_host_ip || "UNCONFIGURED";
   return <section className="mon-gauges" data-testid="soc-gauges">
     <div className="mon-gauges-header">
-      <div><span>OBSERVABILITY / MEASURED VALUES</span><h2>Security operations telemetry</h2></div>
+      <div>
+        <span>PROTECTED ENDPOINT / SOURCE-VERIFIED MEASUREMENTS</span>
+        <h2>PC-5 security telemetry</h2>
+      </div>
       <a href="http://100.75.116.62:3000/d/mon-network" target="_blank"
         rel="noopener noreferrer">OPEN GRAFANA ↗</a>
     </div>
     <div className="mon-gauge-grid">
-      <Gauge name="PACKET RATE" display={verifiedCapture ? pps.toFixed(1) + "/s" : "—"}
-        percent={verifiedCapture ? Math.min(100, 100 * pps / 100) : null}
-        foot="Observed 5s average · 100 pps reference" />
-      <Gauge name="BANDWIDTH" display={verifiedCapture ? Math.round(bps) + " B/s" : "—"}
-        percent={verifiedCapture ? Math.min(100, 100 * bps / 50000) : null}
-        foot="Observed 5s average · 50 kB/s reference" />
-      <Gauge name="OPEN INCIDENTS" display={String(incidents.length)}
-        percent={Math.min(100, incidents.length * 10)}
-        foot="Recorded MON cases · 10 incident reference" />
-      <Gauge name="DETECTION FINDINGS" display={String(alerts)}
-        percent={Math.min(100, alerts * 10)}
-        foot="MON findings · not Suricata rule count" />
+      <Metric name="PC-5 CAPTURED FRAMES / S"
+        display={verified ? pps.toFixed(1) : "NO DATA"}
+        foot="Actual IP frames · last 5 seconds" />
+      <Metric name="PC-5 CAPTURED IP BYTES / S"
+        display={verified ? bps.toFixed(0) + " B/s" : "NO DATA"}
+        foot="Actual header-based bytes · last 5 seconds" />
+      <Metric name="PC-5 ICMP FRAMES"
+        display={verified ? String(icmp) : "NO DATA"}
+        foot="ICMP / ICMPv6 frames · rolling 90 seconds" />
+      <Metric name="PC-5 IDS RULE MATCHES"
+        display={currentAlerts === null ? "UNVERIFIED" : String(currentAlerts)}
+        foot="Suricata EVE signature records · last 2 minutes" />
     </div>
     <p className="mon-gauges-note">
-      Gauges show measured values and explicitly labeled reference scales, not network utilization
-      against a measured link capacity. Grafana requires its own running service and login.
+      Target: {scope} · Interface: {capture?.protected_capture_interface || "UNVERIFIED"} ·
+      {state.connection === "LIVE" ? " MON API connected" : " MON API not connected"}.
+      Data is withheld when the targeted sensor is missing or stale.
+      Frame observations can include RX/TX duplicates; IDS alerts do not prove IPS blocking.
     </p>
   </section>;
 }
