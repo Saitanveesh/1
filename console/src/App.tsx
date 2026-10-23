@@ -543,7 +543,7 @@ export default function App() {
         )}
         {view === "Overview" && (
           <div className="mon-command-desk" data-testid="mon-single-console">
-            {(!protectedReady || ids.snapshot?.service_state !== "active") && (
+            {(!protectedReady || ids.snapshot?.service_state !== "active" || packetCapture?.protected_route_check !== "MATCHES_CAPTURE_INTERFACE") && (
               <section className="mon-evidence-notice" role="status" data-testid="sensor-coverage-warning">
                 <strong>DETECTION COVERAGE NOT VERIFIED</strong>
                 <span>
@@ -551,6 +551,11 @@ export default function App() {
                     ? "Fresh protected-host observations available."
                     : "PC-5 gateway capture is unconfigured, unavailable or stale. Live traffic values are withheld."}
                   {" "}
+                  {packetCapture?.protected_route_check === "DIFFERENT_INTERFACE"
+                    ? "PC-2's selected route to PC-5 differs from the capture interface; forwarding coverage is not verified. "
+                    : packetCapture?.protected_route_check !== "MATCHES_CAPTURE_INTERFACE"
+                      ? "PC-2 forwarding route has not been verified. "
+                      : ""}
                   {idsState === "SERVICE OFFLINE"
                     ? "Suricata is stopped or failed; live IDS signatures cannot be trusted."
                     : idsState === "SERVICE UNVERIFIED" || idsState === "API UNAVAILABLE"
