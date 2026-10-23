@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { selectProtectedRoute } from "./routeEvidence";
 import type { PacketCaptureSnapshot } from "./types";
 
-const stamp = "2026-10-23T10:00:00.000Z";
+const stamp = new Date().toISOString();
 const snapshot: PacketCaptureSnapshot = {
   source: "linux-af_packet", interface: "any", capture_scope: "any",
   observed_at: stamp, status: "CAPTURING", error: null,
   sample_interval_seconds: 1, capture_window_seconds: 90,
   direction: "inbound and outbound", packet_layer: "IP", samples: [],
   flows: [], protected_host_ip: "10.77.0.50",
-  protected_capture_interface: "wg0",
+  protected_capture_interface: "wg0", protected_route_check:"MATCHES_CAPTURE_INTERFACE",
   events: [
     { timestamp: stamp, interface: "wg0", direction: "inbound", src_ip:"10.77.0.60", dst_ip:"10.77.0.50", protocol:"ICMP", dst_port:null, ip_bytes:84 },
     { timestamp: stamp, interface: "wg0", direction: "outbound", src_ip:"10.77.0.60", dst_ip:"10.77.0.50", protocol:"ICMP", dst_port:null, ip_bytes:84 },
