@@ -18,6 +18,8 @@ export interface MitigationStatus {
   active: boolean;
   expires_in_seconds: number | null;
   enforcement: string;
+  dropped_packets_total?: number | null;
+  dropped_bytes_total?: number | null;
   audit: MitigationAudit[];
   scope: string;
 }
@@ -241,6 +243,11 @@ export default function Stage4ResponsePanel({ alert }: { alert: SecurityThreatAl
           {mitigation.expires_in_seconds == null ? "Kernel timeout enabled" :
             "Approximately " + mitigation.expires_in_seconds + " seconds remaining"}
         </p>}
+        {mitigation?.dropped_packets_total != null && <div className="mon-stage4-kernel-counter">
+          <strong>{mitigation.dropped_packets_total.toLocaleString()}</strong>
+          <span>packets dropped by this dedicated website rule since it was installed,
+          across both allowed test sources combined</span>
+        </div>}
         {eligible ? <>
           {!confirmAction && <>
             <div className="mon-stage4-controls">
