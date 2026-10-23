@@ -1,0 +1,4 @@
+# Copy into a lab-only Suricata ruleset and validate with suricata -T.
+# This is an HTTP rule for the intentionally vulnerable local PC-5 site.
+# Change the destination and port ONLY after confirming PC-5 routing.
+alert http any any -> any 8085 (msg:"MON LAB possible web directory traversal"; flow:to_server,established; http.uri.raw; content:"file="; nocase; content:".."; distance:0; within:64; classtype:web-application-attack; priority:2; sid:42000501; rev:1;)
