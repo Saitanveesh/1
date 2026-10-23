@@ -45,6 +45,11 @@ restore(){
     if [[ -f "$BACKUP/gate-binary" ]]; then sudo cp -a "$BACKUP/gate-binary" "$GATE_BIN" || true
     else sudo rm -f "$GATE_BIN" || true; fi
     sudo systemctl daemon-reload || true
+    if [[ -f "$BACKUP/gate-unit" ]]; then
+      sudo systemctl restart mon-stage4-gate.service || true
+    else
+      sudo systemctl disable --now mon-stage4-gate.service >/dev/null 2>&1 || true
+    fi
     sudo systemctl restart "$PORTAL_SERVICE" || true
     sudo systemctl restart "$FRONTEND_SERVICE" || true
     log "Restore point retained at $BACKUP"
@@ -154,7 +159,8 @@ RestrictSUIDSGID=yes
 WantedBy=multi-user.target
 EOF
 sudo systemctl daemon-reload
-sudo systemctl enable --now mon-stage4-gate.service
+sudo systemctl enable mon-stage4-gate.service
+sudo systemctl restart mon-stage4-gate.service
 
 # Check actual helper socket before deploying a UI that exposes its controls.
 READY=0
