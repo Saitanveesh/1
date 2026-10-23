@@ -50,17 +50,20 @@ describe("live IDS investigation actions", () => {
       acknowledgedAt={null} acknowledging={false} error={null}
       onAcknowledge={ack} onClose={back} />);
     const panel = screen.getByTestId("alert-evidence-investigation");
+    expect(within(panel).getByText(/What happened\?/)).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("tab", {name:"Captured evidence"}));
     expect(within(panel).getByText(idsRow.signature, {selector:"dd"})).toBeTruthy();
     expect(within(panel).getByText("128")).toBeTruthy();
     fireEvent.click(within(panel).getByRole("button", {name:"ACKNOWLEDGE DETECTION"}));
     expect(ack).toHaveBeenCalledTimes(1);
-    fireEvent.click(within(panel).getByRole("button", {name:"RETURN TO OVERVIEW ↗"}));
+    fireEvent.click(within(panel).getByRole("button", {name:"BACK TO ALERTS"}));
     expect(back).toHaveBeenCalledTimes(1);
   });
   it("does not conjure corroboration for missing capture", () => {
     render(<AlertInvestigation alert={alert} snapshot={snapshot} capture={null}
       acknowledgedAt={stamp} acknowledging={false} error={null}
       onAcknowledge={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", {name:"Captured evidence"}));
     expect(screen.getByText(/No matching independent packet headers/)).toBeTruthy();
     expect(screen.getByRole("button", {name:"ACKNOWLEDGED"}).hasAttribute("disabled")).toBe(true);
   });
