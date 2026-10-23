@@ -24,3 +24,9 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - run: npm test -- --run
+
+  guarded-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n tools/mon-final-console-pc2.sh
