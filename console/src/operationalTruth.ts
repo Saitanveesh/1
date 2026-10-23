@@ -24,12 +24,27 @@ export function isProtectedCaptureReady(
   capture: PacketCaptureSnapshot | null,
   now = Date.now()
 ): boolean {
-  return Boolean(
-    capture?.status === "CAPTURING" &&
-    capture.protected_host_ip &&
-    capture.protected_capture_interface &&
-    capture.protected_route_samples?.length &&
-    isRecentObservation(capture.observed_at, now, 12_000)
+  if (capture?.status !== "CAPTURING" ||
+      !capture.protected_host_ip ||
+      !capture.protected_capture_interface ||
+      capture.protected_route_check !== "MATCHES_CAPTURE_INTERFACE" ||
+      !isRecentObservation(capture.observed_at, now, 12_000)) return false;
+  // These are actual one-second counters produced by AF_PACKET on the target
+  // capture interface; a web connection and old array are not packet evidence.
+  const samples = capture.protected_route_samples;
+  if (!samples?.length || capture.sample_interval_seconds !== 1) return false;
+  const last = samples[samples.length - 1];
+  const observedSecond = Math.floor(Date.parse(capture.observed_at) / 1000);
+  if (!Number.isFinite(observedSecond) ||
+      !Number.isInteger(last.second) ||
+      Math.abs(observedSecond - last.second) > 2) return false;
+  // Do not turn malformed/missing observations into believable traffic.
+  return samples.every((row, index) =>
+    Number.isInteger(row.second) &&
+    Number.isSafeInteger(row.packets) && row.packets >= 0 &&
+    Number.isSafeInteger(row.bytes) && row.bytes >= 0 &&
+    Number.isSafeInteger(row.icmp_packets) && row.icmp_packets >= 0 &&
+    (index === 0 || row.second === samples[index - 1].second + 1)
   );
 }
 
