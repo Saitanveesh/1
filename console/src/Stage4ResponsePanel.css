@@ -60,3 +60,9 @@
 .mon-stage4-kernel-counter{margin:10px 0 16px;padding:12px 13px;border:1px solid #d9e6ef;background:#f5f9fc;border-radius:8px;display:flex;gap:10px;align-items:center}
 .mon-stage4-kernel-counter strong{color:#234d6a;font-size:21px;font-weight:760}
 .mon-stage4-kernel-counter span{color:#637c8c;font-size:11px;line-height:1.45}
+
+.mon-stage4-head-actions{display:flex;flex-wrap:wrap;gap:8px}
+.mon-stage4-head-actions button{border:1px solid #cddbe8;background:#fff;color:#365e7f;border-radius:7px;font-size:12px;font-weight:680;cursor:pointer;padding:10px 13px}
+.mon-stage4-head-actions button:hover{background:#f0f5fa}
+.mon-stage4-head-actions button:disabled{cursor:default;opacity:.55}
+.mon-stage4-copy-state{font-size:12px;color:#376781;margin:12px 0}
