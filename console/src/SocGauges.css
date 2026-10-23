@@ -31,3 +31,40 @@
 .mon-command-desk .mon-gauges-note{padding:6px 14px;font-size:9px}
 @media(max-width:900px){.mon-command-desk .mon-gauge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:530px){.mon-command-desk .mon-gauges{margin:9px}.mon-command-desk .mon-gauge-ring{width:56px}.mon-command-desk .mon-gauge small{font-size:8px}}
+
+/* Batch 1 evidence-only cards: no arbitrary progress-ring reference scale. */
+.mon-truth-metric {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 10px;
+  padding: 15px 16px;
+  border-right: 1px solid #dedede;
+  background: #fff;
+}
+.mon-truth-metric:last-child { border-right: 0; }
+.mon-truth-metric .mon-gauge-name {
+  text-align: left;
+  font: 700 9px ui-monospace,monospace;
+}
+.mon-truth-value {
+  align-self: center;
+  font: 700 clamp(15px, 1.8vw, 23px) ui-monospace,monospace;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+  color: #171717;
+}
+.mon-truth-metric small {
+  color: #606060;
+  font: 10px/1.4 ui-monospace,monospace;
+}
+.mon-command-desk .mon-truth-metric {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr auto;
+  padding: 12px 14px;
+}
+.mon-command-desk .mon-truth-metric small { font-size: 9px; }
+@media(max-width: 900px) {
+  .mon-truth-metric:nth-child(even) { border-right: 0; }
+}
