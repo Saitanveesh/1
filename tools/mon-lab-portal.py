@@ -55,33 +55,81 @@ WINDOW = 90
 METRICS_TOKEN = os.environ.get("MON_METRICS_TOKEN", "")
 
 
+def parse_selected_route_interface(route_text: str) -> str | None:
+    """Extract actual kernel-selected device from iproute2 plain-text output.
+
+    The service's minimal systemd PATH may omit /usr/sbin, and JSON support
+    differs between installed iproute2 versions. The plain text route is
+    stable: e.g. '10.77.0.50 dev wg0 src 10.77.0.1 uid 1000'.
+    """
+    words = route_text.strip().split()
+    for index, word in enumerate(words[:-1]):
+        if word == "dev":
+            candidate = words[index + 1]
+            if candidate and candidate not in ("via", "src"):
+                return candidate
+    return None
+
+
 def inspect_protected_route() -> dict:
-    """Read only the host's selected route. This is not proof of PC6 forwarding."""
+    """Observe the host's route without treating it as forwarded packet proof.
+
+    Return a reason if the service is unable to inspect the route; do not
+    pretend that a missing subprocess result means a routing mismatch.
+    """
     if not PROTECTED_HOST_IP:
-        return {"protected_route_interface": None, "protected_route_check": "UNCONFIGURED"}
+        return {
+            "protected_route_interface": None,
+            "protected_route_check": "UNCONFIGURED",
+            "protected_route_reason": "protected host address not configured",
+        }
     binary = shutil.which("ip")
-    if binary is None:
-        return {"protected_route_interface": None, "protected_route_check": "UNVERIFIED"}
+    if not binary:
+        binary = next(
+            (candidate for candidate in (
+                "/usr/sbin/ip", "/usr/bin/ip", "/sbin/ip", "/bin/ip"
+            ) if os.path.isfile(candidate) and os.access(candidate, os.X_OK)),
+            None,
+        )
+    if not binary:
+        return {
+            "protected_route_interface": None,
+            "protected_route_check": "UNVERIFIED",
+            "protected_route_reason": "iproute2 executable unavailable to portal service",
+        }
     try:
         result = subprocess.run(
-            [binary, "-j", "-4", "route", "get", PROTECTED_HOST_IP],
-            capture_output=True, text=True, timeout=2, check=False,
+            [binary, "-4", "route", "get", PROTECTED_HOST_IP],
+            capture_output=True, text=True, timeout=3, check=False,
         )
-        if result.returncode != 0:
-            return {"protected_route_interface": None, "protected_route_check": "UNVERIFIED"}
-        output = json.loads(result.stdout)
-        route = output[0] if isinstance(output, list) and output else {}
-        interface = route.get("dev")
+        if result.returncode:
+            return {
+                "protected_route_interface": None,
+                "protected_route_check": "UNVERIFIED",
+                "protected_route_reason": "kernel route query failed (exit " + str(result.returncode) + ")",
+            }
+        interface = parse_selected_route_interface(result.stdout)
+        if not interface:
+            return {
+                "protected_route_interface": None,
+                "protected_route_check": "UNVERIFIED",
+                "protected_route_reason": "kernel route response has no device",
+            }
         return {
             "protected_route_interface": interface,
             "protected_route_check": (
-                "MATCHES_CAPTURE_INTERFACE" if interface == PROTECTED_CAPTURE_INTERFACE
-                else "DIFFERENT_INTERFACE" if interface else "UNVERIFIED"
+                "MATCHES_CAPTURE_INTERFACE"
+                if interface == PROTECTED_CAPTURE_INTERFACE
+                else "DIFFERENT_INTERFACE"
             ),
+            "protected_route_reason": None,
         }
-    except (OSError, ValueError, subprocess.TimeoutExpired, IndexError, TypeError):
-        return {"protected_route_interface": None, "protected_route_check": "UNVERIFIED"}
-
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return {
+            "protected_route_interface": None,
+            "protected_route_check": "UNVERIFIED",
+            "protected_route_reason": "route lookup error: " + type(exc).__name__,
+        }
 
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
     salt = salt or secrets.token_bytes(16)
