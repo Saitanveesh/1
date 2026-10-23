@@ -17,8 +17,10 @@ LOG_PATH = Path(
         "/home/pc-2/mon-three/suricata/eve.json",
     )
 )
-MAX_BYTES = 524288
-MAX_RECORDS = 40
+MAX_BYTES = 2097152
+MAX_RECORDS = 60
+MAX_ALERTS = 30
+MAX_OTHER = MAX_RECORDS - MAX_ALERTS
 EVENT_TYPES = {"alert", "flow", "dns", "tls", "http"}
 
 
@@ -62,11 +64,13 @@ def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
     except (OSError, PermissionError):
         return payload
 
-    rows = data.splitlines()[-500:]
+    rows = data.splitlines()[-3000:]
     latest_ts: str | None = None
     last_created = st.st_mtime
+    recent_alerts: list[dict[str, Any]] = []
+    other_records: list[dict[str, Any]] = []
     for raw in reversed(rows):
-        if len(payload["records"]) >= MAX_RECORDS:
+        if len(recent_alerts) >= MAX_ALERTS and len(other_records) >= MAX_OTHER:
             break
         if len(raw) > 20000:
             continue
@@ -112,9 +116,17 @@ def read_suricata_eve(path: Path = LOG_PATH) -> dict[str, Any]:
                 item["bytes_toserver"] = flow.get("bytes_toserver")
                 item["bytes_toclient"] = flow.get("bytes_toclient")
                 item["flow_state"] = small(flow.get("state"), 30)
-        payload["records"].append(item)
-        if kind == "alert":
-            payload["alerts"] += 1
+        # Reserve a bounded, separate window for signature alerts. Otherwise
+        # ordinary flow telemetry crowds out high-value detections.
+        if kind == "alert" and len(recent_alerts) < MAX_ALERTS:
+            recent_alerts.append(item)
+        elif kind != "alert" and len(other_records) < MAX_OTHER:
+            other_records.append(item)
+    payload["records"] = sorted(
+        recent_alerts + other_records,
+        key=lambda item: item["timestamp"], reverse=True,
+    )
+    payload["alerts"] = len(recent_alerts)
     payload["observed_events"] = len(payload["records"])
     payload["last_seen"] = latest_ts
     if payload["records"] and time.time() - last_created <= 300:
