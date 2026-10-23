@@ -220,12 +220,15 @@ export function ProtectedRouteStrip({ capture }: { capture: PacketCaptureSnapsho
       <div><small>IP FRAMES · 90S</small><strong>{fresh ? route.observedFrames : "NO DATA"}</strong></div>
       <div><small>ICMP FRAMES · 90S</small><strong>{fresh ? route.icmpFrames : "NO DATA"}</strong></div>
       <div><small>CAPTURE PATH</small><strong>{route.captureInterface}</strong></div>
+      <div><small>PC-2 SELECTED ROUTE</small><strong>{capture?.protected_route_interface ?? "UNVERIFIED"}</strong></div>
       <p>
         {route.configured
           ? fresh
             ? "Only observed packets involving PC-5 on the selected tunnel. IP frame counts are not unique end-to-end packets."
             : "PC-5 is configured but the scoped sensor has not delivered a current measurement. Counters are withheld."
           : "Set MON_PROTECTED_HOST_IP on the PC-2 portal service to enable evidence-based route monitoring."}
+        {" Route check: " + (capture?.protected_route_check ?? "UNVERIFIED") +
+          ". A matching route is not proof of end-to-end forwarded PC-6 traffic."}
       </p>
     </section>
   );
