@@ -62,10 +62,14 @@ export function trailingPacketRate(samples: number[], seconds = 5): number[] {
   });
 }
 
-export function PacketHistory({ capture, compact = false }: { capture: PacketCaptureSnapshot | null; compact?: boolean }) {
+export function PacketHistory({ capture, compact = false, protectedOnly = false }: {
+  capture: PacketCaptureSnapshot | null;
+  compact?: boolean;
+  protectedOnly?: boolean;
+}) {
   const [display, setDisplay] = useState<"average" | "raw">("average");
+  const samples = protectedOnly ? (capture?.protected_route_samples ?? []) : (capture?.samples ?? []);
   const { raw, smoothed, ceiling, total } = useMemo(() => {
-    const samples = capture?.samples ?? [];
     const bySecond = new Map(samples.map(row => [row.second, row.packets]));
     const end = samples.at(-1)?.second ?? 0;
     const raw = Array.from({ length: COUNT }, (_, index) =>
@@ -78,9 +82,11 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
       ceiling: Math.max(1, ...raw, ...smoothed),
       total: raw.reduce((sum, current) => sum + current, 0)
     };
-  }, [capture]);
-  const capturing = capture?.status === "CAPTURING";
-  const lastFive = capture?.samples.slice(-5) ?? [];
+  }, [samples]);
+  const capturing = capture?.status === "CAPTURING" &&
+    (!protectedOnly || (Boolean(capture.protected_host_ip) &&
+      Array.isArray(capture.protected_route_samples)));
+  const lastFive = samples.slice(-5);
   const recentPackets = lastFive.reduce((sum, row) => sum + row.packets, 0);
   const recentBytes = lastFive.reduce((sum, row) => sum + row.bytes, 0);
   const pps = recentPackets / Math.max(1, lastFive.length);
@@ -90,27 +96,34 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
   const interfaces = Object.entries(capture?.observed_interfaces ?? {})
     .sort((a, b) => b[1] - a[1]).map(([name]) => name);
   const scope = capture?.capture_scope ?? "wg0";
+  const protectedRoute = selectProtectedRoute(capture);
   const events = capture?.events ?? [];
-  const lastPacket = capture?.last_packet_at
-    ? new Date(capture.last_packet_at * 1000).toLocaleTimeString()
-    : "none recorded";
+  const lastPacket = protectedOnly
+    ? protectedRoute.lastSeen ? new Date(protectedRoute.lastSeen).toLocaleTimeString() : "none recorded"
+    : capture?.last_packet_at
+      ? new Date(capture.last_packet_at * 1000).toLocaleTimeString()
+      : "none recorded";
   return (
     <section className={"mon-panel mon-traffic-panel" + (compact ? " mon-traffic-compact" : "")} data-testid="live-packet-history">
       <div className="mon-panel-heading">
         <div>
           <span className="mon-eyebrow">NETWORK / MEASURED IP HEADERS</span>
-          <h2>Live network traffic</h2>
-          <p>Scope: {scope === "any" ? "ALL PC2 host interfaces (background included)" : scope} · one-second measurements · 90-second window</p>
+          <h2>{protectedOnly ? "Live PC-5 gateway traffic" : "Live network traffic"}</h2>
+          <p>{protectedOnly
+            ? "Filtered: " + (capture?.protected_host_ip || "PC-5 address not configured") +
+              " on " + protectedRoute.captureInterface + " · observed IP frames per second"
+            : "Scope: " + (scope === "any" ? "ALL PC2 host interfaces (background included)" : scope) +
+              " · one-second measurements · 90-second window"}</p>
         </div>
         <span className={"mon-tag " + (capturing ? "mon-tag-active" : "")}>
           <span className="mon-dot" />{capture?.status ?? "CONNECTING"}
         </span>
       </div>
       <div className="mon-flow-metrics">
-        <div><span>PACKETS / LAST 5S</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
+        <div><span>{protectedOnly ? "IP FRAMES / LAST 5S" : "PACKETS / LAST 5S"}</span><strong>{capturing ? human(recentPackets) : "—"}</strong></div>
         <div><span>MEASURED PACKETS / S (5S AVG)</span><strong>{capturing ? pps.toFixed(2) : "—"}</strong></div>
         <div><span>BYTES / LAST 5S</span><strong>{capturing ? human(recentBytes) : "—"}</strong></div>
-        <div><span>90-SECOND PACKETS</span><strong>{capturing ? human(total) : "—"}</strong></div>
+        <div><span>{protectedOnly ? "90-SECOND IP FRAMES" : "90-SECOND PACKETS"}</span><strong>{capturing ? human(total) : "—"}</strong></div>
       </div>
       <div className="mon-chart-control">
         <span>{display === "average" ? "BLACK: 5-second trailing average · GRAY: raw 1-second counts" : "BLACK: raw captured packets per second"}</span>
@@ -141,11 +154,19 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
             {index === 89 ? "NOW" : "-" + (89 - index) + "s"}
           </text>)}
           {!capturing && <text x={WIDTH / 2} y="125" textAnchor="middle"
-            className="mon-chart-empty">{capture?.error ?? "NO MEASURED PACKETS"}</text>}
+            className="mon-chart-empty">{protectedOnly && !capture?.protected_host_ip
+              ? "PC-5 ADDRESS NOT CONFIGURED"
+              : protectedOnly && !capture?.protected_route_samples
+                ? "TARGET-SCOPED SENSOR COUNTERS UNAVAILABLE"
+                : capture?.error ?? "NO MEASURED PACKETS"}</text>}
         </svg>
       </div>
       <div className="mon-chart-footer">
-        <span>RAW FRAMES {capture?.raw_frames ?? "—"} · DECODED IP {capture?.decoded_packets ?? "—"} · LAST PACKET {lastPacket}</span>
+        <span>{protectedOnly
+          ? "PC-5 MATCHING FRAMES " + protectedRoute.observedFrames + " · ICMP " +
+            protectedRoute.icmpFrames + " · LAST MATCH " + lastPacket
+          : "RAW FRAMES " + (capture?.raw_frames ?? "—") + " · DECODED IP " +
+            (capture?.decoded_packets ?? "—") + " · LAST PACKET " + lastPacket}</span>
         <span>Observed interfaces: {interfaces.join(", ") || scope}</span>
       </div>
       {!compact && <div className="mon-flow-section" data-testid="real-network-event-log">
@@ -175,8 +196,10 @@ export function PacketHistory({ capture, compact = false }: { capture: PacketCap
           </table>
         </div>
       </div>}
-      {compact && <p className="mon-compact-network-hint">PC2 aggregate traffic includes unrelated hosts. Protected PC5 traffic is reported separately below.</p>}
-      <p className="mon-packet-caveat">5S RATE is a calculated average of measured one-second samples, never a packet generator. PC2 cannot observe traffic that bypasses PC2. Forwarded packets seen on multiple interfaces may appear more than once.</p>
+      {compact && <p className="mon-compact-network-hint">{protectedOnly
+        ? "Only packets matching the configured protected IP on the selected tunnel are charted. ICMP/ping is included; no synthetic traffic."
+        : "PC2 aggregate traffic includes unrelated hosts. Protected PC5 traffic is reported separately below."}</p>}
+      <p className="mon-packet-caveat">5S RATE averages measured one-second frames, not generated traffic. PC-2 cannot inspect traffic that bypasses its interfaces; forwarded packets can appear on both RX and TX. An IP frame is not a verified end-to-end packet.</p>
     </section>
   );
 }
