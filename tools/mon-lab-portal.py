@@ -28,6 +28,16 @@ from urllib.parse import urlsplit
 
 LISTEN = ("127.0.0.1", 8088)
 INTERFACE = os.environ.get("MON_PORTAL_INTERFACE", "wg0")
+# The protected endpoint is explicit rather than a presumed lab victim.
+# Missing configuration is reported as UNCONFIGURED, never as observed traffic.
+PROTECTED_HOST_IP = os.environ.get("MON_PROTECTED_HOST_IP", "").strip()
+PROTECTED_CAPTURE_INTERFACE = os.environ.get(
+    "MON_PROTECTED_CAPTURE_INTERFACE", "wg0"
+).strip()
+if PROTECTED_HOST_IP:
+    PROTECTED_HOST_IP = str(ipaddress.ip_address(PROTECTED_HOST_IP))
+if not PROTECTED_CAPTURE_INTERFACE or PROTECTED_CAPTURE_INTERFACE == "any":
+    raise ValueError("MON_PROTECTED_CAPTURE_INTERFACE must name a real interface")
 ORIGIN = os.environ.get("MON_PORTAL_ORIGIN", "http://100.75.116.62:5173")
 USERNAME = os.environ.get("MON_PORTAL_USERNAME", "sai")
 VERIFIER = os.environ.get("MON_PORTAL_PASSWORD_HASH", "")
@@ -198,7 +208,11 @@ class FlowCapture:
                                 "ip_bytes": length,
                             }
                             self.recent_events.append(event)
-                            if {src, dst} == {"10.77.0.60", "10.77.0.50"}:
+                            if (
+                                PROTECTED_HOST_IP
+                                and observed_interface == PROTECTED_CAPTURE_INTERFACE
+                                and (src == PROTECTED_HOST_IP or dst == PROTECTED_HOST_IP)
+                            ):
                                 self.recent_lab_route.append((time.time(), event))
         except Exception as exc:
             self.state = "UNAVAILABLE"
@@ -256,6 +270,12 @@ class FlowCapture:
             "last_packet_at": last_packet,
             "capture_scope": INTERFACE,
             "observed_interfaces": interfaces,
+            "protected_host_ip": PROTECTED_HOST_IP or None,
+            "protected_capture_interface": PROTECTED_CAPTURE_INTERFACE,
+            "protected_route_status": (
+                "UNCONFIGURED" if not PROTECTED_HOST_IP
+                else "OBSERVED" if route_events else "NO_MATCHING_TRAFFIC"
+            ),
             "events": events,
             "lab_route_events": route_events,
             "packet_layer": "IP headers only; no application payload captured",
