@@ -52,6 +52,23 @@ sudo systemctl is-active --quiet "$SERVICE" || fail "Existing MON console servic
 curl -fsS --max-time 6 http://127.0.0.1:5174/ >/dev/null ||
   fail "Existing MON console health check failed; refusing upgrade."
 say "Existing operator console is active and reachable."
+# The alert UI requires a working authenticated review endpoint. Fail before
+# changing the frontend if the existing backend has not been upgraded yet.
+ROOT_DIR="$ROOT" python3 - <<'PY'
+import json,os,pathlib,urllib.request
+root=pathlib.Path(os.environ["ROOT_DIR"])
+token=(root/"identity/operator.jwt").read_text().strip()
+request=urllib.request.Request(
+    "http://127.0.0.1:8088/portal/alerts/acknowledged",
+    headers={"Cookie":"mon_session="+token})
+try:
+    with urllib.request.urlopen(request,timeout=5) as response:
+        data=json.load(response)
+    assert isinstance(data.get("records"),list)
+except Exception:
+    raise SystemExit("Review endpoint missing. First run tools/mon-final-review-backend-pc2.sh --check and --apply.")
+PY
+say "Authenticated alert-review API confirmed."
 say "This script does not change WireGuard, Suricata, any other MON service, or stored cases."
 
 git -C "$CODE" fetch --no-tags "$REPOSITORY" "refs/heads/$BRANCH" ||
