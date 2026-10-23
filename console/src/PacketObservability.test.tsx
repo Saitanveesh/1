@@ -5,9 +5,9 @@ import {
 } from "./PacketObservability";
 import type { PacketCaptureSnapshot } from "./types";
 
-const observedAt = "2026-10-11T00:00:00Z";
+const observedAt = new Date().toISOString();
 const routeEvent = {
-  timestamp: "2026-10-10T23:59:58Z", interface: "wg0",
+  timestamp: new Date(Date.now() - 2000).toISOString(), interface: "wg0",
   direction: "inbound" as const, src_ip: "10.77.0.60",
   dst_ip: "10.77.0.50", protocol: "ICMP", dst_port: null, ip_bytes: 84
 };
@@ -61,7 +61,7 @@ describe("Real packet visualization", () => {
     const unconfigured = { ...capture, protected_host_ip: null };
     render(<ProtectedRouteStrip capture={unconfigured} />);
     expect(screen.getByText("Victim IP not configured")).toBeTruthy();
-    expect(screen.getByText("Unknown Source")).toBeTruthy();
+    expect(screen.getByText("UNVERIFIED")).toBeTruthy();
   });
 
   it("only highlights actual recent PC5 tunnel evidence", () => {
