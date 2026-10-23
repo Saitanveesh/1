@@ -719,7 +719,7 @@ export default function App() {
             }}
           />}
           <NetworkPath capture={packetCapture} />
-          <SuricataPanel />
+          <SuricataPanel protectedIp={targetIp} />
           </>
         )}
 
