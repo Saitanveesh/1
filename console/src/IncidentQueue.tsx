@@ -24,8 +24,8 @@ export default function IncidentQueue({
   return <aside className="mon-case-queue" data-testid="incident-case-queue">
     <header className="mon-case-queue-head">
       <span>CASE QUEUE</span>
-      <h2>Incidents <b>{rows.length}</b></h2>
-      <p>Select a case to inspect its evidence and response history.</p>
+      <h2>Recorded cases <b>{rows.length}</b></h2>
+      <p>Historical records are retained. OPEN means unresolved, not that an attack is occurring now.</p>
     </header>
     <div className="mon-case-queue-list">
       {rows.map(incident =>
