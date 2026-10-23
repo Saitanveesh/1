@@ -1,4 +1,5 @@
 import type { PacketCaptureSnapshot, PacketEvent, PacketFlow } from "./types";
+import { isRecentObservation } from "./operationalTruth";
 
 export interface ProtectedRouteEvidence {
   configured: boolean;
@@ -68,6 +69,8 @@ export function selectProtectedRoute(
     observedFrames, observedBytes, icmpFrames,
     observedBothDirections,
     active: capture?.status === "CAPTURING" &&
+      capture.protected_route_check === "MATCHES_CAPTURE_INTERFACE" &&
+      isRecentObservation(capture.observed_at, Date.now(), 12_000) &&
       (samples.length
         ? samples.slice(-5).some(item => item.packets > 0)
         : events.some(event => now - Date.parse(event.timestamp) <= 5000)),
