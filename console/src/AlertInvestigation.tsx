@@ -69,7 +69,7 @@ export default function AlertInvestigation({
     </div>
     {error && <p role="alert" className="mon-alert-investigation-error">{error}</p>}
     {acknowledgedAt && <p className="mon-alert-investigation-confirmation" role="status">
-      Acknowledged {new Date(acknowledgedAt).toLocaleString()}. This records operator review only; it does not close a MON incident, suppress a sensor or block traffic.
+      Acknowledged {new Date(acknowledgedAt).toLocaleString()}. {isIds ? "Persisted in the protected PC-2 IDS review journal." : "Session-only MON stream review; the central MON incident database was not changed."} This does not close an incident, suppress a sensor or block traffic.
     </p>}
     <div className="mon-alert-investigation-subsections">
       <div>
