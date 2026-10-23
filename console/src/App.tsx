@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SecurityAlert from "./SecurityAlert";
 import type { SecurityThreatAlert } from "./securityAlerts";
+import { useSuricataThreatAlerts } from "./suricataThreats";
 import { ApiError, fetchOperator, fetchSensorFleet, fetchSnapshot } from "./api";
 import IncidentDetail from "./IncidentDetail";
 import IncidentQueue from "./IncidentQueue";
@@ -428,15 +429,22 @@ export default function App() {
     };
   }, [tenantId, siteId]);
 
-  useEffect(() => {
-    const incoming = state.threatAlert;
-    if (authState !== "OK" || state.connection !== "LIVE" || !incoming) return;
+  const enqueueThreat = useCallback((incoming: SecurityThreatAlert) => {
     if (seenAlertKeys.current.has(incoming.key)) return;
     seenAlertKeys.current.add(incoming.key);
     setPendingAlerts(current => current.some(item => item.key === incoming.key)
       ? current
       : [...current, incoming].slice(-10));
-  }, [authState, state.connection, state.threatAlert]);
+  }, []);
+
+  useEffect(() => {
+    const incoming = state.threatAlert;
+    if (authState === "OK" && state.connection === "LIVE" && incoming) {
+      enqueueThreat(incoming);
+    }
+  }, [authState, state.connection, state.threatAlert, enqueueThreat]);
+
+  useSuricataThreatAlerts(authState === "OK", enqueueThreat);
 
   const dismissAlert = () => setPendingAlerts(current => current.slice(1));
 
@@ -449,7 +457,7 @@ export default function App() {
       setSelectedIncident(incident);
       setView("Investigation");
     } else {
-      setView("Incidents");
+      setView(current?.key.startsWith("ids:") ? "Investigation" : "Incidents");
     }
     dismissAlert();
   };
@@ -598,6 +606,7 @@ export default function App() {
               setView("Incidents");
             }}
           />
+          <SuricataPanel />
         )}
 
       </main>
