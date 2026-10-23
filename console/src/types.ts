@@ -314,6 +314,7 @@ export interface SuricataRecord {
 
 export interface SuricataSnapshot {
   source: "suricata-eve";
+  service_state?: "active" | "failed" | "inactive" | "activating" | "deactivating" | "unknown";
   status: "NOT_INSTALLED" | "CONFIGURED_NO_EVE" | "NO_RECENT_EVENTS" | "RECENT_EVE";
   observed_events: number;
   alerts: number;
