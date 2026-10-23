@@ -575,3 +575,23 @@ main { min-width: 0; }
   .mon-protected-strip { grid-template-columns:repeat(2, minmax(0,1fr)); }
   .mon-protected-strip>div { padding: 9px; }
 }
+
+/* Unverified sensor data must be an explicit operator-visible state, not zero. */
+.mon-evidence-notice {
+  margin: 11px 14px 4px;
+  border: 1px solid #bea56d;
+  border-left: 4px solid #aa7925;
+  padding: 9px 12px;
+  background: #fffaf1;
+  color: #392d16;
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font: 11px/1.6 ui-monospace,monospace;
+}
+.mon-evidence-notice strong {
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+.mon-evidence-notice span { flex: 1 1 300px; }
