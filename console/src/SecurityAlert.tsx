@@ -7,9 +7,11 @@ interface Props {
   queued: number;
   onInvestigate: () => void;
   onAcknowledge: () => void;
+  acknowledging?: boolean;
+  acknowledgeError?: string | null;
 }
 
-export default function SecurityAlert({ alert, queued, onInvestigate, onAcknowledge }: Props) {
+export default function SecurityAlert({ alert, queued, onInvestigate, onAcknowledge, acknowledging = false, acknowledgeError = null }: Props) {
   const actionRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     actionRef.current?.focus();
@@ -59,11 +61,12 @@ export default function SecurityAlert({ alert, queued, onInvestigate, onAcknowle
             <span>Observed {new Date(alert.observedAt).toLocaleString()}</span>
             <span>{queued > 1 ? queued - 1 + " more alerts queued" : "Evidence-backed event"}</span>
           </div>
+          {acknowledgeError && <p role="alert" className="mon-alert-investigation-error">Review not saved: {acknowledgeError}</p>}
           <div className="mon-threat-actions">
             <button ref={actionRef} className="mon-threat-investigate"
-              onClick={onInvestigate} type="button">INVESTIGATE</button>
+              onClick={onInvestigate} disabled={acknowledging} type="button">INVESTIGATE</button>
             <button className="mon-threat-acknowledge"
-              onClick={onAcknowledge} type="button">ACKNOWLEDGE</button>
+              onClick={onAcknowledge} disabled={acknowledging} type="button">{acknowledging ? "SAVING REVIEW…" : "ACKNOWLEDGE"}</button>
           </div>
         </div>
       </section>
