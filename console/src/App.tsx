@@ -543,6 +543,24 @@ export default function App() {
         )}
         {view === "Overview" && (
           <div className="mon-command-desk" data-testid="mon-single-console">
+            {(!protectedReady || ids.snapshot?.service_state !== "active") && (
+              <section className="mon-evidence-notice" role="status" data-testid="sensor-coverage-warning">
+                <strong>DETECTION COVERAGE NOT VERIFIED</strong>
+                <span>
+                  {protectedReady
+                    ? "Fresh protected-host observations available."
+                    : "PC-5 gateway capture is unconfigured, unavailable or stale. Live traffic values are withheld."}
+                  {" "}
+                  {idsState === "SERVICE OFFLINE"
+                    ? "Suricata is stopped or failed; live IDS signatures cannot be trusted."
+                    : idsState === "SERVICE UNVERIFIED" || idsState === "API UNAVAILABLE"
+                      ? "Suricata health is not verified."
+                      : idsState === "CHECKING"
+                        ? "Checking Suricata service..."
+                        : "Suricata EVE status: " + idsState + "."}
+                </span>
+              </section>
+            )}
             <section className="mon-overview-strip" data-testid="overview-status-strip">
               <div><small>MON API CONNECTION</small><strong>{state.connection}</strong></div>
               <div><small>PROTECTED IP</small><strong>{targetIp ?? "UNCONFIGURED"}</strong></div>
