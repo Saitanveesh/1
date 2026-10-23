@@ -94,6 +94,9 @@ export default function AlertCenter({
     <div className="mon-alerts-list" aria-live="polite">
       {filtered.map(alert => {
         const ack = acknowledged[alert.key];
+        const age = Date.now() - Date.parse(alert.observedAt);
+        const mayReview = !alert.key.startsWith("ids:") ||
+          (sensorReady && age >= 0 && age <= 900_000);
         return <article className="mon-alert-row" key={alert.key}>
           <div className="mon-alert-row-main">
             <span className={"severity " + alert.severity.toLowerCase()}>{alert.severity}</span>
@@ -111,9 +114,13 @@ export default function AlertCenter({
               onClick={() => onOpen(alert)} aria-label={"Investigate " + alert.title}>
               Investigate <span aria-hidden="true">→</span>
             </button>
-            {!ack && <button type="button" className="mon-alert-review"
-              onClick={() => onAcknowledge(alert)}
-              aria-label={"Acknowledge " + alert.title}>Acknowledge</button>}
+            {!ack && (mayReview
+              ? <button type="button" className="mon-alert-review"
+                  onClick={() => onAcknowledge(alert)}
+                  aria-label={"Acknowledge " + alert.title}>Acknowledge</button>
+              : <span className="mon-alert-row-unavailable">
+                  {sensorReady ? "Review window ended" : "Review unavailable while sensor is offline"}
+                </span>)}
           </div>
         </article>;
       })}
