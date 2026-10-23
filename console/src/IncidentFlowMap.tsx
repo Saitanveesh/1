@@ -52,7 +52,7 @@ function TrafficTrace({ capture }: { capture: PacketCaptureSnapshot | null }) {
   const rate = latest.length ? (latest.reduce((sum, value) => sum + value, 0) / latest.length).toFixed(1) : "—";
   return <section className="mon-flow-signal" data-testid="mon-normal-traffic">
     <div className="mon-flow-signal-heading">
-      <div><small>PC2 NETWORK SENSOR · CONTINUOUS</small><h4>Measured traffic</h4></div>
+      <div><small>Live network monitor</small><h4>Measured traffic</h4></div>
       <span className={capture?.status === "CAPTURING" ? "mon-flow-online" : "mon-flow-offline"}>
         {capture?.status ?? "CONNECTING"}
       </span>
@@ -65,13 +65,12 @@ function TrafficTrace({ capture }: { capture: PacketCaptureSnapshot | null }) {
           vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
       </svg> :
       <div className="mon-flow-no-signal">{capture?.error ??
-        "Waiting for the PC2 packet sensor. No samples will be invented."}</div>}
+        "Waiting for the packet sensor. No traffic will be estimated."}</div>}
     <div className="mon-flow-signal-footer">
       <span>{rate} packets/s (latest available samples)</span>
       <span>{capture?.capture_scope ?? capture?.interface ?? "No capture interface"}</span>
     </div>
-    <p>Traffic continues to be measured when no attack is active. This graph shows PC2-visible traffic,
-      not a historical recording of this case or a full-network tap.</p>
+    <p>These are current network measurements, not a recording of this case.</p>
   </section>;
 }
 
@@ -94,9 +93,9 @@ export default function IncidentFlowMap({ model, capture }: Props) {
   return <article className="mon-flow-workspace" data-testid="incident-3d-scene">
     <header className="mon-flow-head">
       <div>
-        <small>CASE NETWORK VIEW / {model.kind.toUpperCase()}</small>
+        <small>Case network view</small>
         <h3>{model.label}</h3>
-        <p>Follow the source, affected device, evidence, and response without confusing them for network hops.</p>
+        <p>Explore the source, affected device and recorded evidence.</p>
       </div>
       <div className="mon3d-switch" aria-label="Network diagram perspective">
         <button type="button" aria-pressed={view === "3d"} onClick={() => setView("3d")}>3D</button>
@@ -112,7 +111,7 @@ export default function IncidentFlowMap({ model, capture }: Props) {
     <div className="mon-flow-grid">
       <section className="mon-flow-network">
         <div className="mon-flow-network-title">
-          <div><small>01 / NETWORK RELATIONSHIP</small><h4>Source to affected device</h4></div>
+          <div><small>Network relationship</small><h4>Source to affected device</h4></div>
           <span>{packets.length ? "RECENT IP HEADERS OBSERVED" : "CASE RELATIONSHIP ONLY"}</span>
         </div>
         <div className={"mon-flow-diagram" + (view === "3d" ? " is-depth" : "")}
@@ -121,7 +120,7 @@ export default function IncidentFlowMap({ model, capture }: Props) {
             data-testid="mon3d-node-source"
             onClick={() => setFocus("source:" + model.source)}
             title="Recorded finding source. Does not establish a physical ingress path.">
-            <small>ORIGIN / SOURCE IP</small>
+            <small>Source address</small>
             <strong>{model.source ?? "Source not identified"}</strong>
             <span>{model.source ? "Found in case evidence" : "Not provided by the investigation"}</span>
           </button>
@@ -143,7 +142,7 @@ export default function IncidentFlowMap({ model, capture }: Props) {
               return <button type="button" className="mon-flow-node mon-flow-target"
                 data-testid="mon3d-node-asset" key={node.id}
                 onClick={() => setFocus(node.id)}>
-                <small>PROTECTED ASSET</small>
+                <small>Affected device</small>
                 <strong>{node.label}</strong>
                 <span>{node.detail}</span>
                 <em>{targetPackets.length ? targetPackets.length + " matching headers" :
@@ -151,7 +150,7 @@ export default function IncidentFlowMap({ model, capture }: Props) {
               </button>;
             })}
             {!assets.length && <div className="mon-flow-node mon-flow-target">
-              <small>PROTECTED ASSET</small><strong>Not resolved</strong>
+              <small>Affected device</small><strong>Not resolved</strong>
               <span>No device mapped to this case</span>
             </div>}
           </div>
@@ -167,7 +166,7 @@ export default function IncidentFlowMap({ model, capture }: Props) {
       </section>
       <aside className="mon-flow-case">
         <section className="mon-flow-case-card">
-          <small>02 / WHY MON FLAGGED THIS CASE</small>
+          <small>Why this case was flagged</small>
           <h4>Evidence and detection</h4>
           <p>These are case records, not devices in the traffic path. Select an entry to inspect it.</p>
           {evidence.map(node => <button type="button" key={node.id}
@@ -178,7 +177,7 @@ export default function IncidentFlowMap({ model, capture }: Props) {
           {!evidence.length && <p>No evidence records supplied.</p>}
         </section>
         <section className="mon-flow-case-card">
-          <small>03 / WHAT HAPPENED NEXT</small>
+          <small>What happened next</small>
           <h4>Detection and response</h4>
           <p>{model.timeline.filter(moment => moment.kind === "FINDING").length} findings in the recorded case sequence.</p>
           {responses.map(node => <button type="button" key={node.id}
@@ -189,24 +188,23 @@ export default function IncidentFlowMap({ model, capture }: Props) {
           {!responses.length && <p>No response recorded.</p>}
         </section>
         <section className="mon-flow-inspector" data-testid="scene-inspector">
-          <small>SELECTED RECORD</small>
+          <small>Selected details</small>
           <h4>{selected?.label ?? "Inspect a device or record"}</h4>
           <p>{selected?.detail ?? "Select a source, device, evidence record, or response above."}</p>
           <div><span>Last matched IP header</span>
             <strong>{last ? new Date(last).toLocaleString() : "None retained"}</strong></div>
         </section>
         <section className="mon-flow-grafana">
-          <small>04 / MEASURED TRAFFIC CONTEXT</small>
+          <small>Traffic graphs</small>
           <h4>Review in Grafana</h4>
           <p>Opens the case's recorded time window. Grafana graphs PC2 aggregate traffic,
             so spikes are not automatically attributable to this incident.</p>
-          <a href={grafana} target="_blank" rel="noopener noreferrer">OPEN CASE WINDOW IN GRAFANA ↗</a>
+          <a href={grafana} target="_blank" rel="noopener noreferrer">Open graph →</a>
         </section>
       </aside>
     </div>
     <footer className="mon-flow-footer">
-      Each selected incident builds its own view from its investigation record. This is a read-only diagram;
-      containment actions remain in the incident Response tab.
+      The connections shown here come from recorded evidence. Review response actions in the case details.
     </footer>
   </article>;
 }
