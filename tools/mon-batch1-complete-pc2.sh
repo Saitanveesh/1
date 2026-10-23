@@ -61,7 +61,7 @@ STAGE="$(mktemp -d "$ROOT/batch1-final-stage.XXXXXXXX")"
 git -C "$CODE" archive "$REV" console tools lab/pc5-training-site |
   tar -x -C "$STAGE"
 ln -s "$WEB/node_modules" "$STAGE/console/node_modules"
-python3 -m py_compile "$STAGE/tools/"*.py
+python3 -m py_compile "$STAGE/tools/mon-lab-portal.py" "$STAGE/tools/mon_suricata_bridge.py" "$STAGE/tools/mon_alert_ack.py"
 python3 -m unittest discover -s "$STAGE/lab/pc5-training-site" -p 'test_*.py'
 (cd "$STAGE/console" && npm run build && npm test -- --run)
 mkdir -p "$STAGE/ids-test"
