@@ -129,8 +129,15 @@ class FlowCapture:
         # No payload storage or historical event fabrication.
         self.recent_events: collections.deque[dict] = collections.deque(maxlen=250)
         self.recent_lab_route: collections.deque[tuple[float, dict]] = (
-            collections.deque(maxlen=180)
+            collections.deque(maxlen=4096)
         )
+        # Keep ICMP independently so ping evidence survives high-rate web flows.
+        self.recent_icmp_route: collections.deque[tuple[float, dict]] = (
+            collections.deque(maxlen=512)
+        )
+        self.protected_second_packets: collections.Counter[int] = collections.Counter()
+        self.protected_second_bytes: collections.Counter[int] = collections.Counter()
+        self.protected_second_icmp: collections.Counter[int] = collections.Counter()
         self.interface_packets: collections.Counter[str] = collections.Counter()
         self.current_start = int(time.time())
         self.error: str | None = None
@@ -206,6 +213,7 @@ class FlowCapture:
                                 "protocol": proto,
                                 "dst_port": port,
                                 "ip_bytes": length,
+                                "frame_id": self.raw_frames,
                             }
                             self.recent_events.append(event)
                             if (
@@ -213,7 +221,24 @@ class FlowCapture:
                                 and observed_interface == PROTECTED_CAPTURE_INTERFACE
                                 and (src == PROTECTED_HOST_IP or dst == PROTECTED_HOST_IP)
                             ):
-                                self.recent_lab_route.append((time.time(), event))
+                                stamped = time.time()
+                                self.recent_lab_route.append((stamped, event))
+                                second = int(stamped)
+                                self.protected_second_packets[second] += 1
+                                self.protected_second_bytes[second] += length
+                                if proto in ("ICMP", "ICMPv6"):
+                                    self.protected_second_icmp[second] += 1
+                                    self.recent_icmp_route.append((stamped, event))
+                                # Bound the per-second counters even without
+                                # any browser requesting a snapshot.
+                                for bucket in (
+                                    self.protected_second_packets,
+                                    self.protected_second_bytes,
+                                    self.protected_second_icmp,
+                                ):
+                                    for old in list(bucket):
+                                        if old < second - WINDOW:
+                                            del bucket[old]
         except Exception as exc:
             self.state = "UNAVAILABLE"
             self.error = str(exc)[:200]
@@ -246,10 +271,28 @@ class FlowCapture:
             ]
             interfaces = dict(self.interface_packets.most_common(12))
             events = list(self.recent_events)[-60:][::-1]
+            observed_now = time.time()
+            route_map = {
+                event["frame_id"]: event
+                for stamped, event in (
+                    list(self.recent_lab_route) + list(self.recent_icmp_route)
+                )
+                if 0 <= observed_now - stamped <= WINDOW
+            }
             route_events = [
-                event for stamped, event in self.recent_lab_route
-                if 0 <= time.time() - stamped <= 90
-            ][::-1]
+                event for _, event in
+                sorted(route_map.items(), key=lambda item: item[0], reverse=True)
+            ][:500]
+            now_second = int(observed_now)
+            protected_samples = [
+                {
+                    "second": sec,
+                    "packets": self.protected_second_packets.get(sec, 0),
+                    "bytes": self.protected_second_bytes.get(sec, 0),
+                    "icmp_packets": self.protected_second_icmp.get(sec, 0),
+                }
+                for sec in range(now_second - WINDOW + 1, now_second + 1)
+            ] if PROTECTED_HOST_IP else []
             raw_count = self.raw_frames
             decoded_count = sum(self.packet_totals.values())
             last_packet = self.last_packet
@@ -278,6 +321,7 @@ class FlowCapture:
             ),
             "events": events,
             "lab_route_events": route_events,
+            "protected_route_samples": protected_samples,
             "packet_layer": "IP headers only; no application payload captured",
             "samples": [{k: v for k, v in row.items() if k != "flows"} for row in samples],
             "flows": top,
