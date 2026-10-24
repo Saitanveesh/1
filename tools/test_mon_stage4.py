@@ -4,16 +4,18 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 TOOLS = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
-from mon_stage4_gate import NftGate, validate_source, validate_ttl
+from mon_stage4_gate import NftGate, validate_source, validate_ttl, verify_runtime_directory
 from mon_stage4_bridge import evidence_for_block, verify_source, gate_request
 
 
@@ -47,6 +49,28 @@ class FakeNft:
 
 
 class ContainmentTests(unittest.TestCase):
+    def test_runtime_directory_requires_systemd_root_group_and_0750(self):
+        """No extra CAP_CHOWN may be needed to expose the local helper socket."""
+        path = pathlib.Path("/run/mon-stage4")
+        expected_group = 1000
+        with patch("mon_stage4_gate.grp.getgrnam") as group_lookup, \
+                patch.object(pathlib.Path, "stat") as stat_lookup:
+            group_lookup.return_value = SimpleNamespace(gr_gid=expected_group)
+            good = dict(st_uid=0, st_gid=expected_group,
+                        st_mode=stat.S_IFDIR | 0o750)
+            stat_lookup.return_value = SimpleNamespace(**good)
+            self.assertEqual(verify_runtime_directory(path), expected_group)
+            group_lookup.assert_called_once_with("pc-2")
+            for bad in (
+                {**good, "st_uid": 1000},
+                {**good, "st_gid": 0},
+                {**good, "st_mode": stat.S_IFDIR | 0o770},
+                {**good, "st_mode": stat.S_IFREG | 0o750},
+            ):
+                stat_lookup.return_value = SimpleNamespace(**bad)
+                with self.assertRaisesRegex(RuntimeError, "root:pc-2"):
+                    verify_runtime_directory(path)
+
     def test_source_and_duration_are_strict(self):
         for source in ("10.77.0.1","10.77.0.50","8.8.8.8","10.77.0.80","10.77.0.60;rm -rf /"):
             with self.assertRaises(ValueError):
