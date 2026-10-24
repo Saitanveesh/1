@@ -92,7 +92,8 @@ python3 -m py_compile "$STAGE/tools/"*.py "$STAGE/lab/pc5-training-site/"*.py
 (
   cd "$STAGE"
   PYTHONPATH="$STAGE/tools" python3 -m unittest discover -s tools -p test_mon_stage4.py
-  python3 -m unittest discover -s lab/pc5-training-site -p 'test_*.py'
+  python3 -m unittest discover -s lab/pc5-training-site -p 'test_site.py'
+  python3 -m unittest discover -s lab/pc5-training-site -p 'test_impact.py'
   cd "$STAGE/console"
   npm run build
   npm test -- --run
