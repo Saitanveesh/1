@@ -129,7 +129,7 @@ export function describeDemo(input: Evidence): GuideStory {
     },
     {
       id: "block", title: "4. Optional protection",
-      status: confirmedRule ? "seen" : blockRecorded ? "in-progress" : "waiting",
+      status: confirmedRule || blockRecorded ? "seen" : "waiting",
       detail: confirmedRule ? "A time-limited firewall rule is reported in the gateway." :
         blockRecorded ? "A previous block is recorded, but no active block is verified now." :
           "No verified temporary block for this selected source."
