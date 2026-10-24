@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { SecurityThreatAlert } from "./securityAlerts";
 import type { PacketCaptureSnapshot, SuricataSnapshot } from "./types";
 import { recordKey } from "./suricataThreats";
+import Stage4ResponsePanel from "./Stage4ResponsePanel";
 import "./AlertInvestigation.css";
 
 export function evidenceForAlert(
@@ -149,7 +150,7 @@ export default function AlertInvestigation({
           </div>
         </div>
       </div>
-      <div className="mon-alert-clear-note">No automatic block or containment action was applied by these alert controls.</div>
+      <div className="mon-alert-clear-note">Detection and acknowledgment do not stop traffic. The optional containment controls below apply only to the fictional training lab.</div>
     </>}
     {detail === "evidence" && <div className="mon-alert-investigation-subsections">
       <div>
@@ -189,5 +190,6 @@ export default function AlertInvestigation({
         </div>
       </div>
     </div>}
+    <Stage4ResponsePanel alert={alert} />
   </section>;
 }

@@ -24,6 +24,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from mon_stage4_impact import append_event, impact_summary
+
 BASE = Path(__file__).resolve().parent
 PUBLIC = BASE / "public"
 HOST = os.environ.get("MON_TRAINING_BIND", "127.0.0.1")
@@ -104,6 +106,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        self._bytes_written = len(body)
 
     def json_reply(self, status: int, payload: dict) -> None:
         self.respond(status, json.dumps(payload, separators=(",", ":")).encode(), "application/json")
@@ -124,21 +127,38 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def log_evidence(self, route: str, status: int, request_id: str) -> None:
-        # Server-side corroboration: real socket remote address and status,
-        # never a synthetic source IP, credentials or raw SQL query.
-        print(json.dumps({
+        # Only observed response outcomes, never raw credentials or SQL inputs.
+        record = {
             "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
             "request_id": request_id,
             "src_ip": self.client_address[0],
             "route": route,
             "http_status": int(status),
             "lab_only": True,
-        }), flush=True)
+            "fictional_exposure": self._exposure,
+            "response_bytes_written": self._bytes_written,
+        }
+        print(json.dumps(record), flush=True)
+        # Monitoring queries are control-plane reads, not attacker/victim traffic.
+        # Never inflate impact totals by recording requests for the report itself.
+        if route == "/api/impact":
+            return
+        try:
+            append_event(
+                self.client_address[0], route, int(status), self._bytes_written,
+                self._exposure, self._fictional_records
+            )
+        except OSError as exc:
+            # The impact panel must show an error, not invent lost events.
+            print("[IMPACT] journal write failed: " + str(exc)[:100], flush=True)
 
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
         request_id = secrets.token_hex(6)
         status = HTTPStatus.OK
+        self._exposure = None
+        self._fictional_records = 0
+        self._bytes_written = 0
         if not self.allowed():
             return
         query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
@@ -150,11 +170,36 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/app.css":
                 self.respond(status, (PUBLIC / "app.css").read_bytes(), "text/css; charset=utf-8")
             elif path == "/health":
-                self.json_reply(status, {"status": "READY", "training": True, "version": 2})
+                self.json_reply(status, {"status": "READY", "training": True, "version": 4})
+            elif path == "/api/impact":
+                # Metadata only. Attacker peers cannot query the defensive ledger.
+                if self.client_address[0] not in {"10.77.0.1", "127.0.0.1", "::1"}:
+                    status = HTTPStatus.FORBIDDEN
+                    self.json_reply(status, {"error": "gateway access only"})
+                else:
+                    try:
+                        asked_source = query.get("source", [""])[0]
+                        if asked_source not in {"10.77.0.60", "10.77.0.70"}:
+                            raise ValueError("unsupported test source")
+                        self.json_reply(status, impact_summary(
+                            asked_source, query.get("since", [None])[0]
+                        ))
+                    except ValueError as exc:
+                        status = HTTPStatus.BAD_REQUEST
+                        self.json_reply(status, {"error": str(exc)[:100]})
             elif path == "/api/notices":
                 search = query.get("q", [""])[0][:160]
                 try:
                     rows = unsafe_notice_search(search)
+                    # A SQLi exposure counts only if the deliberately fabricated
+                    # internal notice rows actually appeared in the HTTP response.
+                    suspicious = ("'" in search or "%27" in search.lower()) and (
+                        "or" in search.lower() or "--" in search
+                    )
+                    internal = sum(row["visibility"] == "FAKE INTERNAL" for row in rows)
+                    if suspicious and internal:
+                        self._exposure = "fictional_internal_notices"
+                        self._fictional_records = internal
                     self.json_reply(status, {"results": rows, "count": len(rows), "fixture_only": True})
                 except sqlite3.Error:
                     status = HTTPStatus.BAD_REQUEST
@@ -168,6 +213,9 @@ class Handler(BaseHTTPRequestHandler):
                     status = HTTPStatus.NOT_FOUND
                     self.json_reply(status, {"error": "no such fictional record"})
                 else:
+                    if viewer in STUDENTS and viewer != requested:
+                        self._exposure = "fictional_student"
+                        self._fictional_records = 1
                     self.json_reply(status, {
                         "viewer_claim": viewer or "UNVERIFIED",
                         "record": STUDENTS[requested],
@@ -185,6 +233,9 @@ class Handler(BaseHTTPRequestHandler):
                     status = HTTPStatus.FORBIDDEN
                     self.respond(status, b"Training documents only", "text/plain; charset=utf-8")
                 else:
+                    if target.parent != PUBLIC and target.name == "lab-only.txt":
+                        self._exposure = "fictional_canary"
+                        self._fictional_records = 1
                     self.respond(status, target.read_bytes()[:16384], "text/plain; charset=utf-8")
             else:
                 status = HTTPStatus.NOT_FOUND
@@ -199,6 +250,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         request_id = secrets.token_hex(6)
         status = HTTPStatus.UNAUTHORIZED
+        self._exposure = None
+        self._fictional_records = 0
+        self._bytes_written = 0
         if not self.allowed():
             return
         try:
