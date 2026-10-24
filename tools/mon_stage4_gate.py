@@ -16,6 +16,7 @@ import json
 import os
 import socket
 import socketserver
+import stat
 import subprocess
 import threading
 from pathlib import Path
@@ -211,17 +212,38 @@ class Server(socketserver.ThreadingUnixStreamServer):
     allow_reuse_address = False
 
 
+def verify_runtime_directory(path: Path) -> int:
+    """Require systemd-managed root:pc-2 directory; never request CAP_CHOWN.
+
+    The helper is deliberately limited to CAP_NET_ADMIN. Systemd sets the
+    supplementary operating group and RuntimeDirectory permissions before exec.
+    """
+    expected_gid = grp.getgrnam(GROUP).gr_gid
+    details = path.stat()
+    if (not stat.S_ISDIR(details.st_mode) or details.st_uid != 0 or
+            details.st_gid != expected_gid or
+            stat.S_IMODE(details.st_mode) != 0o750):
+        raise RuntimeError(
+            "Stage 4 runtime directory must be root:pc-2 mode 0750; "
+            "check Group=pc-2 and RuntimeDirectoryMode=0750 in systemd"
+        )
+    return expected_gid
+
+
 def main() -> None:
     if os.geteuid() != 0:
         raise SystemExit("PC2 mitigation helper must run via restricted root systemd unit")
+    # Do not create or chown the directory: systemd owns its lifecycle.
+    expected_gid = verify_runtime_directory(SOCKET_PATH.parent)
     GATE.initialize()
-    SOCKET_PATH.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
-    os.chown(SOCKET_PATH.parent, 0, grp.getgrnam(GROUP).gr_gid)
-    os.chmod(SOCKET_PATH.parent, 0o750)
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
     with Server(str(SOCKET_PATH), Handler) as server:
-        os.chown(SOCKET_PATH, 0, grp.getgrnam(GROUP).gr_gid)
+        # A root process with Group=pc-2 creates a root:pc-2 socket natively.
+        socket_info = SOCKET_PATH.stat()
+        if (not stat.S_ISSOCK(socket_info.st_mode) or
+                socket_info.st_uid != 0 or socket_info.st_gid != expected_gid):
+            raise RuntimeError("Stage 4 socket owner/group is not root:pc-2")
         os.chmod(SOCKET_PATH, 0o660)
         print("[STAGE4] scoped, time-expiring forward-only web gate ready", flush=True)
         try:
