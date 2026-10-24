@@ -12,6 +12,7 @@ ARCHIVE="${2:-$HOME/mon-stage4-pc5.tar.gz}"
 SITE="$HOME/mon-training-site"
 SERVICE=mon-training-site.service
 STAGE=""
+TEST_LEDGER_DIR=""
 BACKUP=""
 CHANGED=0
 DONE=0
@@ -27,6 +28,7 @@ restore(){
     log "Restore point: $BACKUP"
   fi
   [[ -z "$STAGE" ]] || rm -rf "$STAGE"
+  [[ -z "$TEST_LEDGER_DIR" ]] || rm -rf "$TEST_LEDGER_DIR"
   exit "$code"
 }
 trap restore EXIT
@@ -44,11 +46,16 @@ tar -xzf "$ARCHIVE" -C "$STAGE" --strip-components=1
 [[ -s "$STAGE/server.py" && -s "$STAGE/mon_stage4_impact.py" &&
    -s "$STAGE/public/index.html" && -s "$STAGE/test_impact.py" ]] ||
   fail "Stage 4 archive incomplete"
-python3 -m py_compile "$STAGE/server.py" "$STAGE/mon_stage4_impact.py"
-python3 -m unittest discover -s "$STAGE" -p 'test_site.py' ||
+python3 -m py_compile "$STAGE/server.py" "$STAGE/mon_stage4_impact.py" ||
+  fail "PC-5 Python syntax failed; original site untouched"
+TEST_LEDGER_DIR="$(mktemp -d "$HOME/mon-stage4-site-tests.XXXXXXXX")"
+MON_TRAINING_IMPACT_JOURNAL="$TEST_LEDGER_DIR/site-test.jsonl" \
+  python3 -m unittest discover -s "$STAGE" -p 'test_site.py' ||
   fail "PC-5 website tests failed; original site untouched"
 python3 -m unittest discover -s "$STAGE" -p 'test_impact.py' ||
   fail "PC-5 impact tests failed; original site untouched"
+# Never deploy compiled tests or localhost traffic created during validation.
+find "$STAGE" -type d -name __pycache__ -prune -exec rm -rf -- {} + 
 [[ "$MODE" == --apply ]] || { log "CHECK PASSED; no service modified."; DONE=1; exit 0; }
 BACKUP="$(mktemp -d "$HOME/mon-stage4-pc5-rollback.XXXXXXXX")"
 tar -czf "$BACKUP/site.tar.gz" -C "$HOME" mon-training-site
