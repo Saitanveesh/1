@@ -1,6 +1,6 @@
 # MON Stage 4 — final blue-team containment and victim-impact runbook
 
-**Release branch:** `feature/mon-stage4-containment-impact-20261023`
+**Release branch:** `release/mon-batch4-rc1`
 
 **Prerequisite:** Existing Stage 3 MON console on PC-2, PC-5 fictional training website, and WireGuard peers PC-6 (`10.77.0.60`) and PC-7 (`10.77.0.70`). PC-2 gateway is `10.77.0.1`; PC-5 victim is `10.77.0.50:8085`.
 
@@ -35,7 +35,7 @@ Log in as `pc-2` on the existing PC-2 Ubuntu host:
 ```bash
 cd ~/mon-three-code
 git fetch --no-tags https://github.com/Saitanveesh/1.git \
-  refs/heads/feature/mon-stage4-containment-impact-20261023
+  refs/heads/release/mon-batch4-rc1
 
 git show FETCH_HEAD:tools/mon-stage4-pc2.sh > /tmp/mon-stage4-pc2.sh
 
