@@ -45,8 +45,10 @@ tar -xzf "$ARCHIVE" -C "$STAGE" --strip-components=1
    -s "$STAGE/public/index.html" && -s "$STAGE/test_impact.py" ]] ||
   fail "Stage 4 archive incomplete"
 python3 -m py_compile "$STAGE/server.py" "$STAGE/mon_stage4_impact.py"
-python3 -m unittest discover -s "$STAGE" -p 'test_*.py' ||
-  fail "PC-5 regression tests failed; original site untouched"
+python3 -m unittest discover -s "$STAGE" -p 'test_site.py' ||
+  fail "PC-5 website tests failed; original site untouched"
+python3 -m unittest discover -s "$STAGE" -p 'test_impact.py' ||
+  fail "PC-5 impact tests failed; original site untouched"
 [[ "$MODE" == --apply ]] || { log "CHECK PASSED; no service modified."; DONE=1; exit 0; }
 BACKUP="$(mktemp -d "$HOME/mon-stage4-pc5-rollback.XXXXXXXX")"
 tar -czf "$BACKUP/site.tar.gz" -C "$HOME" mon-training-site
