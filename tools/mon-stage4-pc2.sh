@@ -82,8 +82,8 @@ git -C "$CODE" fetch --no-tags "$REPO" "refs/heads/$BRANCH" ||
 REV="$(git -C "$CODE" rev-parse FETCH_HEAD)"
 STAGE="$(mktemp -d "$ROOT/mon-stage4-staged.XXXXXXXX")"
 git -C "$CODE" archive "$REV" console tools/mon-lab-portal.py \
-  tools/mon_stage4_gate.py tools/mon_stage4_bridge.py tools/test_mon_stage4.py \
-  lab/pc5-training-site | tar -xf - -C "$STAGE"
+  tools/mon_stage4_gate.py tools/mon_stage4_bridge.py tools/mon_alert_ack.py \
+  tools/test_mon_stage4.py lab/pc5-training-site | tar -xf - -C "$STAGE"
 [[ -s "$STAGE/tools/mon_stage4_gate.py" &&
    -s "$STAGE/lab/pc5-training-site/mon_stage4_impact.py" ]] ||
   fail "Stage 4 components missing"
