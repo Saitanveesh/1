@@ -38,3 +38,16 @@ jobs:
       - run: PYTHONPATH=tools python3 -m unittest discover -s tools -p test_mon_stage4.py -v
       - run: python3 -m unittest discover -s lab/pc5-training-site -p 'test_*.py' -v
       - run: bash -n tools/mon-stage4-pc2.sh lab/pc5-training-site/stage4-upgrade-pc5.sh
+      - name: Validate exact isolated deployment archive
+        run: |
+          stage="$(mktemp -d)"
+          git archive HEAD console tools/mon-lab-portal.py \
+            tools/mon_stage4_gate.py tools/mon_stage4_bridge.py tools/mon_alert_ack.py \
+            tools/test_mon_stage4.py lab/pc5-training-site | tar -xf - -C "$stage"
+          (
+            cd "$stage"
+            PYTHONPATH="$stage/tools" python3 -m unittest discover -s tools -p test_mon_stage4.py -v
+            python3 -m unittest discover -s lab/pc5-training-site -p 'test_*.py' -v
+          )
+          rm -rf "$stage"
+
