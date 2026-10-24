@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SecurityAlert from "./SecurityAlert";
 import AlertInvestigation from "./AlertInvestigation";
 import AlertCenter, { collectAlerts } from "./AlertCenter";
+import DemoGuide from "./DemoGuide";
 import { alertFromFinding, type SecurityThreatAlert } from "./securityAlerts";
 import { useSuricataThreatAlerts } from "./suricataThreats";
 import {
@@ -368,6 +369,7 @@ export default function App() {
   const tenantId = params.get("tenant") || "default";
   const siteId = params.get("site") || "default";
   const [view, setView] = useState<View>("Overview");
+  const [guideOpen, setGuideOpen] = useState(true);
   const [pendingAlerts, setPendingAlerts] = useState<SecurityThreatAlert[]>([]);
   const [focusedAlert, setFocusedAlert] = useState<SecurityThreatAlert | null>(null);
   const [sessionAlerts, setSessionAlerts] = useState<SecurityThreatAlert[]>([]);
@@ -601,7 +603,8 @@ export default function App() {
         </div>
       </aside>
 
-      <main>
+      <main className={"mon-batch5-main" + (authState === "OK" && guideOpen ? " has-guide" : "")}>
+        <div className="mon-batch5-content">
         <header className="topbar">
           <div><h1>{viewLabels[view]}</h1><p className="mon-topbar-description">{
               view === "Overview" ? "Live activity and security monitoring" :
@@ -609,10 +612,18 @@ export default function App() {
               view === "Incidents" ? "Recorded security cases and response history" :
               "Inspect the evidence behind an alert or case"
             }</p></div>
-          <div className="top-status" role="status">
-            <span className={state.connection === "LIVE" ? "mon-online-dot" : "mon-offline-dot"} />
-            <strong>{state.connection === "LIVE" ? "Live" : "Reconnecting"}</strong>
-            <small>{state.lastMessageAt ? "Updated " + new Date(state.lastMessageAt).toLocaleTimeString() : "Awaiting connection"}</small>
+          <div className="mon-topbar-actions">
+            {authState === "OK" && <button type="button"
+              className="mon-guide-toggle" aria-expanded={guideOpen}
+              aria-controls="mon-explanation-rail"
+              onClick={() => setGuideOpen(open => !open)}>
+              {guideOpen ? "Hide explanation" : "Explain this screen"}
+            </button>}
+            <div className="top-status" role="status">
+              <span className={state.connection === "LIVE" ? "mon-online-dot" : "mon-offline-dot"} />
+              <strong>{state.connection === "LIVE" ? "Live" : "Reconnecting"}</strong>
+              <small>{state.lastMessageAt ? "Updated " + new Date(state.lastMessageAt).toLocaleTimeString() : "Awaiting connection"}</small>
+            </div>
           </div>
         </header>
 
@@ -765,7 +776,17 @@ export default function App() {
           </details>
           </>
         )}
-
+        </div>
+        {authState === "OK" && guideOpen && (
+          <div id="mon-explanation-rail">
+            <DemoGuide view={view} connected={state.connection === "LIVE"}
+              capture={packetCapture} sensor={ids.snapshot}
+              sensorAvailable={ids.availability === "AVAILABLE"}
+              alerts={alerts} acknowledged={acknowledgedAlerts}
+              focusedAlert={focusedAlert} cases={state.incidents}
+              authenticated={true} onClose={() => setGuideOpen(false)} />
+          </div>
+        )}
       </main>
       {authState === "OK" && view === "Overview" && pendingAlerts.length > 0 && (
         <SecurityAlert
