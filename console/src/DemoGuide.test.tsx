@@ -171,7 +171,8 @@ describe("Batch 5: truthful plain-language narration", () => {
   it("reports only recorded fictional victim responses, without asserting client receipt", () => {
     const story = describeDemo(example({
       alerts: [alert], impact,
-      sensorAvailable: false, sensor: null, capture: null
+      sensorAvailable: false, sensor: null,
+      capture: { ...capture, status: "UNAVAILABLE" }
     }));
     expect(story.steps[4].status).toBe("seen");
     expect(story.steps[4].detail).toContain("4 responses recorded");
