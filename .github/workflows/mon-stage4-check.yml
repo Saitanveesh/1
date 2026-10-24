@@ -47,7 +47,8 @@ jobs:
           (
             cd "$stage"
             PYTHONPATH="$stage/tools" python3 -m unittest discover -s tools -p test_mon_stage4.py -v
-            python3 -m unittest discover -s lab/pc5-training-site -p 'test_*.py' -v
+            python3 -m unittest discover -s lab/pc5-training-site -p 'test_site.py' -v
+            python3 -m unittest discover -s lab/pc5-training-site -p 'test_impact.py' -v
           )
           rm -rf "$stage"
 
