@@ -9,6 +9,7 @@
   grid-template-columns: minmax(0, 1fr) 302px;
 }
 .mon-batch5-content { min-width: 0; }
+#mon-explanation-rail { min-width: 0; align-self: stretch; }
 .mon-topbar-actions { display: flex; align-items: center; gap: 10px; }
 .mon-guide-toggle {
   border: 1px solid #cddce8;
