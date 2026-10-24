@@ -1,0 +1,44 @@
+name: Batch 5 - plain-language console guide
+
+on:
+  push:
+    branches:
+      - 'feature/mon-batch5-*'
+  pull_request:
+    paths:
+      - 'console/src/DemoGuide*'
+      - 'console/src/App.tsx'
+      - 'tools/mon-batch5-pc2.sh'
+      - '.github/workflows/mon-batch5-check.yml'
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend dependencies
+        working-directory: console
+        run: npm install --no-audit --no-fund
+      - name: Production compile and bundle
+        working-directory: console
+        run: npm run build
+      - name: All frontend regression tests
+        working-directory: console
+        run: npm test -- --run
+      - name: Validate frontend-only installer
+        run: |
+          bash -n tools/mon-batch5-pc2.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path("tools/mon-batch5-pc2.sh").read_text()
+          assert 'FILES=(App.tsx DemoGuide.tsx DemoGuide.css DemoGuide.test.tsx)' in script
+          assert 'git -C "$CODE" archive "$REV" console' in script
+          assert 'systemctl restart "$FRONTEND"' in script
+          for name in ['systemctl restart "$PORTAL"', 'systemctl restart "$GATE"',
+                       'systemctl restart mon-suricata', 'wg-quick', 'nft add']:
+              assert name not in script, name
+          PY
