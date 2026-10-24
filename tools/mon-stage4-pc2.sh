@@ -88,15 +88,20 @@ git -C "$CODE" archive "$REV" console tools/mon-lab-portal.py \
    -s "$STAGE/lab/pc5-training-site/mon_stage4_impact.py" ]] ||
   fail "Stage 4 components missing"
 ln -s "$WEB/node_modules" "$STAGE/console/node_modules"
-python3 -m py_compile "$STAGE/tools/"*.py "$STAGE/lab/pc5-training-site/"*.py
+python3 -m py_compile "$STAGE/tools/"*.py "$STAGE/lab/pc5-training-site/"*.py ||
+  fail "Staged Python syntax check failed. Running system unchanged."
+
+# Site tests make real loopback requests. Keep their temporary response journal
+# outside the package to prevent fake localhost data leaking into deployment.
 (
-  cd "$STAGE"
-  PYTHONPATH="$STAGE/tools" python3 -m unittest discover -s tools -p test_mon_stage4.py
-  python3 -m unittest discover -s lab/pc5-training-site -p 'test_site.py'
-  python3 -m unittest discover -s lab/pc5-training-site -p 'test_impact.py'
-  cd "$STAGE/console"
-  npm run build
-  npm test -- --run
+  cd "$STAGE" || exit 1
+  PYTHONPATH="$STAGE/tools" python3 -m unittest discover -s tools -p test_mon_stage4.py || exit 1
+  MON_TRAINING_IMPACT_JOURNAL="$STAGE/test-impact-events.jsonl" \
+    python3 -m unittest discover -s lab/pc5-training-site -p 'test_site.py' || exit 1
+  python3 -m unittest discover -s lab/pc5-training-site -p 'test_impact.py' || exit 1
+  cd "$STAGE/console" || exit 1
+  npm run build || exit 1
+  npm test -- --run || exit 1
 ) || fail "Staged tests/build failed. Running system unchanged."
 log "Validated staged revision $REV and existing portal/route; no simulated packet data."
 if [[ "$MODE" == --check ]]; then
@@ -219,7 +224,10 @@ assert data["port"]==8085
 print("[MON STAGE4] Authenticated firewall status reports real kernel state:",data["enforcement"])
 PY
 
-tar -czf "$ROOT/mon-stage4-pc5.tar.gz" -C "$STAGE/lab" pc5-training-site
+tar -czf "$ROOT/mon-stage4-pc5.tar.gz" \
+  --exclude='__pycache__' --exclude='*.pyc' \
+  --exclude='impact-events.jsonl' --exclude='*.previous.jsonl' \
+  -C "$STAGE/lab" pc5-training-site
 log "PC-5 impact upgrade archive: $ROOT/mon-stage4-pc5.tar.gz"
 log "PC-2 Stage 4 ready: http://100.75.116.62:5174/?tenant=mon-lab&site=site-a"
 log "No current attacker IP is blocked until an authorized operator explicitly requests it."
