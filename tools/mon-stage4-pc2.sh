@@ -140,7 +140,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-Group=root
+# Let systemd own /run/mon-stage4 as root:pc-2, without CAP_CHOWN.
+Group=pc-2
 WorkingDirectory=/usr/local/libexec
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 /usr/local/libexec/mon-stage4-gate.py
@@ -185,7 +186,11 @@ PY
   then READY=1; break; fi
   sleep 2
 done
-[[ "$READY" == 1 ]] || fail "Guarded nft helper cannot start or communicate over its private socket"
+if [[ "$READY" != 1 ]]; then
+  log "Helper failed readiness; latest journal records follow:"
+  sudo journalctl -u mon-stage4-gate.service -b -n 25 --no-pager -o cat >&2 || true
+  fail "Guarded nft helper cannot start or communicate over its private socket"
+fi
 
 # Reuse the already-private PC-2 alerts directory for evidence-based actions.
 install -d -m 0700 "$ROOT/alerts"
