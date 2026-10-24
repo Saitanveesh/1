@@ -3,6 +3,7 @@ import json
 import pathlib
 import tempfile
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
@@ -42,6 +43,23 @@ class RealFixtureImpactTests(unittest.TestCase):
     def get(self,path):
         return urlopen(self.url+path,timeout=3)
 
+    def wait_for_ledger(self, expected_requests: int) -> dict:
+        """HTTP body completion may precede the handler's finally/journal fsync.
+
+        Wait for committed server-side evidence instead of racing its writer.
+        If an event never arrives, the test still fails with the observed count.
+        """
+        deadline = time.monotonic() + 3.0
+        summary = impact.impact_summary("127.0.0.1")
+        while summary["observed_requests"] < expected_requests and time.monotonic() < deadline:
+            time.sleep(0.02)
+            summary = impact.impact_summary("127.0.0.1")
+        self.assertEqual(
+            summary["observed_requests"], expected_requests,
+            "Missing server-committed HTTP evidence, not just a completed client read",
+        )
+        return summary
+
     def test_only_successful_fictional_leaks_are_counted(self):
         with self.get("/download?file=public-notice.txt") as r:
             self.assertEqual(r.status,200)
@@ -52,8 +70,7 @@ class RealFixtureImpactTests(unittest.TestCase):
         q=quote("' OR 1=1 -- ")
         with self.get("/api/notices?q="+q) as r:
             self.assertEqual(json.load(r)["count"],len(site.NOTICES))
-        result=impact.impact_summary("127.0.0.1")
-        self.assertEqual(result["observed_requests"],4)
+        result=self.wait_for_ledger(4)
         self.assertEqual(result["fictional_exposure_responses"],3)
         self.assertEqual(result["fictional_records_in_responses"],4)
         self.assertGreater(result["fictional_response_bytes_written"],0)
@@ -69,7 +86,7 @@ class RealFixtureImpactTests(unittest.TestCase):
         except HTTPError as exc:
             self.assertEqual(exc.code,404)
             exc.close()
-        report=impact.impact_summary("127.0.0.1")
+        report=self.wait_for_ledger(1)
         self.assertEqual(report["fictional_exposure_responses"],0)
 
     def test_impact_endpoint_requires_gateway_source(self):
@@ -87,11 +104,12 @@ class RealFixtureImpactTests(unittest.TestCase):
     def test_exposure_is_from_handler_writes_not_attacker_metadata(self):
         with self.get("/api/student?id=STU-1002&viewer=STU-1002") as response:
             self.assertEqual(response.status,200)
-        self.assertEqual(impact.impact_summary("127.0.0.1")["fictional_exposure_responses"],0)
+        self.assertEqual(self.wait_for_ledger(1)["fictional_exposure_responses"],0)
 
     def test_summary_from_other_source_has_no_cross_source_records(self):
         with self.get("/download?file=../training-private/lab-only.txt") as response:
             response.read()
+        self.wait_for_ledger(1)
         self.assertEqual(impact.impact_summary("10.77.0.70")["observed_requests"],0)
 
 if __name__ == "__main__":
