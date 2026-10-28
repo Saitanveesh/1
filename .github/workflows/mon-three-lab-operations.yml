@@ -1,0 +1,39 @@
+name: MON three-PC lab operations safety
+
+on:
+  push:
+    branches:
+      - 'feature/mon-three-lab-operations-*'
+  pull_request:
+    paths:
+      - 'tools/mon-three-labctl.sh'
+      - 'tests/test_mon_three_labctl.py'
+      - 'docs/MON_THREE_LAB_OPERATIONS.md'
+      - 'docs/adr/0076-three-pc-lab-runtime-isolation.md'
+      - '.github/workflows/mon-three-lab-operations.yml'
+  workflow_dispatch:
+
+jobs:
+  safe-recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and mock-based recovery tests
+        run: |
+          bash -n tools/mon-three-labctl.sh
+          python3 -m unittest discover -s tests -p 'test_mon_three_labctl.py' -v
+      - name: Reject destructive runtime operations
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path('tools/mon-three-labctl.sh').read_text()
+          prohibited=['docker rm', 'docker compose down -v', 'wg set',
+                      'nft flush', 'iptables -F', 'apt-get', 'ssh-keygen',
+                      'git reset --hard', 'docker run']
+          for pattern in prohibited:
+              assert pattern not in text, pattern
+          assert 'mon-three-postgres' in text
+          assert 'mon-batch2-attack-console.service' in text
+          assert 'mon-training-site.service' in text
+          assert 'mon-stage4-gate.service' in text
+          PY
