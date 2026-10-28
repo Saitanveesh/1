@@ -9,9 +9,9 @@
 
 Verified from user-operated terminals:
 - PC-2: WG `10.77.0.1`; existing `mon-three-postgres` running and `pg_isready` succeeding; `mon-three-lab-portal`, `mon-three-console-v2`, `mon-suricata-passive` and `mon-stage4-gate` active; local HTTP health checks pass on API/portal/console and PC-5 website.
-- PC-5: `10.77.0.50:8085/health` reported `{"status":"READY","training":true,"version":4}` during the recovery session. Its individual unit health and stored journal durability are **not yet verified** by the central `status` helper.
-- PC-7: `10.77.0.70` can ping the WireGuard gateway. `mon-batch2-attack-console.service` was found, and port `127.0.0.1:8766` was observed listening; the user reported the console restored. Remote service health is **not yet independently verified**.
-- The existing PC-2 control-plane process listens on port 8080 but its boot owner/unit remains unidentified. Manual JWT token renewal was needed; authentication and readiness must be tested separately. PC-5 had a stale physical LAN WireGuard endpoint and was repaired without rekey.
+- PC-5: independently verified from `pc-5@lab-pc5` on 2026-10-28: `systemctl is-active wg-quick@wg0 mon-training-site.service` returned `active` for both; local `curl http://10.77.0.50:8085/health` returned `{"status":"READY","training":true,"version":4}`. Stored journal durability and reboot persistence are **not yet verified**.
+- PC-7: independently verified from `pc-7@lab-pc7` on 2026-10-28: `systemctl is-active wg-quick@wg0 mon-batch2-attack-console.service` returned `active` for both; local `curl http://127.0.0.1:8766/` returned **HTTP 200**. Peer-to-gateway ping also passed during recovery. Reboot persistence and cross-host remote SSH verification are **not yet verified**.
+- The existing PC-2 control-plane process listens on port 8080, passes its health endpoint, but its boot owner/unit remains unidentified. Manual JWT token renewal was needed; authentication and readiness must be tested separately. PC-5 had a stale physical LAN WireGuard endpoint and was repaired without rekey.
 - **Repository integration risk:** `main` is at `0ee941ba`; Stage-4 release is `release/mon-batch4-rc1` at `10eb488`; Batch-5 UI remains draft PR #97 (`feature/mon-batch5-plain-language-20261024`, `d65309f`) on Stage-4. The M6 documentation/helper is draft PR #99 based on `main`. There is no single verified integrated source ref containing all installed lab pieces, including PC-7's locally located `~/mon-batch2/lab/pc6-console/`.
 - **Before producing images**, reconcile an integration branch with the exact tested Stage-4/Batch-5 code and import/audit PC-7's local console; do not silently build from old `main` or replace the working app with it. Record a source manifest with commit SHA, image digest, schema revision, runtime owner, expected ports and health route.
 
@@ -88,3 +88,17 @@ Record **exit status/health only**; do not paste tokens, credentials, raw DB bac
 - Docker Compose startup order: https://docs.docker.com/compose/how-tos/startup-order/
 - Docker Engine isolation limits: https://docs.docker.com/engine/security/
 - Docker networking and source NAT: https://docs.docker.com/engine/network/port-publishing/
+
+## 7. 2026-10-28 live baseline: all three machines independently healthy
+
+The operator's subsequent machine-local checks add independent confirmation to the original recovery log:
+
+| Host | Source of evidence | Verified state | Not yet proven |
+| --- | --- | --- | --- |
+| PC-2 | `bash ~/mon-three-lab-operator.sh status` | WG 10.77.0.1 present; `mon-three-postgres` running and accepting connections; portal, console, IDS and Stage-4 gate services active; API/portal/console and remote PC-5 website HTTP probes passed | Automatic reboot recovery of port 8080; successful DB restore; expiry handling; sustained telemetry freshness |
+| PC-5 | Direct terminal `systemctl is-active` and `curl` | `wg-quick@wg0` active, `mon-training-site.service` active, version-4 `/health` READY | Application evidence backup/restore; startup after reboot |
+| PC-7 | Direct terminal `systemctl is-active` and `curl` | `wg-quick@wg0` active, `mon-batch2-attack-console.service` active, local `:8766/` HTTP 200 | Source present in canonical repo; safe actor sandboxing; startup after reboot |
+
+The PC-2 helper reports remote PC-5/PC-7 systemd state **UNVERIFIED** by design, because it does not run SSH by default. This is not a failed remote host; direct terminal verification establishes current service health, not centralized authenticated control.
+
+**Next Phase A2 action:** inventory the exact mounts and boot owners (without dumping environment variables or tokens), create an access-restricted logical PostgreSQL backup, run `pg_restore --list` against the archive, preserve Suricata and Stage-4 audit/PC-5 impact artifacts separately, then validate a full restore in a disposable database before any live Compose cutover. Never confuse `pg_restore --list` with a proven restoration.
