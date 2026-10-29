@@ -124,3 +124,7 @@ bash tools/mon-m6-restore-rehearsal.sh \
 ```
 
 **Do not mark Phase A2 complete** until the disposable restore logs show `[PASS] Disposable database restore rehearsal completed` and an additional full MON tenant/evidence recovery test is performed.
+
+## 9. Alternative sandbox technology decision gate (2026-10-29)
+
+Research is recorded in `docs/MON_M6_SANDBOX_TECHNOLOGY_ASSESSMENT.md` (official Incus, Linux netns/Mininet, gVisor, KVM, Hyper-V, Firecracker/Kata and GNS3 sources). **Candidate recommendation:** replace *attack/victim* Docker application sandboxes with unprivileged Incus Linux system containers plus an explicitly routed Linux namespace/Mininet network test layer **if** capability and packet-path tests succeed. Retain existing PC-2 PostgreSQL Docker volume/control API/IDS and host WireGuard/nftables. This modifies the M6.3/M6.4 implementation candidates, not the M6.0 backup gate or M6.1 readiness work. Do not interpret Incus as a VM-grade boundary for untrusted malware; stronger scenarios require a dedicated VM or remain out of scope. No live migration is authorized by this research note. Before changing an accepted architecture, publish a decision ADR and regression gates; ensure every observed actor IP is preserved across PC-2 `wg0`, no campus-LAN egress exists, and per-source containment is honestly verified rather than assumed from a launched service.
