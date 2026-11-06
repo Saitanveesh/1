@@ -1,6 +1,6 @@
-# Contributing to RIFTWARD Security Fabric (MON implementation)
+# Contributing to GAUNT (MON implementation)
 
-RIFTWARD is the public name for the existing MON security-sensitive, multi-tenant system. Changes must be reviewable, reversible and supported by evidence.
+GAUNT is the public name for the MON security-sensitive, multi-tenant platform and its authorized lab exercise track. Changes must be reviewable, reversible and supported by evidence.
 
 ## Branch policy
 
@@ -25,6 +25,6 @@ Run `ruff check .`, `pytest -q`, console tests/build, and relevant GitHub Action
 
 ## Scope and licensing
 
-Code review and issue discussion are welcome. **This repository currently has no root software license**; contributors should agree licensing terms with the owner before submitting substantive external code or redistributing source.
+Code review and issue discussion are welcome. **Owner-authored work is source available, all rights reserved**; see [LICENSE](LICENSE) and [licensing guidance](docs/LICENSING.md). External contributors must agree on rights and terms with the owner before substantive submissions or redistribution.
 
 Do not commit API keys, production certificates, live host identifiers, real incident data or other tenant information. Follow [SECURITY.md](SECURITY.md) for disclosure.
