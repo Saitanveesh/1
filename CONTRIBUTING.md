@@ -1,6 +1,6 @@
-# Contributing to MON Security Fabric
+# Contributing to RIFTWARD Security Fabric (MON implementation)
 
-MON is a security-sensitive, multi-tenant system. Changes must be reviewable, reversible and supported by evidence.
+RIFTWARD is the public name for the existing MON security-sensitive, multi-tenant system. Changes must be reviewable, reversible and supported by evidence.
 
 ## Branch policy
 

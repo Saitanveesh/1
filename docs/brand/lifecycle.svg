@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="285" viewBox="0 0 1440 285" role="img" aria-labelledby="title description">
+<title id="title">RIFTWARD detection-to-recovery lifecycle</title>
+<desc id="description">Discover, Detect, Correlate, Trace, Contain, Verify, Recover, with evidence and policy gates. Illustrative process design, not proof every module has been production certified.</desc>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#0a1621"/><stop offset="1" stop-color="#102a38"/></linearGradient><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto"><path d="M0 0L9 3.5L0 7z" fill="#f3a36e"/></marker></defs>
+<rect width="1440" height="285" rx="16" fill="url(#bg)"/>
+<g font-family="Inter,Arial,Helvetica,sans-serif">
+<text x="50" y="42" fill="#eaf2f3" font-size="19" font-weight="700">From observation to verified recovery</text>
+<text x="50" y="65" fill="#9bb7c7" font-size="13">A controlled lifecycle: evidence before conclusions; approval, scope and rollback before enforcement.</text>
+</g>
+<g stroke="#a2bfd0" stroke-opacity=".15"><path d="M50 77H1390"/><path d="M50 238H1390"/></g>
+<g font-family="Inter,Arial,Helvetica,sans-serif" text-anchor="middle">
+<rect x="42" y="107" width="170" height="91" rx="12" fill="#163143" stroke="#477186"/><text x="127" y="137" font-size="12" fill="#f5a26d">01 / OBSERVE</text><text x="127" y="166" fill="#f7f7f4" font-size="19" font-weight="700">DISCOVER</text><text x="127" y="186" fill="#9db6c5" font-size="11">Assets and sources</text>
+<rect x="241" y="107" width="170" height="91" rx="12" fill="#163143" stroke="#477186"/><text x="326" y="137" font-size="12" fill="#f5a26d">02 / SIGNAL</text><text x="326" y="166" fill="#f7f7f4" font-size="19" font-weight="700">DETECT</text><text x="326" y="186" fill="#9db6c5" font-size="11">Observed indicators</text>
+<rect x="440" y="107" width="170" height="91" rx="12" fill="#163143" stroke="#477186"/><text x="525" y="137" font-size="12" fill="#f5a26d">03 / CONTEXT</text><text x="525" y="166" fill="#f7f7f4" font-size="19" font-weight="700">CORRELATE</text><text x="525" y="186" fill="#9db6c5" font-size="11">Across evidence</text>
+<rect x="639" y="107" width="170" height="91" rx="12" fill="#163143" stroke="#477186"/><text x="724" y="137" font-size="12" fill="#f5a26d">04 / PATH</text><text x="724" y="166" fill="#f7f7f4" font-size="19" font-weight="700">TRACE</text><text x="724" y="186" fill="#9db6c5" font-size="11">Affected systems</text>
+<rect x="838" y="107" width="170" height="91" rx="12" fill="#332a2a" stroke="#f19b67" stroke-width="2"/><text x="923" y="137" font-size="12" fill="#f5ad77">05 / CONTROL</text><text x="923" y="166" fill="#f7f7f4" font-size="19" font-weight="700">CONTAIN</text><text x="923" y="186" fill="#dac0af" font-size="11">Policy + TTL + audit</text>
+<rect x="1037" y="107" width="170" height="91" rx="12" fill="#163143" stroke="#477186"/><text x="1122" y="137" font-size="12" fill="#f5a26d">06 / CONFIRM</text><text x="1122" y="166" fill="#f7f7f4" font-size="19" font-weight="700">VERIFY</text><text x="1122" y="186" fill="#9db6c5" font-size="11">Enforcement outcome</text>
+<rect x="1236" y="107" width="162" height="91" rx="12" fill="#163143" stroke="#477186"/><text x="1317" y="137" font-size="12" fill="#f5a26d">07 / RESTORE</text><text x="1317" y="166" fill="#f7f7f4" font-size="19" font-weight="700">RECOVER</text><text x="1317" y="186" fill="#9db6c5" font-size="11">Rollback + health</text>
+</g>
+<g stroke="#f3a36e" stroke-width="2" marker-end="url(#arrow)"><path d="M216 152H233"/><path d="M415 152H432"/><path d="M614 152H631"/><path d="M813 152H830"/><path d="M1012 152H1029"/><path d="M1211 152H1228"/></g>
+<text x="720" y="264" text-anchor="middle" font-family="Inter,Arial,Helvetica,sans-serif" font-size="13" fill="#b2cbd5" letter-spacing=".4">Evidence provenance and tenant/site scope persist across every stage</text>
+</svg>

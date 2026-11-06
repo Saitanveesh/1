@@ -1,4 +1,4 @@
-# MON Security Fabric — Architecture Baseline
+# RIFTWARD Security Fabric — Architecture Baseline (MON implementation)
 
 ## High-level topology
 
