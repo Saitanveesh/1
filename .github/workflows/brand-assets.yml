@@ -1,0 +1,34 @@
+name: Brand and workflow source validation
+
+on:
+  pull_request:
+    paths:
+      - "README.md"
+      - "docs/BRAND.md"
+      - "docs/WORKFLOWS.md"
+      - "docs/brand/**"
+      - "tools/brand/**"
+      - ".github/workflows/brand-assets.yml"
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "docs/BRAND.md"
+      - "docs/WORKFLOWS.md"
+      - "docs/brand/**"
+      - "tools/brand/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate original SVG illustrations and references
+        run: python tools/brand/verify_brand_assets.py
