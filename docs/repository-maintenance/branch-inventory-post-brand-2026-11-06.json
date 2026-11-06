@@ -1,0 +1,463 @@
+{
+  "date": "2026-11-06",
+  "repository": "Saitanveesh/1",
+  "head_sha": "c8d11b797eb6c119c6128a7ea1e4e84470af2b98",
+  "explanation": "Descriptive snapshot only. Do not infer safe deletion from branch age; the existing branch retirement workflow uses exact tip and ancestry rechecks.",
+  "branches": [
+    {
+      "name": "backup/mon-v5-3-before-batch1-20261023",
+      "sha": "573b17995cd471718f143908a72aa1ba3c957c21",
+      "open_pr_reference": false
+    },
+    {
+      "name": "backup/postgres-logical-restore",
+      "sha": "7d589d9374e98acd120fdaa7d659d4fb3221bc67",
+      "open_pr_reference": false
+    },
+    {
+      "name": "backup/site-controller-state-snapshot",
+      "sha": "4e3788e10bf5d3475580cd3501421af3bbd209f7",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/access-control",
+      "sha": "f964e5033fe9831b2a4c32c66940e35f4c6cb9f2",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/asset-telemetry",
+      "sha": "6e05662eb45519f73361b6bdabdbd88db4e06e8e",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/atomic-site-analysis-processing",
+      "sha": "e639ca07e3ff726ce0f1d86720aab2c5252e86c2",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/attack-graph",
+      "sha": "c2516155aa8231d0061329b63b2e9348447b1964",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/audit-integrity",
+      "sha": "efc27783706c44d13dd66b71275c895af6e0e7d0",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/auth-key-rotation",
+      "sha": "c4a4326a0c678cb43432082a07e52eea6e65c483",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/authenticated-sensor-transport",
+      "sha": "7be4cb9b32a560691a930dd04e67c95a55d3efb4",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/autonomous-recovery-reporting",
+      "sha": "303bde7b3a41e878417f189d0fef1652ceffec2d",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/connector-secret-vault",
+      "sha": "eedde563bd260a0134305d9b3fc8ef2748d32f8a",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/detection-expansion",
+      "sha": "2a1393d042647b3e74b4a7a19f316fcef8bbc142",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/durable-control-plane",
+      "sha": "38985c99539cce741b2ecc2230b023f80ac0b9b0",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/durable-site-analysis-state",
+      "sha": "ba672280ba62b0ba2761ae17cf0942c018979e6c",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/durable-site-response-state",
+      "sha": "da68444add58fb5e0f72faa211f3da9a8bac31e6",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/event-fabric-contract",
+      "sha": "30763d35430943ef876aae4cba77dcc71d1de2e1",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/event-fabric-envelope",
+      "sha": "bc991f1a6ef573e9316f8ed4587761f9f79fb92c",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/fabric-control-plane-ingress",
+      "sha": "aff09f765225a1087486ceb5b11144341ef6fa9d",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/fabric-http-ingress",
+      "sha": "491a304276de7d2741ae0591868065807dfc3aae",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/fabric-http-transport",
+      "sha": "63dbfd6ca6bc781223e8be91b7f9972aa5eb2406",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/fabric-load-probe",
+      "sha": "54cbc63e562fae5646a8ad57d79fd10233f78585",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/fabric-producer-outbox",
+      "sha": "4d46cd352e115ea34612cbc4a523e183cb2f92b8",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/foundation",
+      "sha": "dc531de6cc8d5512c1a5d05846d1a8f626fe3d28",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/investigation-enforcement",
+      "sha": "ee10aa2538f5d917f64276b7ea51f89c2537c087",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/local-recovery-netns-adapter",
+      "sha": "73d19dd1c8d00afbc266d91711603b57d0c5ddb2",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/mtls-site-ingress",
+      "sha": "4afa1dade332b682338dd912bc81c287e74eebc1",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/network-sensor-normalizers",
+      "sha": "89a71e631ee802a3b7c8d8cdd4dfa2615f1b957a",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/operator-console",
+      "sha": "7c970b6d763340aa65b8d63311cc4911e86ef7eb",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/postgres-rls",
+      "sha": "fb86fb2bb67034edf6e526391830fd90b1590ba2",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/production-site-runtime",
+      "sha": "a76e413c1b77c6240e5bd8572a20be2f951e9371",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/production-site-runtime-v2",
+      "sha": "e25bf3edd99dd3c78cac9c3925b888d17d4e3572",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/realtime-stream",
+      "sha": "946b54878405b55b20b336813d561da6ad651294",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/response-api-recovery",
+      "sha": "01846236dba60305f726523fa2618e1d8811840e",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/response-orchestrator",
+      "sha": "a1f1f65cae8e6ca2deb9a391ddae41070ed354ab",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/response-site-dispatch",
+      "sha": "f8db91a1f123653d5ce6111397ea9b6ad368f62a",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/response-site-dispatch-v2",
+      "sha": "e1ff231ef476951e9a14ae1f620d26a476eab7b5",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/security-core",
+      "sha": "220b2ac1248c24a286ff8ae6b69223ca7ce06b8b",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/sensor-credential-rotation",
+      "sha": "ad88f57c5212d6db5895278c5b4ef6f6c3a081e1",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/sensor-fleet-lifecycle",
+      "sha": "6763d361daf894f018225c142978f4eb14a44430",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/site-command-channel",
+      "sha": "e929dec8cc7866f0924afd9cfac569f0a5c7f8f7",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/site-controller",
+      "sha": "d57ae442907a5a6ce7b3ae662b9a1fe9833f2dae",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/site-enforcement-verification",
+      "sha": "a58226ca8092e9be314c614654c6eb4486e81205",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/site-execution-reconciliation-reporting",
+      "sha": "995374477088155f71c6b968811c5ee8acc5acc4",
+      "open_pr_reference": false
+    },
+    {
+      "name": "build/site-mtls-enrollment",
+      "sha": "d9066d155ef38d3165b40ec917bb1df00597cd35",
+      "open_pr_reference": false
+    },
+    {
+      "name": "design/dynamic-multilab-cyber-range",
+      "sha": "db65182a89cf9a21e4b0d9ffb2de8b281df18261",
+      "open_pr_reference": true
+    },
+    {
+      "name": "docs/deployment-isolated-lab-plan",
+      "sha": "feb56142397ff0cfb1863df5f0fc6b3c7d06c5ca",
+      "open_pr_reference": true
+    },
+    {
+      "name": "docs/gaunt-redblue-milestone-20261106",
+      "sha": "1cbaea373bd28d67ccb880768514504f5e97988e",
+      "open_pr_reference": true
+    },
+    {
+      "name": "docs/riftward-brand-20261106",
+      "sha": "957652f0baa6efdc56fc82a192379d554dfd4238",
+      "open_pr_reference": false
+    },
+    {
+      "name": "docs/serrate-milestone-20261106",
+      "sha": "256799cfe1e77b1b0ad13491ac1fe07293c5e2fc",
+      "open_pr_reference": true
+    },
+    {
+      "name": "feat/ddos-mitigation-hierarchy",
+      "sha": "2e132f7400d05b09369c81608ac0b9bafff45a7b",
+      "open_pr_reference": false
+    },
+    {
+      "name": "feat/site-command-result-outbox",
+      "sha": "6b4d157dcf1109d8a7bc62118d08a9bea8ce6ae2",
+      "open_pr_reference": false
+    },
+    {
+      "name": "feat/three-host-tailscale-lab",
+      "sha": "67e2a49c50999211013a7efe9e67d671735566f8",
+      "open_pr_reference": true
+    },
+    {
+      "name": "feature/clean-story-visualization",
+      "sha": "f71520a31fd46df417d98d75fbd5da3e33b4f44e",
+      "open_pr_reference": false
+    },
+    {
+      "name": "feature/lab-ssh-orchestration",
+      "sha": "931b40285d96f599a7e85323dc7d93e971a7cd32",
+      "open_pr_reference": false
+    },
+    {
+      "name": "feature/mon-batch1-live-security-alert-20261023",
+      "sha": "c28af12d1c127b93e5518d7203fdd39511d40d36",
+      "open_pr_reference": true
+    },
+    {
+      "name": "feature/mon-batch5-plain-language-20261024",
+      "sha": "d65309f828af140166425fd1a26a62f824647148",
+      "open_pr_reference": true
+    },
+    {
+      "name": "feature/mon-cinematic-simulation",
+      "sha": "85ceb96d2318e9a99acd84f81e883eb926244e29",
+      "open_pr_reference": false
+    },
+    {
+      "name": "feature/mon-final-console-20261023",
+      "sha": "bf1f21f1fd5699fa64a9e1f536a44b2dc4297ff8",
+      "open_pr_reference": true
+    },
+    {
+      "name": "feature/mon-stage4-containment-impact-20261023",
+      "sha": "891495cc6423c593592a4204b38c366dc892c18c",
+      "open_pr_reference": true
+    },
+    {
+      "name": "feature/mon-three-lab-operations-20261028",
+      "sha": "238f19934af427a760e0193fc1ace2c1a1f75a53",
+      "open_pr_reference": true
+    },
+    {
+      "name": "feature/narrated-mon-story",
+      "sha": "9c2f08408cbc93d9567a395518552ea1496cc58d",
+      "open_pr_reference": false
+    },
+    {
+      "name": "feature/smoother-demo-voice",
+      "sha": "341a1f774c88e8eb58ca655e7fa5351c968484d2",
+      "open_pr_reference": false
+    },
+    {
+      "name": "feature/ubuntu-lab-ssh-orchestrator",
+      "sha": "5f4c152f3fa553d02536b3e46d8535ed74e1d38e",
+      "open_pr_reference": true
+    },
+    {
+      "name": "fix/demo-path-label-overlap",
+      "sha": "613b30cc6f41854c61559f865ab5651325c19c4a",
+      "open_pr_reference": false
+    },
+    {
+      "name": "fix/lab-pc2-remote-readiness",
+      "sha": "dfe74238b34422d3d1d7a182fdad2ea383fdef35",
+      "open_pr_reference": true
+    },
+    {
+      "name": "fix/linux-ssh-journal-ingestion-20261010",
+      "sha": "61526b4329786afa4c9f2a7ed630cc0491615061",
+      "open_pr_reference": true
+    },
+    {
+      "name": "fix/mon-v5-3-readable-flow-always-on",
+      "sha": "573b17995cd471718f143908a72aa1ba3c957c21",
+      "open_pr_reference": true
+    },
+    {
+      "name": "hardening/adversarial-scope-isolation",
+      "sha": "95df8d9d3ece0de0b3d0a91c11e26e0010ca45dd",
+      "open_pr_reference": false
+    },
+    {
+      "name": "lab/test-day-readiness",
+      "sha": "95e2a3cdfb678fdbca42f3494ea5d9d44495f5b4",
+      "open_pr_reference": false
+    },
+    {
+      "name": "lab/three-pc-recovery-20261023",
+      "sha": "b9ff9330c8ec8ea3e4dfb10ab05927e5dfd1226b",
+      "open_pr_reference": false
+    },
+    {
+      "name": "main",
+      "sha": "c8d11b797eb6c119c6128a7ea1e4e84470af2b98",
+      "open_pr_reference": true
+    },
+    {
+      "name": "maintenance/mon-repo-hygiene-20261106",
+      "sha": "efe8b2fdab7db54cac15113506b6aea276d68108",
+      "open_pr_reference": false
+    },
+    {
+      "name": "ops/mon-three-lab-docker-migration-20261028",
+      "sha": "658d4f2927ccfcfd066648514b5faade26fbf391",
+      "open_pr_reference": true
+    },
+    {
+      "name": "pr-70",
+      "sha": "121dc9d3f5445d9e818f3e7fdf8a1d98df596a14",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/candidate-verifier",
+      "sha": "bc4a6d0efcb085c744996433c56bc5b6982926ac",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/deployable-packages",
+      "sha": "b8250e4fe55e8d446576e4e7ad4670dc0fc095f4",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/deterministic-package-manifest",
+      "sha": "8aa9b1fad56cd95be6f7666be94f3b5bd08d664d",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/mon-batch4-rc1",
+      "sha": "10eb488ef4bd122cddc6fbbb261be1c8c212085e",
+      "open_pr_reference": true
+    },
+    {
+      "name": "release/provenance-attestations",
+      "sha": "cf02090666eb34e0e421ba5be89c66cfd3098017",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/reproducible-packaging-contract",
+      "sha": "8aa9ed76e7f4f7516a3a01944751d8334adabe34",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/sbom-gate",
+      "sha": "777ccc412fb0002ece0167db17ac61e3472ec3b9",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/sbom-rc-gate",
+      "sha": "1ce451ada763bc977abd13a77a1626462c08c9ca",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/windows-artifact-chain",
+      "sha": "fb6c0df5cb53e480da89382f5614d5c8e007e926",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/windows-collector-package-contract",
+      "sha": "29bc18cd9d1813650f491dbe5dcfef3ff4e33a97",
+      "open_pr_reference": false
+    },
+    {
+      "name": "release/windows-collector-unsigned-candidate",
+      "sha": "d4bedf24d92a127eb54600ffb8f76ba0e379827d",
+      "open_pr_reference": false
+    },
+    {
+      "name": "windows-endpoint-collector",
+      "sha": "bfccf7a214bdff8ff16dbb6200d9dbae9331a6ae",
+      "open_pr_reference": false
+    },
+    {
+      "name": "windows/scm-service-host",
+      "sha": "55bc07b0e4553b1addca39163042c3c356a1b007",
+      "open_pr_reference": false
+    },
+    {
+      "name": "windows/service-deployment-lifecycle",
+      "sha": "b6760eb9ba2910bc2ebf4849c881061bada52941",
+      "open_pr_reference": false
+    },
+    {
+      "name": "work/saas-scale-foundation",
+      "sha": "e0814f4ab98a77927e1663ab9ff8df76dfa17fd5",
+      "open_pr_reference": false
+    },
+    {
+      "name": "work/site-receipt-retention",
+      "sha": "37c53fb965d6d46ec848c0935501bc5e6525d3c6",
+      "open_pr_reference": false
+    }
+  ]
+}
