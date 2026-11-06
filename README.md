@@ -1,166 +1,106 @@
 # MON Security Fabric
 
-MON is a critical-network detection, investigation, containment, recovery, and multi-tenant
-security platform.
+**Distributed, evidence-first network detection, investigation, safe containment and recovery.**
 
-It is built as a distributed security fabric rather than a single-host or single-firewall
-monitor. Detection, investigation, policy, enforcement, rollback, and recovery are separate
-concerns connected by typed, tenant/site-scoped state.
+MON connects network and endpoint telemetry to asset identity, incident evidence, attack-path reconstruction and policy-gated enforcement. A local Site Controller continues collecting and recovering state when the SaaS control plane is unavailable. The intended lifecycle is:
 
-## Product direction
-
-MON combines:
-
-- distributed network and endpoint telemetry;
-- asset and identity graphing;
-- signature, behavioral, statistical, and correlation detection;
-- attack-path reconstruction;
-- policy-driven response decisions;
-- multi-point enforcement;
-- containment rollback and recovery;
-- a multi-tenant SaaS control plane with locally autonomous site controllers.
-
-There is no single perimeter device that defines trust. Enforcement may occur at an endpoint,
-switch/NAC, network firewall/router, cloud control, WAF, or upstream mitigation point,
-depending on evidence and the enforcement graph.
-
-## Narrated architecture walkthrough
-
-For explaining MON end to end to a non-technical audience, the repository includes a synthetic,
-black-and-white narrated walkthrough under `demo/mon_cinematic/`. It deliberately avoids a dense
-SOC dashboard and instead follows one incident scene by scene:
-
-`INTRO → DISCOVER → CASE → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER → WHY MON`
-
-Each scene explains what is happening, what MON does, why the step matters, and one important
-security term. The active network path is shown visually and in plain language. Browser
-text-to-speech narrates the story slowly after the presenter clicks **START NARRATED DEMO**.
-
-The walkthrough remains presentation-only: all events and system states are synthetic, it
-generates no attack traffic, and it cannot alter MON operational state. Run it from the repository
-root with:
-
-```bash
-python demo/mon_cinematic/server.py
+```text
+DISCOVER → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER
 ```
 
-See `demo/mon_cinematic/README.md` for the scenario, narration behavior, controls, and the
-distinction between synthetic presentation state and real MON telemetry.
-## Current implementation status
+[Architecture](docs/ARCHITECTURE.md) · [Current repository status](docs/repository-maintenance/README.md) · [Development](#development) · [Security](SECURITY.md) · [Engineering charter](PROJECT_INSTRUCTIONS.md)
 
-MON is an active production-foundation implementation, not a finished production release.
+> [!IMPORTANT]
+> **This repository is under active engineering development; it is not a production-certified release.** The default `main` branch currently represents the integrated foundation through **8 October 2026**. Later three-PC and experimental lab implementations live on separate, unmerged branches. **Do not assume `main` equals the code currently running on a lab machine.** Review [deployment and branch reconciliation](docs/repository-maintenance/README.md) before updating any deployed host.
 
-Implemented foundations include:
+## What MON is built to answer
 
-- typed tenant/site-scoped domain models and APIs;
-- PostgreSQL control-plane persistence and migrations;
-- forced PostgreSQL tenant/site row-level security under a non-bypass runtime role;
-- AES-256-GCM connector-secret vault with external keyring and reference-only credentials;
-- RBAC/authentication boundaries and site enrollment identities;
-- rotatable RS256 JWKS trust sets with fail-closed hot reload;
-- mTLS site ingress;
-- durable at-least-once site command delivery and result receipts;
-- durable site response state, audit, TTL recovery, and autonomous recovery reporting;
-- append-only SHA-256-sealed audit records with PostgreSQL mutation guards;
-- execution-plane dispatch between site-local and control-plane enforcement;
-- evidence-based reconciliation of crash-interrupted enforcement;
-- late response-state convergence after site command expiry;
-- disposable Linux network-namespace/nftables enforcement validation;
-- a typed enforcement-adapter capability/certification contract (declared capabilities,
-  verify/rollback/reconcile support, idempotency, credential requirement, execution plane)
-  integrated into response planning, plus a reusable adapter certification harness;
-- a Linux endpoint nftables BLOCK_IP enforcement adapter candidate, MON-table-owned and
-  certified only in disposable network namespaces so far;
-- local event buffering and a production site-controller service composition;
-- Zeek JSON and Suricata EVE normalization into scoped, deterministic MON evidence;
-- mTLS-authenticated sensor ingress plus durable Zeek/Suricata file collectors;
-- managed sensor enrollment, renewal/revocation, durable site trust, and fleet heartbeats;
-- crash-safe managed sensor credential generations with proactive certificate rotation;
-- typed tenant/site event-fabric envelopes with durable local consumer idempotency;
-- durable exact-envelope producer outbox with ordered retry and crash reconciliation;
-- verified site-mTLS fabric ingress with durable control-plane processing receipts;
-- tenant/site-scoped durable local analysis checkpoints for bounded warm restore without
-  deleting forensic evidence;
-- STIX 2.1 indicator-bundle ingestion with tenant/site-scoped persistence and
-  evidence-backed exact indicator matching for IPs, domains, URLs, and file hashes;
-- TAXII 2.1 read-only feed synchronization with vault-backed credentials, bounded HTTP
-  behavior, pagination, added_after cursors, retry/backoff state, and tenant/site RLS;
-- typed endpoint process/auth/process-network telemetry normalization with durable
-  tenant/site-scoped identity and process analysis state;
-- first Windows Event Log endpoint collector adapter with deterministic event IDs,
-  durable cursoring, bounded local buffering into the existing endpoint pipeline, and a
-  service-oriented foreground/runtime loop boundary;
-- a Linux endpoint collector adapter (systemd journal sshd auth evidence, Linux audit
-  execve process-execution evidence) into the same endpoint pipeline, with deterministic
-  event IDs, durable per-source cursoring, bounded local buffering, a cancellation-aware
-  systemd-managed foreground runtime, and a repository-owned example systemd unit;
-- identity/process attack-graph relationships for authentication, execution,
-  parent/child process, and process-network evidence;
-- opt-in event-fabric load/soak evidence CLI for caller-supplied canonical envelope
-  corpora and disposable performance environments;
-- deterministic event-fabric failure-injection and recovery regression coverage for
-  the current durable outbox, idempotent ingress, and exact-envelope replay path;
-- durable event-fabric exponential retry/backoff with persisted next retry times,
-  bounded jitter, restart-stable attempts, and sanitized delivery errors;
-- a dedicated networked mTLS/restart acceptance gate for real loopback Site Controller,
-  mTLS ingress, Control Plane, durable replay, command/result, and rollback recovery;
-- deterministic release manifests plus a controlled release-candidate workflow that builds
-  current Python/console artifacts and the unsigned Windows collector executable, generates
-  validated CycloneDX SBOM evidence, gates that evidence, verifies the final manifest,
-  creates keyless GitHub provenance attestations for final candidate artifacts, and verifies
-  those attestations before artifact upload;
-- network detection, correlation, asset enrichment, attack/investigation graph foundations;
-- push/live operator updates and a React operator console foundation;
-- PostgreSQL, Python, container, console, and disposable Linux enforcement CI gates.
+| Investigation question | Responsible subsystem |
+|---|---|
+| What happened, where and when? | Sensors, event normalization, evidence store |
+| Which asset, user or service? | Asset/identity graph and correlation |
+| What supports this finding? | Provenance-backed event and incident evidence |
+| How did activity move? | Network topology and attack/investigation graph |
+| Where can it be stopped safely? | Enforcement graph, capability registry and policy decision |
+| Did containment work, and can it be reversed? | Response execution, verification, TTL and recovery |
 
-Known boundaries are reported explicitly rather than hidden. Local evidence objects
-(events, assets, findings, and incidents) are durable; detector/correlation/graph windows are
-warm-restored after restart from integrity-checked analysis checkpoints plus post-boundary
-event replay; and one event plus its derived durable state is committed as an atomic local
-analysis unit before the event becomes cloud-deliverable. Local forensic history is not
-silently pruned by checkpoint maintenance. The nftables adapter in this repository remains
-disposable-sandbox-only rather than a production host firewall connector. The newer Linux
-endpoint nftables adapter (`LinuxNftablesEndpointAdapter`, BLOCK_IP only) is a separate,
-MON-table-owned candidate that is likewise certified only in disposable network namespaces so
-far; it is not yet certified on arbitrary production hosts, does not integrate with or certify
-against firewalld/ufw/vendor firewall tooling, and no network appliance/NAC/cloud connector is
-production-certified yet. Disposable-namespace success does not prove every Linux distribution
-or kernel behaves identically. Threat-intelligence
-support currently covers direct STIX bundle ingestion and exact indicator matching; TAXII
-feed synchronization is read-only and client-side. MON does not yet implement a TAXII server,
-TAXII write/publish APIs, or complex STIX pattern evaluation. Endpoint support currently
-normalizes typed endpoint telemetry into the pipeline and graph and includes a narrow Windows
-Event Log collector adapter for Security 4624/4625/4688 plus optional Sysmon
-process/process-network records when present. The Windows collector now has a bounded
-foreground/service runtime loop and a real SCM service-host lifecycle validated on
-`windows-latest` with temporary service registration/start/query/stop/delete. A repository-owned
-PowerShell wrapper now provides deterministic install/start/status/stop/uninstall commands for
-an already-built `MONWindows.exe`. A separate Linux endpoint collector (`mon-linux-endpoint-collector`)
-now normalizes systemd journal sshd authentication evidence and Linux audit execve process
-evidence into the same endpoint pipeline, with a bounded systemd-managed foreground runtime,
-graceful SIGINT/SIGTERM shutdown, and a repository-owned example systemd unit; it does not yet
-implement rotation-safe audit log tracking, an eBPF/kernel collector, or DEB/RPM packaging, and
-does not guarantee process-network association unless a native source explicitly supplies it.
-Neither collector is yet a production-complete Windows or Linux EDR agent, and neither provides
-Authenticode/package signing, MSI/DEB/RPM packaging, install/uninstall certification,
-upgrade/rollback certification, privileged service-registration certification outside disposable
-CI, or tamper protection. Load/soak
-measurements are deployment-specific evidence, not universal performance, resilience, or
-tenant-isolation proof. Event-fabric recovery validation currently covers deterministic local
-outage, crash/restart, duplicate replay, and scope-isolation scenarios; it is not yet a
-broker-backed HA, arbitrary network partition, multi-region failover, or disaster-recovery
-proof. Release-candidate packaging now emits SBOM, manifest, and GitHub
-provenance-attestation evidence for candidate bytes, but provenance does not prove
-vulnerability-free software, runtime safety, correct deployment configuration, or production
-readiness.
+MON does **not** assume that one edge firewall can see or stop everything. Inside/outside is context—not proof of trust. Volumetric upstream DDoS traffic cannot be fixed by a local firewall after the uplink is saturated.
 
-See:
+## Architecture
 
-- `PROJECT_INSTRUCTIONS.md` for the product and engineering charter;
-- `docs/ARCHITECTURE.md` for the architecture baseline;
-- `docs/adr/` for accepted architecture decisions;
-- `docs/site-controller.md` for Site Controller runtime configuration.
-- `docs/connector-secrets.md` for connector credential provisioning and key rotation.
+```mermaid
+flowchart TD
+    Sensors["Network + endpoint sensors<br/>Zeek / Suricata / OS evidence"] --> Site["Local Site Controller<br/>buffer · correlate · recover"]
+    Site -->|Authenticated mTLS transport| Cloud["SaaS Control Plane<br/>tenants · RBAC · policy · incidents · audit"]
+    Site --> Evidence["Evidence / asset / identity graphs"]
+    Evidence --> Detection["Detection → correlation → investigation"]
+    Detection --> Decision["Policy decision + approval"]
+    Decision --> Control["Response orchestration"]
+    Control --> Enforce["Endpoint / network / cloud controls"]
+    Enforce --> Verify["Verify → rollback / recovery"]
+```
 
-No binary or deployment is considered production-ready merely because it compiles or starts.
-Release claims require the repository release gates and appropriate disposable/VM validation.
+The product target includes broader vendor-neutral connectors, packet references and scalable telemetry search. Not all target integrations are implemented or production-certified. For the actual code-level coverage and limitations on `main`, see the [implementation snapshot](docs/implementation-status-main-2026-10-08.md), [architecture baseline](docs/ARCHITECTURE.md) and [readiness evidence ledger](docs/production-readiness.md).
+
+## Repository map
+
+| Location | Purpose |
+|---|---|
+| [`src/mon/`](src/mon/) | Python APIs, event fabric, Site Controller, detection, graph and response engines |
+| [`console/`](console/) | React/TypeScript SOC operator console |
+| [`migrations/`](migrations/) | Versioned PostgreSQL schema changes; **must not be pruned** |
+| [`tests/`](tests/) | Python security, API, integration and regression tests |
+| [`e2e/`](e2e/) | Browser end-to-end acceptance tests |
+| [`docs/adr/`](docs/adr/) | Accepted architecture decisions; preserve historical rationale |
+| [`packaging/`](packaging/) | Linux/Windows packaging definitions |
+| [`.github/workflows/`](.github/workflows/) | CI, release, resource, OS-native and rollback validation |
+| [`demo/mon_cinematic/`](demo/mon_cinematic/) | **Synthetic presentation only**, not real detection or containment |
+| [`docs/repository-maintenance/`](docs/repository-maintenance/) | Branch inventory, safe retirement and deployment reconciliation |
+
+## Development
+
+Requirements: Python 3.12+, Node.js 22 for the console, and Docker for optional disposable development environments.
+
+```bash
+git clone https://github.com/Saitanveesh/1.git
+cd 1
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+ruff check .
+pytest -q
+```
+
+To build and test the console:
+
+```bash
+cd console
+npm install --no-audit --no-fund
+npm test
+npm run build
+```
+
+**Development-only container setup:** `docker compose up --build`. The included Compose file has known development credentials and publishes a control-plane port. It is **not a secure, supported production deployment recipe**; do not expose it on a shared network or use it with real sensitive telemetry. Production-like operation requires tenant isolation, secret management, authentication, mTLS and documented backup/restore gates.
+
+Some tests require PostgreSQL, Linux network namespaces or dedicated Windows CI runners and will skip or fail when their external prerequisites are absent. Consult [CI workflows](.github/workflows/) and [production-readiness evidence](docs/production-readiness.md) for the actual validation boundaries.
+
+## Response safety
+
+Containment is not a one-click permanent block. MON's response design requires scoped evidence, confidence, a policy decision, an appropriate enforcement point, an expiration/TTL, an estimated blast radius, an audit record, verification and an executable rollback path. Critical assets require stricter policy and approvals. Network/host enforcement must first be validated in a disposable environment.
+
+**No live telemetry or attack results are fabricated.** The cinematic demo is explicitly synthetic and must remain isolated from operational state.
+
+## Branch and deployment policy
+
+`main` is the **stable integration baseline**, not a place to force-merge an unreviewed lab release. As of 6 November 2026, 107 branches were inventoried and 13 open PRs contained unmerged work. The `release/mon-batch4-rc1` branch has a substantial independent implementation history, **461 commits ahead of the audited `main`**. It is retained for reconciliation rather than silently promoted or deleted.
+
+A dated recovery manifest and an ancestry-gated branch-retirement process are in [repository maintenance](docs/repository-maintenance/README.md). See the [contribution guidelines](CONTRIBUTING.md) before starting more branches.
+
+## Security, licensing and readiness
+
+- Read [SECURITY.md](SECURITY.md) before disclosing a vulnerability or publishing any host credentials.
+- [Project engineering rules](PROJECT_INSTRUCTIONS.md) describe tenant isolation, enforcement safety and release gates.
+- [Production readiness ledger](docs/production-readiness.md) distinguishes evidence proven in disposable CI from what remains unproven in production.
+- **No root open-source license is currently included.** Public access alone does not grant redistribution rights; licensing is a separate ownership decision.
+
+**MON's objective is verifiable detection-to-recovery for critical networks—not demo-generated green status or a single-firewall dashboard.**

@@ -1,0 +1,92 @@
+name: MON verified merged-branch retirement
+
+on:
+  pull_request:
+    paths:
+      - "tools/repo_maintenance/**"
+      - "docs/repository-maintenance/**"
+      - ".github/workflows/retire-merged-branches.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/repository-maintenance/branch-inventory-2026-11-06.json"
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: "Apply safe deletion of unchanged, fully merged refs?"
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate fail-closed branch retirement policy
+        run: python -m unittest discover -s tools/repo_maintenance/tests -v
+
+  dry-run:
+    needs: validate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all branch ancestry for read-only audit
+        run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Calculate the exact branch retirement plan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python tools/repo_maintenance/prune_merged_branches.py \
+            --manifest docs/repository-maintenance/branch-inventory-2026-11-06.json \
+            --report branch-retirement-plan.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mon-branch-retirement-dry-run
+          path: branch-retirement-plan.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  retire:
+    needs: validate
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.execute == true))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch exact current remote branch ancestry
+        run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Retire only unchanged, fully integrated branch refs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python tools/repo_maintenance/prune_merged_branches.py \
+            --apply --confirm Saitanveesh/1 \
+            --manifest docs/repository-maintenance/branch-inventory-2026-11-06.json \
+            --report branch-retirement-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mon-branch-retirement-report
+          path: branch-retirement-report.json
+          if-no-files-found: warn
+          retention-days: 90
