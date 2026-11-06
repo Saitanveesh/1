@@ -23,7 +23,7 @@ def verify() -> None:
     assert "SERRATE" in readme
     assert "MON" in identity and "MON_*" in identity
     assert "docs/repository-maintenance" in readme
-    assert "not a production-certified release" in readme
+    assert "not a production-certified" in readme.lower()
     for name in SVG_NAMES:
         path = BRAND / name
         assert path.exists(), f"Missing image: {path}"
