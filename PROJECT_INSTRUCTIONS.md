@@ -1,4 +1,4 @@
-# RIFTWARD Security Fabric — Project Instructions (MON implementation)
+# GAUNT — Engineering Charter (MON implementation)
 
 ## Mission
 Build MON as a production-grade, multi-tenant critical-network detection, investigation, containment, and recovery platform. This is not a college demo, not a packet viewer, and not a single-machine Windows monitor.
@@ -191,6 +191,6 @@ When a design changes, update repository documentation so future project chats i
 Canonical repo: https://github.com/Saitanveesh/1
 
 ## Current product name
-Public-facing name (introduced 6 November 2026): **RIFTWARD Security Fabric**.
+Public milestone name (6 November 2026): **GAUNT — Security Fabric & Red/Blue Cyber Range**.
 Internal implementation identifier: **MON**. Preserve `mon` modules, `MON_*` configuration, mon-prefixed command names, schemas, paths and historical records for compatibility.
 This is a documentation-only brand change, not a deployment, API or package migration. See `docs/BRAND.md` for the visual and naming policy.

@@ -1,72 +1,80 @@
-# System flows and response safety
+# GAUNT — technical flows
 
-These diagrams depict the **target architecture and current implemented foundations**, not guarantees of production certification. The authoritative capability status is in [the readiness ledger](production-readiness.md). The `main` baseline and newer lab branches are intentionally not conflated.
+**Editable Mermaid diagrams, not AI artwork or telemetry screenshots.** These are engineering processes with coverage limitations: [readiness](production-readiness.md), [lab scope](RED_BLUE_RANGE.md).
 
-## 1. Distributed site-to-control-plane architecture
+## 1. Red/blue test boundary
 
-![RIFTWARD architectural boundaries](brand/system-boundaries.svg)
+```mermaid
+flowchart TB
+  O["Written permission + target inventory"] --> I{"Segmentation, rates, rollback verified?"}
+  I -->|"No"| STOP["STOP: do not generate traffic"]
+  I -->|"Yes"| RED["RED: controlled lab scenario"]
+  RED --> T["Test victim service"]
+  T --> SENSOR["Network + endpoint telemetry"]
+  SENSOR --> BLUE["BLUE: incident, asset, path"]
+  BLUE --> POLICY{"Policy + evidence sufficient?"}
+  POLICY -->|"No"| GAP["Record coverage gap"]
+  POLICY -->|"Yes"| ACTION["Time-bound authorized containment"]
+  ACTION --> REC["Verify, rollback, observe recovery"]
+  REC --> REPORT["Exercise evidence report"]
+  GAP --> REPORT
+```
+
+## 2. Telemetry to incident
 
 ```mermaid
 flowchart LR
-  N["Zeek / Suricata network sources"] --> S["Local Site Controller"]
-  E["Linux / Windows endpoint evidence"] --> S
-  S --> P["Local normalization, durable evidence and correlation"]
-  P --> L["Local policy, action execution and TTL recovery"]
-  S <-->|"Site identity + mTLS"| C["SaaS Control Plane"]
-  C --> O["Operator RBAC, incidents, policy, audit"]
-  L --> X["Supported enforcement adapters"]
+  Z["Zeek / Suricata"] --> N["Normalize + scope"]
+  E["Endpoint evidence"] --> N
+  N --> F["Durable Site Controller event fabric"]
+  F --> V["Evidence with provenance"]
+  V --> D["Detection + correlation"]
+  D --> G["Asset / identity / attack graph"]
+  G --> I["Finding or incident"]
+  I --> UI["SOC UI + audit trail"]
 ```
 
-**Key boundary:** offline delivery cannot remove local event buffering, allowed local analysis, or recovery duties. Existing adapters are not a blanket claim that every firewall or NAC is certified.
-
-## 2. Incident lifecycle
-
-![RIFTWARD detection to recovery lifecycle](brand/lifecycle.svg)
+## 3. Cloud outage while a site continues
 
 ```mermaid
-flowchart LR
-  A["DISCOVER"] --> B["DETECT"]
-  B --> C["CORRELATE"]
-  C --> D["TRACE"]
-  D --> E{"Policy gate"}
-  E -->|"Approved and safe"| F["CONTAIN"]
-  E -->|"Denied / insufficient evidence"| H["Record + escalate"]
-  F --> G["VERIFY"]
-  G --> I["RECOVER"]
+flowchart TB
+  S["Sensors"] --> L["Site Controller"]
+  L --> B["Durable event buffer"]
+  B --> C{"mTLS to cloud available?"}
+  C -->|"Yes"| CP["Cloud receipt / incidents"]
+  C -->|"No"| BACK["Retry with backoff, report degraded"]
+  BACK --> B
+  L --> A["Local evidence + permitted policy"]
+  A --> R["TTL recovery and audit"]
 ```
 
-Each finding and incident must retain **source evidence**, tenant/site scope, observed facts versus inferences, confidence and timestamps. Tracing is a provenance-bound graph operation, not a fictional story about the attacker.
-
-## 3. Controlled response and rollback
-
-![Response safety and rollback](brand/response-safety.svg)
+## 4. Containment must be rollback-ready
 
 ```mermaid
 flowchart TD
-  I["Incident evidence + requested action"] --> P{"Evidence, policy, approval?"}
+  INC["Incident + evidence + confidence"] --> P{"Policy, tenant/site, criticality, approval?"}
   P -->|"No"| DENY["Deny / escalate / audit"]
-  P -->|"Yes"| CAP{"Adapter, scope, TTL, blast radius safe?"}
+  P -->|"Yes"| CAP{"Adapter, target, scope, TTL?"}
   CAP -->|"No"| DENY
-  CAP -->|"Yes"| APPLY["Apply with idempotency and audit"]
-  APPLY --> VERIFY{"Actual result verified?"}
-  VERIFY -->|"No"| RECON["Reconcile / rollback if required"]
-  VERIFY -->|"Yes"| TTL["Continue scoped monitoring until TTL or operator rollback"]
-  TTL --> REC["Rollback + verify service recovery"]
-  RECON --> REC
+  CAP -->|"Yes"| BL["Estimate blast radius + rollback"]
+  BL --> APPLY["Idempotent apply"]
+  APPLY --> V{"Verified effect?"}
+  V -->|"No"| RC["Reconcile / revert"]
+  V -->|"Yes"| TIMER["Observe until TTL"]
+  RC --> REC["Restore + verify service"]
+  TIMER --> REC
+  REC --> AUDIT["Audit actual outcome"]
 ```
 
-No permanent critical-asset isolation from a single weak detector. Every response object must have a defined rollback operation and explicit outcome. The right enforcement point can be endpoint, network, cloud or upstream only when a suitable adapter/integration is truly present and policy permits its use.
+## 5. Safe lab-branch integration
 
-## 4. Failure-mode principles
+```mermaid
+flowchart LR
+  LAB["Recorded deployed commit + backup"] --> DIFF["Compare lab feature branch to main"]
+  DIFF --> CHECK["Review schema, auth, policy, APIs"]
+  CHECK --> CI["Tests + disposable rollback"]
+  CI --> PR["Review PR against main"]
+  PR --> STAGE["Staged cutover and recoverability"]
+```
 
-| Condition | Intended safe behavior |
-|---|---|
-| SaaS unavailable | Local site buffering/analysis and permitted recovery continue; cloud state is marked unavailable |
-| Sensor disconnected | Report missing data, sensor status and last-known evidence; do not fabricate normal traffic |
-| Detector weak or ambiguous | Preserve observations and uncertainty; escalate instead of claiming compromise |
-| Enforcement point unavailable | Fail closed or choose another policy-authorized verified point; never mark action as successful |
-| TTL expires | Reconcile state, rollback and verify service condition; preserve audit record |
-| Site identity or tenant mismatch | Reject cross-scope ingestion or command execution |
-| Upstream volumetric DDoS saturates link | Local host firewall is insufficient; coordinate upstream mitigation where supported |
-
-For code and acceptance evidence consult [the architecture baseline](ARCHITECTURE.md), [release gates](production-readiness.md) and [project engineering charter](../PROJECT_INSTRUCTIONS.md).
+**Failure contract:** no false sensor-health claims; weak signals remain uncertain; no unverified enforcement success; no attack exercise without explicit isolation; no permanent containment on a single detector. See [architecture](ARCHITECTURE.md).
