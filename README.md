@@ -1,118 +1,125 @@
+<p align="center"><img src="docs/brand/serrate-hero.svg" width="100%" alt="SERRATE — network security and adversary simulation lab. Original vector art showing distinct red-team and blue-team lanes."></p>
+
 <p align="center">
-  <img src="docs/brand/riftward-hero.svg" alt="RIFTWARD Security Fabric. Evidence to action. Action to recovery. Distributed network defense illustrated with network sites and evidence links." width="100%">
+  <a href="#the-project">Project</a> ·
+  <a href="#red-team--blue-team-sandbox">Sandbox</a> ·
+  <a href="#system-flow">Architecture</a> ·
+  <a href="#defend-and-recover">Response workflow</a> ·
+  <a href="docs/WORKFLOWS.md">Flowcharts</a> ·
+  <a href="docs/LICENSING.md">License & ownership</a>
 </p>
 
 <p align="center">
-  <a href="#why-riftward">Why RIFTWARD</a> ·
-  <a href="#how-it-works">Workflow</a> ·
-  <a href="#system-architecture">Architecture</a> ·
-  <a href="#development">Development</a> ·
-  <a href="docs/WORKFLOWS.md">Technical flows</a> ·
-  <a href="docs/BRAND.md">Brand guide</a>
+  <a href="https://github.com/Saitanveesh/1/actions/workflows/ci.yml"><img src="https://github.com/Saitanveesh/1/actions/workflows/ci.yml/badge.svg?branch=main" alt="MON core continuous integration status"></a>
+  <a href="https://github.com/Saitanveesh/1/actions/workflows/final-readiness.yml"><img src="https://github.com/Saitanveesh/1/actions/workflows/final-readiness.yml/badge.svg?branch=main" alt="Engineering readiness checks"></a>
+  <img src="https://img.shields.io/badge/project-engineering%20milestone-626f7e" alt="Engineering milestone">
+  <img src="https://img.shields.io/badge/lab-authorized%20only-b26b64" alt="Authorized lab exercises only">
 </p>
 
-<p align="center">
-  <a href="https://github.com/Saitanveesh/1/actions/workflows/ci.yml"><img alt="Core CI" src="https://github.com/Saitanveesh/1/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/Saitanveesh/1/actions/workflows/final-readiness.yml"><img alt="Readiness checks" src="https://github.com/Saitanveesh/1/actions/workflows/final-readiness.yml/badge.svg?branch=main"></a>
-  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3678a0?style=flat-square">
-  <img alt="React and TypeScript" src="https://img.shields.io/badge/console-React%20%2B%20TypeScript-243f58?style=flat-square">
-  <img alt="Development status" src="https://img.shields.io/badge/status-active%20engineering-dd8c55?style=flat-square">
-</p>
+**SERRATE** is my engineering milestone in distributed network-security detection and response, demonstrated through controlled **red-team and blue-team lab exercises**. A test client generates *authorized* activity in an isolated network; MON's sensors and Site Controller observe evidence; the blue team investigates, traces affected systems and evaluates bounded containment; recovery is explicitly verified.
 
-<p align="center"><strong>Distributed network defense with verifiable evidence, deliberate enforcement and reversible recovery.</strong></p>
-
-**RIFTWARD** is a critical-network security fabric that connects network and endpoint observations to investigations, affected-asset context, policy decisions and recovery workflows. **MON** remains the existing implementation name (`mon` package, `MON_*` configuration, scripts and services); the public brand is being introduced without breaking deployed components.
+The platform's original internal name remains **MON Security Fabric**. Its Python modules, `MON_*` configuration, services and historical deployment references are **not being renamed or broken** for a presentation change.
 
 > [!IMPORTANT]
-> **Development foundation, not a production-certified release.** The audited `main` integration baseline does not include all later laboratory branches. Some Linux enforcement adapters are certified only in disposable namespaces; cloud/NAC/router/WAF integrations are target capabilities, not all implemented. Do not infer live telemetry, deployed sensor health or incident results from these diagrams or the synthetic demo. See [readiness evidence](docs/production-readiness.md) and [branch reconciliation](docs/repository-maintenance/README.md).
+> **Not a production-certified offensive security suite or an unrestricted exploit framework.** Existing lab simulations, acceptance tests and operational modules have different degrees of validation. The current `main` branch is an audited foundation; advanced lab integration exists on separate, unmerged branches. Illustrations are explanatory, not proof of live sensors or confirmed compromises. See [lab scope](docs/SANDBOX.md), [readiness evidence](docs/production-readiness.md) and [release reconciliation](docs/repository-maintenance/README.md).
 
-## Why RIFTWARD
+## The project
 
-Security incidents rarely respect the border of one firewall. A host, identity and service may span endpoint, switch, router, cloud and multiple sites. RIFTWARD is designed to answer **what happened, what evidence proves it, who is affected, where intervention is safest, and whether the network actually recovered**.
+Rather than asking only *“Did the IDS raise an alert?”*, SERRATE aims to answer:
 
-The differentiator is not another alert counter: it is the **evidence → context → path → safe action → verified recovery** workflow.
+| Investigation question | System responsibility |
+|---|---|
+| What is happening? | Network, endpoint and flow telemetry |
+| Which host, user or service? | Asset and identity graph |
+| Is the activity internal, external or lateral? | Network/topology context and correlated evidence |
+| Where did the activity originate and travel? | Investigation and attack-path graph |
+| Can it be contained without damaging critical services? | Enforcement graph, policy decision and approvals |
+| Did the containment work? | Explicit verification and audit |
+| Can we restore normal operation? | TTL, rollback and recovery health checks |
 
-## How it works
+No single perimeter firewall is assumed to be sufficient. A high-volume DDoS attack saturating an upstream link cannot be fixed by a host firewall downstream.
 
-<p align="center">
-  <img src="docs/brand/lifecycle.svg" alt="Discover, Detect, Correlate, Trace, Contain, Verify, Recover — seven-stage incident lifecycle with policy and TTL checks." width="100%">
-</p>
+## Red-team / blue-team sandbox
 
-The lifecycle is:
-
-```text
-DISCOVER → DETECT → CORRELATE → TRACE → CONTAIN → VERIFY → RECOVER
+```mermaid
+flowchart LR
+   Red["RED TEAM<br/>authorized activity"] --> Lab["Isolated test network"]
+   Lab --> Target["Protected lab endpoint"]
+   Target --> Capture["Zeek / Suricata / OS evidence"]
+   Capture --> Site["MON Site Controller"]
+   Site --> Blue["BLUE TEAM<br/>incident investigation"]
+   Blue --> Decision{"Policy + evidence<br/>permit response?"}
+   Decision -->|No| Observe["Observe / escalate"]
+   Decision -->|Yes| Action["Scoped containment + TTL"]
+   Action --> Check["Verify and rollback"]
 ```
 
-**Evidence first.** Preserve source, timestamp, tenant/site boundary and confidence. **Control second.** Select the safest available, certified enforcement capability with approval, scope, blast-radius estimation and TTL. **Recovery is part of the response.** Verify enforcement, audit the outcome, roll back and check service health.
+The test source and monitoring system are **separate roles**. Synthetic presentation scenarios are marked as synthetic; real findings require actual sensor evidence. Attack emulation is permitted **only on authorized, segmented lab systems**. See [sandbox methodology and evidence limits](docs/SANDBOX.md).
 
-For decision paths and failure-mode handling, see the [illustrated workflow guide](docs/WORKFLOWS.md).
+<p align="center"><img src="docs/brand/lifecycle.svg" width="100%" alt="Discover, Detect, Correlate, Trace, Contain, Verify, Recover. The containment step requires evidence, policy and TTL."></p>
 
-## System architecture
+## System flow
 
-<p align="center">
-  <img src="docs/brand/system-boundaries.svg" alt="Network and endpoint sources feed a local Site Controller, which can preserve local protection when the multi-tenant SaaS Control Plane connection fails." width="100%">
-</p>
+<p align="center"><img src="docs/brand/system-boundaries.svg" width="100%" alt="Red team, isolated victim and sensors, locally autonomous Site Controller, and separate SaaS Control Plane."></p>
 
-| Boundary | Responsibility |
-|---|---|
-| **Network and endpoint sources** | Zeek/Suricata metadata, Linux/Windows collector evidence, network identity context |
-| **Local Site Controller** | Normalization, durable buffering, correlation, local policy execution and recovery |
-| **SaaS Control Plane** | Tenant/site identity, RBAC, fleet, incidents, policies, audit and operator coordination |
-| **Evidence and graph layer** | Correlation, asset/identity relationships, investigation paths, enforcement capabilities |
-| **Response execution** | Policy/approval checks, TTL, scoped action, verification, reconciliation and rollback |
-| **Operator console** | React/TypeScript SOC views backed by real APIs rather than placeholder health metrics |
-
-```text
-Sensors + endpoint evidence
-              |
-              v
-    Local Site Controller  <==== mTLS ====>  SaaS Control Plane
-              |                                |
-      Evidence + correlation              RBAC / incidents / policy
-              |
-      Policy + approval + TTL
-              |
-   Verified enforcement adapter
-              |
-      Audit + rollback + recovery
+```mermaid
+flowchart TD
+    Z["Zeek / Suricata / endpoint collectors"] --> SC["Local Site Controller<br/>buffer, normalize, correlate, recover"]
+    SC <-->|"mTLS + site identity"| CP["SaaS Control Plane<br/>tenants, RBAC, incidents, fleet, audit"]
+    SC --> Evidence["Evidence + asset/identity graph"]
+    Evidence --> Analysis["Detection → correlation → investigation"]
+    Analysis --> Gate{"Policy and safe scope"}
+    Gate -->|Approved| Enforce["Supported enforcement adapter"]
+    Gate -->|Denied| Hold["Record / escalate"]
+    Enforce --> Verify["Verify → TTL → rollback → recovery"]
 ```
 
-**Important:** Site-local operation remains a design requirement when SaaS is unreachable. A target diagram does not mean every vendor connector or native endpoint agent is certified on production infrastructure. [Architecture baseline](docs/ARCHITECTURE.md).
+**Site autonomy matters:** losing the SaaS link must not erase buffered events or prevent already-authorized local recovery. Network enforcement requires a real adapter and a compatible test environment—not an icon on a diagram.
 
-## Containment without guessing
+[Architecture baseline](docs/ARCHITECTURE.md) · [Technical flowcharts](docs/WORKFLOWS.md) · [Site Controller](docs/site-controller.md)
 
-<p align="center">
-  <img src="docs/brand/response-safety.svg" alt="Evidence and policy gates determine enforcement action, followed by verification, audit and TTL-based recovery." width="100%">
-</p>
+## Defend and recover
 
-A response needs a target, supporting evidence, confidence, policy outcome, selected enforcement point, expected blast radius, actor, TTL, audit record, actual result and rollback. Weak or contradictory signals must **not** justify permanent isolation of critical assets. A local firewall also cannot solve volumetric saturation that happens upstream of the link.
+<p align="center"><img src="docs/brand/response-safety.svg" width="100%" alt="Evidence, policy approval, enforcement capability, verification, rollback and recovery decision flow."></p>
 
-## What's implemented — and what is not
+A proposed action must identify **incident, target, evidence, confidence, policy decision, enforcement point, TTL, blast radius, actor, timestamps, audit record, verification result and rollback**. Critical assets must not be permanently isolated automatically from a single weak signal.
 
-| Status | Examples |
+## What is evidenced today
+
+| Evidence tier | Scope |
 |---|---|
-| **Implemented foundations on audited `main`** | Typed tenant/site APIs and domain data; PostgreSQL migrations/RLS; sensor ingest; Site Controller; local event fabric; Windows/Linux collector adapters; evidence/correlation graph foundations; response/TTL state; audit; React operator console |
-| **Verified in controlled environments** | Unit/API/regression tests; integration gates; mTLS restart tests; disposable Linux nftables validation; Windows service lifecycle CI |
-| **Not proven production-wide** | Fully certified firewall/NAC/cloud integrations; complete EDR; universal cross-site scale/HA; upstream DDoS mitigation; signed production agent releases |
+| **Implemented foundation on `main`** | Typed tenant/site APIs; PostgreSQL/RLS; site identity and mTLS; sensor normalization; Site Controller; event fabric; event/identity analysis; correlation and investigation; response and recovery orchestration; React SOC console |
+| **Verified in CI/disposable environments** | Unit/integration and API checks; Windows service lifecycle on CI runners; Linux nftables in disposable namespaces; restart/mTLS, tenant isolation and rollback regression cases |
+| **Lab history and open implementation work** | Seven-system and three-host topologies, live operator-console branches, sensor enrollment, traffic and containment demonstrations. Verify the **deployed SHA and actual observations** before claiming any specific scenario as active |
+| **Not certified production-wide** | All firewall/NAC/cloud connectors, all endpoint distributions, universal upstream DDoS protection, enterprise-scale HA or completed general-purpose red-team automation |
 
-Detailed claims and limitations are maintained in the [production-readiness ledger](docs/production-readiness.md), [historical implementation snapshot](docs/implementation-status-main-2026-10-08.md) and [engineering charter](PROJECT_INSTRUCTIONS.md).
+A synthetic narrated walkthrough is provided at [`demo/mon_cinematic/`](demo/mon_cinematic/); it does **not** create a real incident. [Production-readiness ledger](docs/production-readiness.md) is the evidence boundary.
 
-## Development
+## Milestone architecture and engineering
 
-For a disposable workstation environment (Python 3.12+):
+- **Languages:** Python security engines/control plane, TypeScript/React SOC UI, OS-native Windows/Linux collector boundaries.
+- **Security design:** tenant/site scoping, evidence provenance, RBAC, encrypted connector-secret handling, mTLS, policy-gated containment and audit.
+- **Resilience:** durable local state, offline site autonomy, replay/idempotency, recovery, verification and testable rollback.
+- **Operations:** PostgreSQL migrations, acceptance CI, multi-OS collector testing, packaging and release gates.
+- **Development discipline:** ADRs, integration tests and a managed branch/release reconciliation process.
+
+[Detailed implementation snapshot](docs/implementation-status-main-2026-10-08.md) · [Project charter](PROJECT_INSTRUCTIONS.md) · [Milestone boundaries](docs/SANDBOX.md)
+
+## Run and inspect the source
+
+**Development environment only.** Requires Python 3.12+, and Node.js 22 for the operator console.
 
 ```bash
 git clone https://github.com/Saitanveesh/1.git
 cd 1
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[dev]'
+pip install -e '.[dev]'
 ruff check .
 pytest -q
 ```
 
-React operator console (Node.js 22):
+Console:
 
 ```bash
 cd console
@@ -121,26 +128,26 @@ npm test
 npm run build
 ```
 
-A development-only `compose.yaml` exists, but uses sample credentials and publishes port 8080. **It is not safe to expose on a shared network and not a production deployment recipe.** Windows and Linux native enforcement tests must run in disposable CI/VM/network namespaces first. [Site runtime](docs/site-controller.md) · [CI](.github/workflows/) · [Security policy](SECURITY.md).
+The checked-in Compose file contains **development credentials** and publishes a port. Do not expose it as a production service or run attacks against a shared campus/private LAN. Set up proper authorization, segmentation, secrets and recovery first.
 
-## Repository guide
+## Source structure
 
-| Where | What it owns |
+| Path | Purpose |
 |---|---|
-| [`src/mon/`](src/mon/) | Existing MON Python implementation (name intentionally unchanged) |
-| [`console/`](console/) | React SOC operator console |
-| [`migrations/`](migrations/) | Versioned database schema; never casually delete |
-| [`tests/`](tests/) and [`e2e/`](e2e/) | Regression, security, integration and browser verification |
-| [`docs/adr/`](docs/adr/) | Engineering decisions and traceability |
-| [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) | Source Mermaid diagrams and workflow safety guarantees |
-| [`docs/BRAND.md`](docs/BRAND.md) | Public naming, visual identity and compatibility policy |
-| [`docs/repository-maintenance/`](docs/repository-maintenance/) | Historical refs, safe cleanup and lab release reconciliation |
-| [`demo/mon_cinematic/`](demo/mon_cinematic/) | Synthetic narrated walkthrough — **not real telemetry or containment** |
+| [`src/mon/`](src/mon/) | Security-engine and Site Controller implementation; stable internal MON naming |
+| [`console/`](console/) | SOC command console |
+| [`migrations/`](migrations/) | Database state changes; retain in order |
+| [`tests/`](tests/) + [`e2e/`](e2e/) | Regression and browser acceptance |
+| [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) | Readable, source-controlled flowcharts |
+| [`docs/SANDBOX.md`](docs/SANDBOX.md) | Red/blue lab design and scope |
+| [`docs/repository-maintenance/`](docs/repository-maintenance/) | Branch traceability and safe retirement |
+| [`docs/adr/`](docs/adr/) | Accepted architecture decisions |
+| [`docs/LICENSING.md`](docs/LICENSING.md) | Author rights, source visibility and license selection |
 
-## Contributing and security
+## Authorship and licensing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for engineering and PR gates, [SECURITY.md](SECURITY.md) for responsible disclosure, and the [readiness ledger](docs/production-readiness.md) before claiming operational maturity.
+**SERRATE/MON is a personal engineering repository maintained by Sai Tanveesh.** Original contributions remain under their legitimate copyright owners; upstream dependencies remain under their respective terms.
 
-**No root open-source license has been selected for this repository.** Public visibility is not permission to redistribute its code. [Naming and compatibility notes](docs/BRAND.md).
+**No root open-source license has been issued.** It is currently publicly visible source, **not permission for commercial redistribution or reuse**. See [the detailed licensing and copyright policy](docs/LICENSING.md) before copying or contributing substantial code. Read [SECURITY.md](SECURITY.md) for disclosure and [CONTRIBUTING.md](CONTRIBUTING.md) for test requirements.
 
-<p align="center"><sub>RIFTWARD Security Fabric · Built on MON · Evidence to action. Action to recovery.</sub></p>
+<p align="center"><sub>SERRATE • Network Security & Adversary Simulation Lab • Built on MON • Observe. Contain. Recover.</sub></p>

@@ -1,6 +1,6 @@
-# Contributing to RIFTWARD Security Fabric (MON implementation)
+# Contributing to SERRATE (MON implementation)
 
-RIFTWARD is the public name for the existing MON security-sensitive, multi-tenant system. Changes must be reviewable, reversible and supported by evidence.
+SERRATE is the public name for the existing MON security-sensitive, multi-tenant system. Changes must be reviewable, reversible and supported by evidence.
 
 ## Branch policy
 
