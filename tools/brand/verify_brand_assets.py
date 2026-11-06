@@ -2,8 +2,8 @@
 
 This uses only Python standard library; it does not touch MON runtime modules.
 """
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SVG_NAMES = (
