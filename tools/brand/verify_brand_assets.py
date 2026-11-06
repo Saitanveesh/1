@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SVG_NAMES = (
-    "riftward-hero.svg",
+    "serrate-hero.svg",
     "lifecycle.svg",
     "system-boundaries.svg",
     "response-safety.svg",
@@ -20,10 +20,10 @@ def verify() -> None:
     flow = (ROOT / "docs" / "WORKFLOWS.md").read_text(encoding="utf-8")
     identity = (ROOT / "docs" / "BRAND.md").read_text(encoding="utf-8")
 
-    assert "RIFTWARD Security Fabric" in readme
+    assert "SERRATE" in readme
     assert "MON" in identity and "MON_*" in identity
     assert "docs/repository-maintenance" in readme
-    assert "not a production-certified release" in readme
+    assert "not a production-certified" in readme.lower()
     for name in SVG_NAMES:
         path = BRAND / name
         assert path.exists(), f"Missing image: {path}"

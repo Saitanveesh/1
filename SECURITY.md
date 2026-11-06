@@ -1,4 +1,4 @@
-# Security policy — RIFTWARD Security Fabric (MON implementation)
+# Security policy — SERRATE (MON implementation)
 
 MON handles potentially sensitive network telemetry, infrastructure credentials, and containment actions. **Do not post production JWTs, private keys, site credentials, packet captures, database dumps, or sensitive network inventories in public issues or PRs.**
 

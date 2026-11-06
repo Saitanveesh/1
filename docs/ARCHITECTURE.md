@@ -1,4 +1,4 @@
-# RIFTWARD Security Fabric — Architecture Baseline (MON implementation)
+# SERRATE — Architecture Baseline (MON implementation)
 
 ## High-level topology
 

@@ -1,72 +1,82 @@
-# System flows and response safety
+# SERRATE — architecture, lab flow and response gates
 
-These diagrams depict the **target architecture and current implemented foundations**, not guarantees of production certification. The authoritative capability status is in [the readiness ledger](production-readiness.md). The `main` baseline and newer lab branches are intentionally not conflated.
+This page is deliberately **diagram-led**. These are explanatory flows built from repository architecture and lab runbooks, not a claim that every possible attack or connector is supported or independently certified.
 
-## 1. Distributed site-to-control-plane architecture
-
-![RIFTWARD architectural boundaries](brand/system-boundaries.svg)
+## 1. What the sandbox demonstrates
 
 ```mermaid
 flowchart LR
-  N["Zeek / Suricata network sources"] --> S["Local Site Controller"]
-  E["Linux / Windows endpoint evidence"] --> S
-  S --> P["Local normalization, durable evidence and correlation"]
-  P --> L["Local policy, action execution and TTL recovery"]
-  S <-->|"Site identity + mTLS"| C["SaaS Control Plane"]
-  C --> O["Operator RBAC, incidents, policy, audit"]
-  L --> X["Supported enforcement adapters"]
+  R["Red-team operator<br/>authorized test actions"] --> L["Isolated lab segment"]
+  L --> V["Victim / protected service"]
+  V --> N["Network + endpoint observations"]
+  N --> B["Blue-team investigation<br/>MON / SERRATE"]
+  B --> G{"Evidence sufficient<br/>and action safe?"}
+  G -->|No| D["Keep observing / escalate"]
+  G -->|Yes| C["Time-bounded containment"]
+  C --> Q["Verify impact and recovery"]
 ```
 
-**Key boundary:** offline delivery cannot remove local event buffering, allowed local analysis, or recovery duties. Existing adapters are not a blanket claim that every firewall or NAC is certified.
+**Control:** attacker tooling and test traffic are **not** the same as MON's detector. Test activity must only occur inside authorized segments, with verified isolation, consent, a stop condition and restoration procedure. Current lab history spans seven-host and three-host plans; do not claim any one topology is permanently active.
 
-## 2. Incident lifecycle
+## 2. Where telemetry travels
 
-![RIFTWARD detection to recovery lifecycle](brand/lifecycle.svg)
+![SERRATE lab and security-fabric structure](brand/system-boundaries.svg)
+
+```mermaid
+flowchart TB
+  subgraph LAB["Authorized exercise boundary"]
+    RED["Red team"] --> VICTIM["Victim service"]
+    VICTIM --> SENSORS["Zeek / Suricata / endpoint evidence"]
+  end
+  SENSORS --> LOCAL["Local Site Controller<br/>buffer, normalize, correlate"]
+  LOCAL -->|"mTLS, site identity"| SAAS["SaaS Control Plane<br/>tenants, incidents, policy, audit"]
+  LOCAL --> POLICY["Local policy + recovery"]
+  POLICY --> EP["Certified enforcement capability"]
+  EP --> RESTORE["Verify + rollback + recovery"]
+```
+
+Local protection cannot depend on uninterrupted cloud connectivity. A local firewall cannot mitigate upstream congestion after the upstream link is saturated.
+
+## 3. Detection to verified recovery
+
+![Seven-stage lifecycle](brand/lifecycle.svg)
 
 ```mermaid
 flowchart LR
-  A["DISCOVER"] --> B["DETECT"]
-  B --> C["CORRELATE"]
-  C --> D["TRACE"]
-  D --> E{"Policy gate"}
-  E -->|"Approved and safe"| F["CONTAIN"]
-  E -->|"Denied / insufficient evidence"| H["Record + escalate"]
-  F --> G["VERIFY"]
-  G --> I["RECOVER"]
+ A["DISCOVER"] --> B["DETECT"] --> C["CORRELATE"] --> D["TRACE"] --> E{"Policy"}
+ E -->|Approve| F["CONTAIN"] --> G["VERIFY"] --> H["RECOVER"]
+ E -->|Reject| I["Audit / investigate"]
 ```
 
-Each finding and incident must retain **source evidence**, tenant/site scope, observed facts versus inferences, confidence and timestamps. Tracing is a provenance-bound graph operation, not a fictional story about the attacker.
+Source evidence, identity scope, confidence, decision rationale, TTL, blast radius, audit and rollback are required for a defensible action.
 
-## 3. Controlled response and rollback
+## 4. Containment is a decision, not a button
 
-![Response safety and rollback](brand/response-safety.svg)
+![Policy checks and rollback](brand/response-safety.svg)
 
 ```mermaid
 flowchart TD
-  I["Incident evidence + requested action"] --> P{"Evidence, policy, approval?"}
-  P -->|"No"| DENY["Deny / escalate / audit"]
-  P -->|"Yes"| CAP{"Adapter, scope, TTL, blast radius safe?"}
-  CAP -->|"No"| DENY
-  CAP -->|"Yes"| APPLY["Apply with idempotency and audit"]
-  APPLY --> VERIFY{"Actual result verified?"}
-  VERIFY -->|"No"| RECON["Reconcile / rollback if required"]
-  VERIFY -->|"Yes"| TTL["Continue scoped monitoring until TTL or operator rollback"]
-  TTL --> REC["Rollback + verify service recovery"]
-  RECON --> REC
+  EV["Incident + evidence + confidence"] --> PA{"Policy / approval / criticality"}
+  PA -->|No| STOP["Deny or escalate + audit"]
+  PA -->|Yes| CAP{"Enforcement point capable?<br/>Scope, TTL, blast radius safe?"}
+  CAP -->|No| STOP
+  CAP -->|Yes| ACT["Apply bounded action + durable receipt"]
+  ACT --> VER{"Verified effect?"}
+  VER -->|No| REC["Reconcile / rollback"]
+  VER -->|Yes| TTL["Audit + monitor until TTL"]
+  TTL --> REC
+  REC --> HEALTH["Check service recovery"]
 ```
 
-No permanent critical-asset isolation from a single weak detector. Every response object must have a defined rollback operation and explicit outcome. The right enforcement point can be endpoint, network, cloud or upstream only when a suitable adapter/integration is truly present and policy permits its use.
+## 5. Which claim is justified?
 
-## 4. Failure-mode principles
+| Observable | What we can say | What we cannot infer |
+|---|---|---|
+| A Suricata IDS alert with raw evidence | Signature matched in a scoped event | Host definitely compromised |
+| A failed authentication burst | Authentication-abuse indicator exists | Successful privilege escalation |
+| A test incident from synthetic seeded data | Test pipeline functions in its declared environment | Real attacker was present |
+| An adapter's successful disposable-namespace test | Adapter exercised in that test kernel/network namespace | All enterprise networks supported |
+| A cloud/SaaS disconnect | Local delivery failure/offline state should be reported | Entire local sensor network is healthy |
+| A rollback receipt + service check | Observed recovery for tested scope | Every production outage is prevented |
 
-| Condition | Intended safe behavior |
-|---|---|
-| SaaS unavailable | Local site buffering/analysis and permitted recovery continue; cloud state is marked unavailable |
-| Sensor disconnected | Report missing data, sensor status and last-known evidence; do not fabricate normal traffic |
-| Detector weak or ambiguous | Preserve observations and uncertainty; escalate instead of claiming compromise |
-| Enforcement point unavailable | Fail closed or choose another policy-authorized verified point; never mark action as successful |
-| TTL expires | Reconcile state, rollback and verify service condition; preserve audit record |
-| Site identity or tenant mismatch | Reject cross-scope ingestion or command execution |
-| Upstream volumetric DDoS saturates link | Local host firewall is insufficient; coordinate upstream mitigation where supported |
-
-For code and acceptance evidence consult [the architecture baseline](ARCHITECTURE.md), [release gates](production-readiness.md) and [project engineering charter](../PROJECT_INSTRUCTIONS.md).
+Supporting materials: [architecture](ARCHITECTURE.md), [readiness evidence](production-readiness.md), [lab walkthrough](lab-seven-system-test-day.md) and [repository reconciliation](repository-maintenance/README.md).

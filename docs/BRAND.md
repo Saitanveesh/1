@@ -1,62 +1,44 @@
-# RIFTWARD — brand and compatibility policy
+# SERRATE — identity and compatibility
 
-**Public-facing name:** RIFTWARD Security Fabric  
-**Existing engineering name:** MON Security Fabric  
-**Brand introduction:** 6 November 2026
+**Public-facing name:** SERRATE  
+**Subtitle:** Network Security & Adversary Simulation Lab  
+**Internal implementation:** MON Security Fabric  
+**Introduced:** 6 November 2026
 
-## Positioning
+## Name and position
 
-RIFTWARD is a distributed security fabric for **critical networks**. Its operating principle is **evidence to action; action to recovery**. It integrates network and endpoint observations, correlates incidents, maps attack and enforcement relationships, and plans reversible containment at the safest available control point.
+SERRATE is a single-word, tool-like name chosen for an offensive/defensive security engineering lab. The verb *serrate* means to form a saw-toothed edge: a functional and memorable name, not an acronym or an AI-marketing construction.
 
-This is **not** pitched as an AI model, autonomous black box, SIEM replacement or fully certified firewall product.
+The brand is a **project identity**, not a statement of trademark exclusivity. A preliminary internet and GitHub search found uses of the word in other contexts; it was not a legal trademark or domain clearance.
 
-## Name rationale
+**Public description:** A distributed critical-network detection and response fabric, demonstrated in authorized red-team / blue-team exercises using isolated lab infrastructure.
 
-- **Rift:** an exposure, break, segmentation gap or cross-boundary attack path that requires context.
-- **Ward:** an engineering posture of defending assets and services with deliberate, controlled actions.
-- **RIFTWARD:** a short, pronounceable working product brand without invented acronyms or generic AI words.
+## Original visual assets, not AI-generated imagery
 
-A preliminary public web/GitHub check did not identify a direct cybersecurity platform using this exact label in the results reviewed, but **other unrelated uses of “Riftward” exist**. This is not a formal trademark, domain or company-register clearance. Before paid distribution, perform appropriate legal and domain checks.
+All README artwork under `docs/brand/` is **hand-authored SVG source**, with editable shapes and text. No generated people, dashboards, background photography, fictitious attack data, customer logos or fabricated performance charts.
 
-## Visual identity
+- `serrate-hero.svg` — vector title and red/blue simulation lanes
+- `lifecycle.svg` — seven-step incident pipeline
+- `system-boundaries.svg` — lab/source/controller/control-plane boundaries
+- `response-safety.svg` — response policy/TTL/rollback gates
 
-| Token | Value | Purpose |
-|---|---|---|
-| Midnight | `#08121E` | Primary backgrounds |
-| Steel blue | `#173345` | System blocks and boundaries |
-| Copper | `#F0A36B` | Controlled action and evidence route |
-| Ivory | `#F7F7F5` | Main titles |
-| Muted blue | `#9FBAC9` | Supporting explanations |
+Palette: charcoal `#101b24`, steel `#1b3342`, attack red `#cc6d67`, defender blue `#5f99b6`, control orange `#ef8e70`. Avoid playful shields, fake terminal logs, or invented dashboards.
 
-Brand assets are original vector source: [hero](brand/riftward-hero.svg), [lifecycle](brand/lifecycle.svg), [system boundaries](brand/system-boundaries.svg), and [response decision](brand/response-safety.svg). They are schematic visuals, **not product screenshots, live incident evidence or benchmark results**.
+## Compatibility boundary
 
-Do not decorate the README with random shields, fake dashboards, invented organizations, fabricated attack data, uptime metrics, unverified customer logos or meaningless barometers.
+This rebrand changes documentation, website-facing graphics and human-readable project identity only. Preserve:
 
-## Deployment and API compatibility (mandatory)
+- GitHub source `Saitanveesh/1`
+- Python distribution `mon-security-fabric` and package `mon`
+- `MON_*` settings, CLI entrypoints, existing Windows/Linux services and installer IDs
+- Migrations, API schemas, network protocol contracts, database contents, deployed command lines and historical records
 
-This phase is **documentation-and-brand-only**. Keep existing identifiers and contracts unchanged:
+The 2026 lab branches may still contain “MON”, “RIFTWARD”, version codes or old presentation material as historical evidence. **Do not rewrite past branch tips or deployed code to match branding.** Only rename an operational identifier through a separate audited migration with compatibility and rollback.
 
-- Repository: `Saitanveesh/1`
-- Python distribution: `mon-security-fabric`
-- Python module/package: `mon`
-- Environment variables: `MON_*`
-- Commands such as `mon-site`, `mon-sensor-ingress`, `mon-linux-endpoint-collector`
-- Database names, migration IDs, deployment scripts, service units, credential locations and release artifact identifiers
+## Portfolio claims
 
-Do **not** mass replace `MON` in application source, tests, persisted evidence, protobuf/schema/API contracts, CI, Docker/Compose or operational runbooks. Product name changes must not silently invalidate deployed agents or historical evidence.
+Use “built and exercised in an authorized multi-host lab” only when backed by lab runbooks, test results or committed evidence. Do not claim production certification, general-purpose attack-generation capability, measured performance or live sensor availability merely from a concept diagram.
 
-A future implementation-package rename would require a separate migration ADR, inventory of deployed binaries, compatibility aliases, database and event schema review, rollout, rollback and tested release plan.
+## GitHub repository settings
 
-## Tagline and voice
-
-Primary tagline: **Evidence to action. Action to recovery.**
-
-Use precise engineering language. Explain what is implemented, what has only been validated in disposable CI, and what is planned. Never claim real production certification on the strength of a diagram or a synthetic demo.
-
-## Repository settings
-
-The GitHub repository name remains `1` during this safe branding rollout. A future slug change requires an explicit deployment audit because clone URLs, CI integrations, user scripts and external links may depend on the current name.
-
-Suggested About description: *RIFTWARD Security Fabric — distributed detection, evidence-backed investigation, policy-gated containment and recovery for critical networks. Built on MON.*
-
-Suggested topics: `network-security`, `ids`, `intrusion-detection`, `incident-response`, `network-monitoring`, `security-operations`, `suricata`, `zeek`.
+Suggested About text and topics are in [`docs/GITHUB_ABOUT.md`](GITHUB_ABOUT.md). The historical repo slug `1` remains unchanged until deployment URLs and CI references are reconciled.
