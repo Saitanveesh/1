@@ -31,6 +31,34 @@ jobs:
       - name: Validate fail-closed branch retirement policy
         run: python -m unittest discover -s tools/repo_maintenance/tests -v
 
+  dry-run:
+    needs: validate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all branch ancestry for read-only audit
+        run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Calculate the exact branch retirement plan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python tools/repo_maintenance/prune_merged_branches.py \
+            --manifest docs/repository-maintenance/branch-inventory-2026-11-06.json \
+            --report branch-retirement-plan.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mon-branch-retirement-dry-run
+          path: branch-retirement-plan.json
+          if-no-files-found: warn
+          retention-days: 30
+
   retire:
     needs: validate
     if: >-
