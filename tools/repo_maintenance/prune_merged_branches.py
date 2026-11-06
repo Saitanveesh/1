@@ -154,13 +154,12 @@ def main() -> int:
     if not token:
         raise SystemExit("GITHUB_TOKEN is required to verify live refs and PRs")
 
-    if args.apply:
-        if not (
-            args.confirm == repo
-            and os.environ.get("GITHUB_REPOSITORY") == repo
-            and os.environ.get("GITHUB_REF") == "refs/heads/main"
-        ):
-            raise SystemExit("Apply requires exact repo confirmation on main in GitHub Actions")
+    if args.apply and not (
+        args.confirm == repo
+        and os.environ.get("GITHUB_REPOSITORY") == repo
+        and os.environ.get("GITHUB_REF") == "refs/heads/main"
+    ):
+        raise SystemExit("Apply requires exact repo confirmation on main in GitHub Actions")
 
     if not check_ancestor(inventory["baseline_sha"]):
         raise SystemExit("Inventory baseline is not in main; refusing retirement")
