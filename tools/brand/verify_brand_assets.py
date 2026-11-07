@@ -28,8 +28,8 @@ def verify() -> None:
     banner = ROOT / "docs" / "brand" / "serrate-approved-banner.jpg"
     assert banner.exists(), f"Missing approved banner: {banner}"
     image_bytes = banner.read_bytes()
-    assert image_bytes[:3] == b"\\xff\\xd8\\xff", "Expected JPEG banner"
-    git_blob = b"blob " + str(len(image_bytes)).encode() + b"\\0" + image_bytes
+    assert image_bytes[:3] == bytes.fromhex("ffd8ff"), "Expected JPEG banner"
+    git_blob = b"blob " + str(len(image_bytes)).encode() + bytes([0]) + image_bytes
     assert sha1(git_blob).hexdigest() == "604301b476462becec9382210fdfc6c6e20e7944", (
         "Approved SERRATE banner changed without owner review"
     )
