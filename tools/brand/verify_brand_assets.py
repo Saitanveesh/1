@@ -1,6 +1,7 @@
 """Validate the README, retained architecture diagram, and source references."""
 
 import xml.etree.ElementTree as ET
+from hashlib import sha1
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,8 +22,18 @@ def verify() -> None:
     assert "https://github.com/Saitanveesh" in readme
     assert "https://www.linkedin.com/in/sai-tanveesh-028881215/" in readme
     assert "Saitanveesh/1" not in readme
-    assert "<img" not in readme and "![" not in readme
+    assert "<img" not in readme and readme.count("![") == 1
     assert "All rights reserved" in license_notice
+
+    banner = ROOT / "docs" / "brand" / "serrate-approved-banner.jpg"
+    assert banner.exists(), f"Missing approved banner: {banner}"
+    image_bytes = banner.read_bytes()
+    assert image_bytes[:3] == bytes.fromhex("ffd8ff"), "Expected JPEG banner"
+    git_blob = b"blob " + str(len(image_bytes)).encode() + bytes([0]) + image_bytes
+    assert sha1(git_blob).hexdigest() == "604301b476462becec9382210fdfc6c6e20e7944", (
+        "Approved SERRATE banner changed without owner review"
+    )
+    assert "docs/brand/serrate-approved-banner.jpg" in readme
 
     path = BRAND / DIAGRAM
     assert path.exists(), f"Missing architecture diagram: {path}"
