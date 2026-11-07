@@ -1,5 +1,7 @@
 # SERRATE
 
+![SERRATE: network security and red/blue-team lab overview](docs/brand/serrate-approved-banner.jpg)
+
 **Network Security & Adversary Simulation Lab**
 
 SERRATE is a network-security research and engineering project for controlled red-team/blue-team exercises. It brings together network and endpoint telemetry, incident investigation, policy-controlled response, and recovery verification.
