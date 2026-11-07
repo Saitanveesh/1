@@ -6,7 +6,7 @@ MON handles potentially sensitive network telemetry, infrastructure credentials,
 
 If GitHub's **Private vulnerability reporting** feature is enabled for this repository, use it under the repository Security tab. Otherwise, contact the repository owner through a trusted private channel and request a secure reporting route before sending reproduction material. Do not publish an active exploitation path in a public issue.
 
-For non-sensitive defects, use [GitHub Issues](https://github.com/Saitanveesh/1/issues) with a minimal, redacted reproduction.
+For non-sensitive defects, use [GitHub Issues](https://github.com/Saitanveesh/SERRATE/issues) with a minimal, redacted reproduction.
 
 ## Scope and supported environments
 

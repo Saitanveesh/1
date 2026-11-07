@@ -188,7 +188,7 @@ Do not claim background work or completion that has not actually happened.
 When a design changes, update repository documentation so future project chats inherit the current architecture.
 
 ## Current repository
-Canonical repo: https://github.com/Saitanveesh/1
+Canonical repo: https://github.com/Saitanveesh/SERRATE
 
 ## Current product name
 Public-facing name (introduced 6 November 2026): **SERRATE — Network Security & Adversary Simulation Lab**.
