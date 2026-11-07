@@ -1,27 +1,13 @@
-# GitHub About — copy-ready
+# Repository presentation
 
-GitHub's repository **Description** is brief; it cannot contain a full product proposal. Put the short description below in the **About → Description** field, and let the README carry the detailed milestone story.
+**Repository:** [Saitanveesh/SERRATE](https://github.com/Saitanveesh/SERRATE)
 
-## Recommended description
+**Suggested About description:**
 
-**SERRATE — a red/blue-team network-security lab for evidence-backed detection, investigation, policy-controlled containment and recovery. Built on MON.**
+> SERRATE — red/blue network-security lab for telemetry, investigation, policy-controlled response, and recovery verification.
 
-## Shorter alternative
+**Suggested topics:** `cybersecurity`, `network-security`, `red-team`, `blue-team`, `incident-response`, `security-lab`, `suricata`, `zeek`.
 
-SERRATE | Distributed detection, incident investigation and reversible containment in an authorized red/blue-team network sandbox.
+**Maintainer:** [Sai Tanveesh on GitHub](https://github.com/Saitanveesh) · [LinkedIn](https://www.linkedin.com/in/sai-tanveesh-028881215/)
 
-## GitHub topics
-
-`cybersecurity`, `network-security`, `blue-team`, `red-team`, `security-lab`, `incident-response`, `suricata`, `zeek`
-
-## About website
-
-Leave blank unless you can verify a working official website. A README graphic, local test dashboard or GitHub Actions URL is not automatically a public hosted demo.
-
-## Optional repo display name
-
-The GitHub slug remains `Saitanveesh/1` for deployment compatibility. It should be renamed only after auditing live clone origins, CI, service scripts and references to the old URL. Do **not** rename it based solely on appearance.
-
-## Social preview
-
-Do not upload generated artwork. Use the source `docs/brand/serrate-hero.svg` as the public-facing vector banner. GitHub's social-preview setting requires a suitable raster image; export that SVG to PNG in a trusted local editor if needed. The published README remains fully self-contained without any AI-generated photo.
+Leave the website field blank until a live public site exists. Use the README and actual console screenshots for project presentation; never imply that illustrative scenarios are production evidence. Repository About fields and social-preview images must be changed in GitHub settings by a repository administrator.

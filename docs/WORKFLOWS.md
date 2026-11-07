@@ -39,8 +39,6 @@ Local protection cannot depend on uninterrupted cloud connectivity. A local fire
 
 ## 3. Detection to verified recovery
 
-![Seven-stage lifecycle](brand/lifecycle.svg)
-
 ```mermaid
 flowchart LR
  A["DISCOVER"] --> B["DETECT"] --> C["CORRELATE"] --> D["TRACE"] --> E{"Policy"}
@@ -51,8 +49,6 @@ flowchart LR
 Source evidence, identity scope, confidence, decision rationale, TTL, blast radius, audit and rollback are required for a defensible action.
 
 ## 4. Containment is a decision, not a button
-
-![Policy checks and rollback](brand/response-safety.svg)
 
 ```mermaid
 flowchart TD

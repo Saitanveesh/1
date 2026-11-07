@@ -1,30 +1,21 @@
-# Contributing to SERRATE (MON implementation)
+# Contributing to SERRATE
 
-SERRATE is the public name for the existing MON security-sensitive, multi-tenant system. Changes must be reviewable, reversible and supported by evidence.
+SERRATE is a security-sensitive project. Its public source is currently proprietary and **not open-source licensed**. Read [LICENSE](LICENSE) and [docs/LICENSING.md](docs/LICENSING.md) before reusing code or submitting substantial changes. No automatic copyright assignment or general license grant is implied by a pull request.
 
-## Branch policy
+## Development process
 
-- `main` is the stable integration branch. Do not push new experimental demos or deployment-specific shortcuts directly to it.
-- Use a short-lived branch and PR for focused changes.
-- Do not fork another long-running `v1/v2/v5` product line. Integrate a feature only after its test, migration, security and deployment boundaries are understood.
-- The repository contains historical, still-open lab PRs with nontrivial unmerged work. **Do not delete or cherry-pick these solely because their dates look old**; consult [branch reconciliation](docs/repository-maintenance/README.md).
-- Before deleting a branch, verify its exact tip is an ancestor of `main`, it is not referenced by active PRs/deployments, and its SHA is recorded for recovery.
+Use focused branches and pull requests. Keep `main` stable. Preserve deployed MON identifiers, database migrations, audit records, and API compatibility unless the change includes a reviewed migration plan.
 
-## Definition of done
+A meaningful pull request should explain:
 
-A meaningful change should explain:
+- Which modules, tenants, sites, and data boundaries are affected.
+- How new detection or investigation claims are supported by actual evidence.
+- Failure behavior, retries, timeouts, and offline Site Controller impact.
+- Enforcement scope, approvals, time-to-live, verification, and rollback, if applicable.
+- Exact tests run and what remains unverified.
 
-1. Which `tenant_id` and `site_id` boundaries apply.
-2. What evidence supports each detector/incident or calculated score.
-3. What changes for offline Site Controller operation.
-4. Which failures/timeouts/retries/idempotency cases were considered.
-5. If response/enforcement changes: confidence, approval, TTL, blast radius, audit, verify and rollback.
-6. Which tests were executed on disposable systems and which limitations remain unproven.
+For Python changes, run `python -m ruff check .` and `python -m pytest -q`. For console changes, run `npm test` and `npm run build` in `console/`. Test privileged network-enforcement code only in disposable namespaces or VMs.
 
-Run `ruff check .`, `pytest -q`, console tests/build, and relevant GitHub Actions gates. OS-native collectors and enforcement changes require appropriate disposable VM/namespace validation before any real deployment.
+Do not commit credentials, certificates, private packet captures, personal identifiers, or sensitive infrastructure information. Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
-## Scope and licensing
-
-Code review and issue discussion are welcome. **This repository currently has no root software license**; contributors should agree licensing terms with the owner before submitting substantive external code or redistributing source.
-
-Do not commit API keys, production certificates, live host identifiers, real incident data or other tenant information. Follow [SECURITY.md](SECURITY.md) for disclosure.
+For licensing or contribution permission, contact [Sai Tanveesh](https://github.com/Saitanveesh) before submitting code that requires a rights agreement.

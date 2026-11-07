@@ -176,19 +176,15 @@ Do not deliver an executable merely because it compiles or starts.
 - Prefer explicit schemas and typed models.
 - Record assumptions and unresolved risks.
 
-## Working style for ChatGPT
-Act as technical lead/architect/implementer, not merely an adviser.
-When enough information exists, make a defensible engineering decision instead of repeatedly asking for confirmation.
-Ask the user only when a decision materially changes product scope, safety, cost, deployment assumptions, or external infrastructure.
-Use web research for current architecture/product comparisons and official documentation.
-Use the connected GitHub repository as the implementation source of truth.
-Commit meaningful changes with clear messages.
-Before claiming something is complete, verify it through tests or CI.
-Do not claim background work or completion that has not actually happened.
-When a design changes, update repository documentation so future project chats inherit the current architecture.
+## Engineering verification and documentation
+- Base status claims on reviewed source, CI results, and lab observations.
+- Record the version, environment, assumptions, and outstanding limitations for meaningful tests.
+- Maintain API and deployment compatibility unless the change includes a tested migration.
+- Update architecture and operational documentation when implementation changes.
+- Verify the result before declaring an implementation or release complete.
 
 ## Current repository
-Canonical repo: https://github.com/Saitanveesh/1
+Canonical repo: https://github.com/Saitanveesh/SERRATE
 
 ## Current product name
 Public-facing name (introduced 6 November 2026): **SERRATE — Network Security & Adversary Simulation Lab**.

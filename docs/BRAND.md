@@ -1,44 +1,24 @@
-# SERRATE — identity and compatibility
+# SERRATE — name and presentation
 
-**Public-facing name:** SERRATE  
-**Subtitle:** Network Security & Adversary Simulation Lab  
-**Internal implementation:** MON Security Fabric  
-**Introduced:** 6 November 2026
+**Project:** SERRATE  
+**Description:** Network Security & Adversary Simulation Lab  
+**Implementation name:** MON Security Fabric  
+**Maintainer:** [Sai Tanveesh](https://github.com/Saitanveesh)
 
-## Name and position
+SERRATE is the public name of a security engineering project used in controlled red/blue lab work. MON remains the implementation identifier.
 
-SERRATE is a single-word, tool-like name chosen for an offensive/defensive security engineering lab. The verb *serrate* means to form a saw-toothed edge: a functional and memorable name, not an acronym or an AI-marketing construction.
+## Documentation style
 
-The brand is a **project identity**, not a statement of trademark exclusivity. A preliminary internet and GitHub search found uses of the word in other contexts; it was not a legal trademark or domain clearance.
+Use direct technical descriptions. Distinguish implemented code, CI-tested behavior, lab observations, planned integrations, and synthetic examples. Do not represent a diagram, a synthetic scenario, or an unmerged branch as proof of production functionality.
 
-**Public description:** A distributed critical-network detection and response fabric, demonstrated in authorized red-team / blue-team exercises using isolated lab infrastructure.
+The README is intentionally text-first and uses one Mermaid workflow. Detailed architecture and safety diagrams belong in [technical workflows](WORKFLOWS.md). The retained `docs/brand/system-boundaries.svg` is a source-controlled topology diagram; do not replace it with generated portraits, fictitious dashboards, or simulated metrics presented as live evidence.
 
-## Original visual assets, not AI-generated imagery
+## Compatibility
 
-All README artwork under `docs/brand/` is **hand-authored SVG source**, with editable shapes and text. No generated people, dashboards, background photography, fictitious attack data, customer logos or fabricated performance charts.
+Do not rename `mon` Python packages, `MON_*` variables, CLI commands, database objects, established APIs, deployed service names, or historical lab records as part of a documentation change. Any operational rename needs a separate migration and rollback plan.
 
-- `serrate-hero.svg` — vector title and red/blue simulation lanes
-- `lifecycle.svg` — seven-step incident pipeline
-- `system-boundaries.svg` — lab/source/controller/control-plane boundaries
-- `response-safety.svg` — response policy/TTL/rollback gates
+The current repository is [Saitanveesh/SERRATE](https://github.com/Saitanveesh/SERRATE). Older source and deployment references to `Saitanveesh/1` may exist in historical or operational files and should only be updated after dependency review.
 
-Palette: charcoal `#101b24`, steel `#1b3342`, attack red `#cc6d67`, defender blue `#5f99b6`, control orange `#ef8e70`. Avoid playful shields, fake terminal logs, or invented dashboards.
+## Project claims
 
-## Compatibility boundary
-
-This rebrand changes documentation, website-facing graphics and human-readable project identity only. Preserve:
-
-- GitHub source `Saitanveesh/1`
-- Python distribution `mon-security-fabric` and package `mon`
-- `MON_*` settings, CLI entrypoints, existing Windows/Linux services and installer IDs
-- Migrations, API schemas, network protocol contracts, database contents, deployed command lines and historical records
-
-The 2026 lab branches may still contain “MON”, “RIFTWARD”, version codes or old presentation material as historical evidence. **Do not rewrite past branch tips or deployed code to match branding.** Only rename an operational identifier through a separate audited migration with compatibility and rollback.
-
-## Portfolio claims
-
-Use “built and exercised in an authorized multi-host lab” only when backed by lab runbooks, test results or committed evidence. Do not claim production certification, general-purpose attack-generation capability, measured performance or live sensor availability merely from a concept diagram.
-
-## GitHub repository settings
-
-Suggested About text and topics are in [`docs/GITHUB_ABOUT.md`](GITHUB_ABOUT.md). The historical repo slug `1` remains unchanged until deployment URLs and CI references are reconciled.
+Describe verified behavior with the test environment and commit SHA. Do not describe SERRATE as production-certified, a complete automated exploitation system, or validated for every host or network. See [readiness](production-readiness.md) and [licensing](LICENSING.md).
